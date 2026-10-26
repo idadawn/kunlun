@@ -4,10 +4,9 @@ import { AddressPicker } from '../addresses';
 import { useApi } from '../auth';
 import { Field, FormDialog, useToast } from '../feedback';
 import { useIdempotencyKey } from '../hooks';
-import { MemberOptions, UnavailableDialog, initialMember } from './common';
+import { MemberPicker, usePickedMember } from './common';
 
-export function StaffOrderDialog({ members, products, memberId, onClose, onDone }: {
-  members: MemberProfile[];
+export function StaffOrderDialog({ products, memberId, onClose, onDone }: {
   products: WaterProduct[];
   memberId?: string;
   onClose: () => void;
@@ -16,31 +15,30 @@ export function StaffOrderDialog({ members, products, memberId, onClose, onDone 
   const api = useApi();
   const toast = useToast();
   const key = useIdempotencyKey();
-  const [member, setMember] = useState(initialMember(members, memberId));
+  const [owner, setOwner] = usePickedMember(memberId);
   const [water, setWater] = useState<WaterType>(products[0]?.waterType ?? 'BUCKET_18_9L');
   const [mode, setMode] = useState<FulfillMode>('PICKUP');
   const [qty, setQty] = useState(1);
   const [addressId, setAddressId] = useState<string | null>(null);
 
-  if (!members.length) return <UnavailableDialog title="代会员开水单" message="请先建立会员档案" onClose={onClose} />;
   const product = products.find(p => p.waterType === water);
   const delivery = mode === 'DELIVERY';
   const minimum = delivery ? product?.deliveryMinimum ?? 1 : 1;
-  const owner = members.find(m => m.id === member)!;
   const changeRule = (nextWater: WaterType, nextMode: FulfillMode) => {
     setWater(nextWater); setMode(nextMode);
     const min = nextMode === 'DELIVERY' ? products.find(p => p.waterType === nextWater)?.deliveryMinimum ?? 1 : 1;
     setQty(q => Math.max(q, min));
   };
   const submit = async () => {
+    if (!owner) throw new Error('请选择会员');
     if (delivery && !addressId) throw new Error('配送水单需要收货地址，请为会员选择或新增收货地址');
-    const order = await api.createOrder({ memberId: member, waterType: water, fulfillMode: mode, orderQty: qty, idempotencyKey: key, addressId: delivery ? addressId : null });
+    const order = await api.createOrder({ memberId: owner.id, waterType: water, fulfillMode: mode, orderQty: qty, idempotencyKey: key, addressId: delivery ? addressId : null });
     await onDone?.(order);
     toast(`水单已创建${order.pickupCode ? '，取水码 ' + order.pickupCode : ''}`);
   };
   return (
     <FormDialog title="代会员开水单" submitLabel="提交并预占水票" onClose={onClose} onSubmit={submit}>
-      <Field label="会员" htmlFor="orderMember"><select id="orderMember" className="select" value={member} onChange={e => { setMember(e.target.value); setAddressId(null); }}><MemberOptions members={members} /></select></Field>
+      <Field label="会员" htmlFor="orderMember"><MemberPicker id="orderMember" value={owner} onChange={(m: MemberProfile) => { if (m.id !== owner?.id) setAddressId(null); setOwner(m); }} /></Field>
       <Field label="水品" htmlFor="orderWater">
         <select id="orderWater" className="select" value={water} onChange={e => changeRule(e.target.value as WaterType, mode)}>
           {products.map(p => <option key={p.waterType} value={p.waterType}>{p.name}</option>)}
@@ -55,7 +53,7 @@ export function StaffOrderDialog({ members, products, memberId, onClose, onDone 
       <p className="membership-note">{delivery ? `免费配送，${minimum}${unitOf(water)}起送` : '门店自提'}</p>
       {delivery && <>
         <label>收货地址</label>
-        <AddressPicker key={owner.id} owner={owner} value={addressId} onChange={setAddressId} />
+        {owner ? <AddressPicker key={owner.id} owner={owner} value={addressId} onChange={setAddressId} /> : <p className="membership-note">请先选择会员</p>}
       </>}
     </FormDialog>
   );

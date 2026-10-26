@@ -5,11 +5,11 @@ import {
 } from '@kunlun/ui';
 import { useStaffData } from './data';
 
-/** Opens the shared staff operation dialogs with the current member list and refreshes afterwards. */
+/** Opens the shared staff operation dialogs, preselecting the member last opened from the list, and refreshes afterwards. */
 export function useStaffOperations() {
   const { api, can } = useAuth();
   const data = useStaffData();
-  const { members, products, containers, selectedMemberId, refresh } = data;
+  const { products, containers, selectedMemberId, refresh } = data;
   const dialogs = useDialogs();
   const toast = useToast();
   const run = useRun();
@@ -20,15 +20,15 @@ export function useStaffOperations() {
 
   const ops = {
     recharge: guard(can(P.RechargeCreate), '当前账号没有充值权限', () =>
-      dialogs.open(close => <RechargeDialog members={members} memberId={selectedMemberId} onClose={close} onDone={refresh} />)),
+      dialogs.open(close => <RechargeDialog memberId={selectedMemberId} onClose={close} onDone={refresh} />)),
     deposit: guard(can(P.DepositCollect) || can(P.DepositRefundApply) || can(P.DepositRefundApprove), '当前账号没有押金办理权限', () =>
-      dialogs.open(close => <DepositDialog members={members} containers={containers} memberId={selectedMemberId} onClose={close} onDone={refresh} />)),
+      dialogs.open(close => <DepositDialog containers={containers} memberId={selectedMemberId} onClose={close} onDone={refresh} />)),
     order: guard(can(P.OrderCreate), '当前账号没有代开水单权限', () =>
-      dialogs.open(close => <StaffOrderDialog members={members} products={products} memberId={selectedMemberId} onClose={close} onDone={() => refresh()} />)),
+      dialogs.open(close => <StaffOrderDialog products={products} memberId={selectedMemberId} onClose={close} onDone={() => refresh()} />)),
     pickup: guard(can(P.PickupVerify) || can(P.OrderFulfill), '当前账号没有自提核销权限', () =>
       dialogs.open(close => <FulfillDialog onClose={close} onDone={refresh} />)),
     container: guard(can(P.ContainerRegister) || can(P.OrderFulfill), '当前账号没有容器登记权限', () =>
-      dialogs.open(close => <MovementDialog members={members} memberId={selectedMemberId} onClose={close} onDone={refresh} />)),
+      dialogs.open(close => <MovementDialog memberId={selectedMemberId} onClose={close} onDone={refresh} />)),
     newMember: guard(can(P.MemberWrite), '当前账号没有新建会员权限', async () => {
       const created = await dialogs.open<{ id: string; memberNo: string; name: string; phone: string }>(close => <NewMemberDialog onClose={close} onDone={refresh} />);
       if (!created) return;
@@ -42,7 +42,7 @@ export function useStaffOperations() {
       toast(`已接单：${order.orderNo}`);
     })(),
     assets: (member: MemberProfile) => run(() =>
-      dialogs.open(close => <MemberAssetsDialog memberId={member.id} memberName={member.name} members={members} onClose={close} onDone={refresh} />))(),
+      dialogs.open(close => <MemberAssetsDialog memberId={member.id} memberName={member.name} onClose={close} onDone={refresh} />))(),
     detail: (member: MemberProfile) => {
       data.setSelectedMemberId(member.id);
       void dialogs.open(close => <MemberDetailDialog member={member} onClose={close} />);
