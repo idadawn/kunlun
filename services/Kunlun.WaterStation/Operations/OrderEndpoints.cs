@@ -500,7 +500,7 @@ public static class OrderEndpoints
             return await ExecuteFulfillOrderAsync(null, req.PickupCode, fulfillReq, operatorName, db, orderRepo, ct);
         }).RequireAuthorization();
 
-        // 6. 五维容器库存与低库存预警查询 (AC-19, AC-20)
+        // 6. 容器库存与低库存预警查询 (AC-19, AC-20)：现存总量 = 门店可用 + 会员持有 + 待报废
         api.MapGet("/containers/summary", async (
             NpgsqlDataSource db,
             KunlunOrderRepository orderRepo,
@@ -508,10 +508,8 @@ public static class OrderEndpoints
         {
             await using var conn = await db.OpenConnectionAsync(ct);
             await using var cmd = new NpgsqlCommand("""
-                SELECT container_type, unit_deposit, total_qty, in_station_qty, in_transit_qty,
-                       member_held_qty, inspecting_qty, abnormal_qty, warn_threshold, damaged_qty, scrapped_qty,
-                       (SELECT COALESCE(sum(d.quantity),0)::int FROM plugin_kunlun_waterstation.container_damages d WHERE d.tenant_id=c.tenant_id AND d.container_type=c.container_type AND d.status='PENDING')
-                FROM plugin_kunlun_waterstation.container_configs c
+                SELECT container_type, unit_deposit, total_qty, in_station_qty, member_held_qty, damaged_qty, scrapped_qty, warn_threshold
+                FROM plugin_kunlun_waterstation.container_configs
                 WHERE tenant_id = @tid
                 ORDER BY container_type
                 """, conn);
@@ -523,14 +521,9 @@ public static class OrderEndpoints
             {
                 var total = r.GetInt32(2);
                 var inStation = r.GetInt32(3);
-                var inTransit = r.GetInt32(4);
-                var memberHeld = r.GetInt32(5);
-                var inspecting = r.GetInt32(6);
-                var abnormal = r.GetInt32(7);
-                var threshold = r.GetInt32(8);
-                var damaged = r.GetInt32(9);
-                var scrapped = r.GetInt32(10);
-                var sumParts = (long)inStation + inTransit + memberHeld + inspecting + abnormal + damaged;
+                var memberHeld = r.GetInt32(4);
+                var damaged = r.GetInt32(5);
+                var threshold = r.GetInt32(7);
 
                 list.Add(new
                 {
@@ -538,15 +531,11 @@ public static class OrderEndpoints
                     unitDeposit = r.GetDecimal(1),
                     totalQty = total,
                     inStationQty = inStation,
-                    inTransitQty = inTransit,
                     memberHeldQty = memberHeld,
-                    inspectingQty = inspecting,
-                    abnormalQty = abnormal,
-                    warnThreshold = threshold,
                     damagedQty = damaged,
-                    scrappedQty = scrapped,
-                    pendingMemberDamageQty = r.GetInt32(11),
-                    identityValid = total == sumParts,
+                    scrappedQty = r.GetInt32(6),
+                    warnThreshold = threshold,
+                    identityValid = total == (long)inStation + memberHeld + damaged,
                     lowStockWarning = inStation < threshold
                 });
             }

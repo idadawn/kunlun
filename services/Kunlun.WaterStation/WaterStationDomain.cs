@@ -5,22 +5,19 @@ public enum FulfillMode { Delivery, Pickup }
 public enum ContainerType { Bucket, Bag }
 
 /// <summary>
-/// 容器总账与恒等式校验：现存总量 = 站内可用 + 配送在途 + 会员持有 + 待检 + 异常 + 破损
+/// 容器总账与恒等式校验：现存总量 = 门店可用 + 会员持有 + 待报废；库存只经入库增加、报废减少
 /// </summary>
 public sealed record ContainerSummary(
     ContainerType Type,
     decimal UnitDeposit,
     int TotalQty,
     int InStationQty,
-    int InTransitQty,
     int MemberHeldQty,
-    int InspectingQty,
-    int AbnormalQty,
     int DamagedQty = 0,
     int ScrappedQty = 0)
 {
     public bool IsBalanced =>
-        TotalQty == (long)InStationQty + InTransitQty + MemberHeldQty + InspectingQty + AbnormalQty + DamagedQty;
+        TotalQty == (long)InStationQty + MemberHeldQty + DamagedQty;
 }
 
 /// <summary>

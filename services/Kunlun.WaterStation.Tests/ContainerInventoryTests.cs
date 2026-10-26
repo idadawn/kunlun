@@ -22,7 +22,7 @@ public sealed class ContainerInventoryTests(TestHost host)
     private static int Qty(JsonElement s,string field)=>s.GetProperty(field).GetInt32();
     private static async Task<JsonElement> Apply(HttpClient c,InventoryRequest req)=>await Ok(await c.PostAsJsonAsync("/api/containers/inventory",req));
     private static async Task<Guid> Member(HttpClient c)=>(await Ok(await c.PostAsJsonAsync("/api/members",new CreateMemberRequest("库存验收",$"129{Random.Shared.Next(10000000,99999999)}","库存测试地址",null, "1-101")))).GetProperty("id").GetGuid();
-    private static void Balanced(JsonElement s)=>Assert.Equal(Qty(s,"totalQty"),Qty(s,"inStationQty")+Qty(s,"inTransitQty")+Qty(s,"memberHeldQty")+Qty(s,"inspectingQty")+Qty(s,"abnormalQty")+Qty(s,"damagedQty"));
+    private static void Balanced(JsonElement s)=>Assert.Equal(Qty(s,"totalQty"),Qty(s,"inStationQty")+Qty(s,"memberHeldQty")+Qty(s,"damagedQty"));
 
     [Fact]
     public async Task Stock_Only_Receives_And_Scraps_And_Preserves_The_Equation()
@@ -31,7 +31,8 @@ public sealed class ContainerInventoryTests(TestHost host)
         var received=await Apply(c,new("BAG","RECEIVE","购入新袋",Key(),6));Balanced(received.GetProperty("after"));
         var scrap=await Apply(c,new("BAG","SCRAP","门店报废",Key(),2));var after=scrap.GetProperty("after");
         Assert.Equal(Qty(before,"totalQty")+4,Qty(after,"totalQty"));Assert.Equal(Qty(before,"inStationQty")+4,Qty(after,"inStationQty"));
-        Assert.Equal(Qty(before,"scrappedQty")+2,Qty(after,"scrappedQty"));Balanced(after);
+        Assert.Equal(Qty(before,"scrappedQty")+2,Qty(after,"scrappedQty"));Balanced(after);Balanced(await Summary(c,"BAG"));
+        Assert.Equal(["containerType","unitDeposit","totalQty","inStationQty","memberHeldQty","damagedQty","scrappedQty","warnThreshold","identityValid","lowStockWarning"],before.EnumerateObject().Select(p=>p.Name));
         foreach(var action in new[]{"DAMAGE","REPAIR","COUNT"})
             Assert.Equal(HttpStatusCode.BadRequest,(await c.PostAsJsonAsync("/api/containers/inventory",new InventoryRequest("BAG",action,"旧库存维护不可再提交",Key(),1))).StatusCode);
         Assert.Equal(HttpStatusCode.OK,(await c.GetAsync("/api/exports/inventory-operations")).StatusCode);
@@ -53,7 +54,7 @@ public sealed class ContainerInventoryTests(TestHost host)
         using var c=await Client();using var clerk=await Client("YG0012");var before=await Summary(c,"BAG");
         Assert.Equal(HttpStatusCode.Forbidden,(await clerk.PostAsJsonAsync("/api/containers/inventory",new InventoryRequest("BAG","RECEIVE","越权",Key(),1))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,(await clerk.GetAsync("/api/containers/inventory-operations")).StatusCode);
-        foreach(var req in new[]{new InventoryRequest("BAG","RECEIVE","负数",Key(),-1),new InventoryRequest("BAG","DAMAGE","超额报损",Key(),Qty(before,"inStationQty")+1),new InventoryRequest("BAG","SCRAP","超额报废",Key(),Qty(before,"inStationQty")+1),new InventoryRequest("BAG","COUNT","不能绕过会员流水",Key(),SourceState:"MEMBER",CountedQuantity:0,ExpectedQuantity:Qty(before,"memberHeldQty"))})
+        foreach(var req in new[]{new InventoryRequest("BAG","RECEIVE","负数",Key(),-1),new InventoryRequest("BAG","DAMAGE","超额报损",Key(),Qty(before,"inStationQty")+1),new InventoryRequest("BAG","SCRAP","超额报废",Key(),Qty(before,"inStationQty")+1)})
             Assert.Equal(HttpStatusCode.BadRequest,(await c.PostAsJsonAsync("/api/containers/inventory",req)).StatusCode);
         Assert.Equal(before.ToString(),(await Summary(c,"BAG")).ToString());
     }

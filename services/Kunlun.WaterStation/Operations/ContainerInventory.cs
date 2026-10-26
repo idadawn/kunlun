@@ -8,25 +8,10 @@ using static Kunlun.WaterStation.Operations.TicketBatches;
 
 namespace Kunlun.WaterStation.Operations;
 
-public sealed record InventoryRequest(string ContainerType, string Action, string Reason, string IdempotencyKey,
-    int Quantity = 0, string SourceState = "AVAILABLE", Guid? MemberId = null, int? CountedQuantity = null, int? ExpectedQuantity = null);
-public sealed record InventoryBalance(int TotalQty, int InStationQty, int InTransitQty, int MemberHeldQty,
-    int InspectingQty, int AbnormalQty, int DamagedQty, int ScrappedQty)
-{
-    public int At(string source) => source switch {
-        "AVAILABLE" => InStationQty, "TRANSIT" => InTransitQty, "INSPECTING" => InspectingQty,
-        "ABNORMAL" => AbnormalQty, "DAMAGED" => DamagedQty, "MEMBER" => MemberHeldQty, _ => throw new BusinessRuleException("破损来源无效")
-    };
-    public InventoryBalance Remove(string source, int qty) => source switch {
-        "AVAILABLE" => this with { InStationQty = InStationQty - qty },
-        "TRANSIT" => this with { InTransitQty = InTransitQty - qty },
-        "INSPECTING" => this with { InspectingQty = InspectingQty - qty },
-        "ABNORMAL" => this with { AbnormalQty = AbnormalQty - qty },
-        "MEMBER" => this with { MemberHeldQty = MemberHeldQty - qty },
-        "DAMAGED" => this with { DamagedQty = DamagedQty - qty },
-        _ => throw new BusinessRuleException("破损来源无效")
-    };
-}
+/// <summary>Stock changes are only RECEIVE (into store-available) and SCRAP (out of store-available).</summary>
+public sealed record InventoryRequest(string ContainerType, string Action, string Reason, string IdempotencyKey, int Quantity = 0);
+/// <summary>现存总量 = 门店可用 + 会员持有 + 待报废（会员破损归还、尚未扣押金）；累计报废另计。</summary>
+public sealed record InventoryBalance(int TotalQty, int InStationQty, int MemberHeldQty, int DamagedQty, int ScrappedQty);
 
 public static class ContainerInventory
 {
@@ -41,12 +26,24 @@ public static class ContainerInventory
             ALTER TABLE plugin_kunlun_waterstation.container_configs ADD COLUMN IF NOT EXISTS damaged_qty INT NOT NULL DEFAULT 0;
             ALTER TABLE plugin_kunlun_waterstation.container_configs ADD COLUMN IF NOT EXISTS scrapped_qty INT NOT NULL DEFAULT 0;
             DO $$ BEGIN
-              IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='plugin_kunlun_waterstation.container_configs'::regclass AND conname='container_assets_balance') THEN
-                ALTER TABLE plugin_kunlun_waterstation.container_configs DROP CONSTRAINT IF EXISTS container_configs_check;
-                ALTER TABLE plugin_kunlun_waterstation.container_configs ADD CONSTRAINT container_assets_balance
-                  CHECK(total_qty=in_station_qty+in_transit_qty+member_held_qty+inspecting_qty+abnormal_qty+damaged_qty);
-                ALTER TABLE plugin_kunlun_waterstation.container_configs ADD CONSTRAINT container_quantities_nonnegative
-                  CHECK(total_qty>=0 AND in_station_qty>=0 AND in_transit_qty>=0 AND member_held_qty>=0 AND inspecting_qty>=0 AND abnormal_qty>=0 AND damaged_qty>=0 AND scrapped_qty>=0);
+              -- Transit, inspecting, abnormal and store-damaged stock no longer exist: fold them into store-available
+              -- (total unchanged) so damaged_qty only holds member returns awaiting scrap.
+              IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='plugin_kunlun_waterstation' AND table_name='container_configs' AND column_name='inspecting_qty') THEN
+                ALTER TABLE plugin_kunlun_waterstation.container_configs DROP CONSTRAINT IF EXISTS container_configs_check,
+                  DROP CONSTRAINT IF EXISTS container_assets_balance, DROP CONSTRAINT IF EXISTS container_quantities_nonnegative;
+                UPDATE plugin_kunlun_waterstation.container_configs
+                SET in_station_qty=in_station_qty+in_transit_qty+inspecting_qty+abnormal_qty+damaged_qty,damaged_qty=0;
+                IF to_regclass('plugin_kunlun_waterstation.container_damages') IS NOT NULL THEN
+                  UPDATE plugin_kunlun_waterstation.container_configs c SET in_station_qty=c.in_station_qty-d.qty,damaged_qty=d.qty
+                  FROM (SELECT tenant_id,container_type,sum(quantity)::int AS qty FROM plugin_kunlun_waterstation.container_damages WHERE status='PENDING' GROUP BY 1,2) d
+                  WHERE c.tenant_id=d.tenant_id AND c.container_type=d.container_type;
+                END IF;
+                ALTER TABLE plugin_kunlun_waterstation.container_configs DROP COLUMN in_transit_qty,DROP COLUMN inspecting_qty,DROP COLUMN abnormal_qty;
+              END IF;
+              IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='plugin_kunlun_waterstation.container_configs'::regclass AND conname='container_stock_balance') THEN
+                ALTER TABLE plugin_kunlun_waterstation.container_configs DROP CONSTRAINT IF EXISTS container_configs_check,
+                  ADD CONSTRAINT container_stock_balance CHECK(total_qty=in_station_qty+member_held_qty+damaged_qty),
+                  ADD CONSTRAINT container_stock_nonnegative CHECK(total_qty>=0 AND in_station_qty>=0 AND member_held_qty>=0 AND damaged_qty>=0 AND scrapped_qty>=0);
               END IF;
             END $$;
             CREATE TABLE IF NOT EXISTS plugin_kunlun_waterstation.container_inventory_operations (
@@ -95,20 +92,20 @@ public static class ContainerInventory
     internal static async Task<InventoryBalance> ReadBalance(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, string type, CancellationToken ct)
     {
         await using var cmd = Command(conn, tx, """
-            SELECT total_qty,in_station_qty,in_transit_qty,member_held_qty,inspecting_qty,abnormal_qty,damaged_qty,scrapped_qty
+            SELECT total_qty,in_station_qty,member_held_qty,damaged_qty,scrapped_qty
             FROM plugin_kunlun_waterstation.container_configs WHERE tenant_id=@tid AND container_type=@type FOR UPDATE
             """, ("tid", tid), ("type", type));
         await using var r = await cmd.ExecuteReaderAsync(ct);
         if (!await r.ReadAsync(ct)) throw new BusinessRuleException("容器配置不存在", 404);
-        return new(r.GetInt32(0),r.GetInt32(1),r.GetInt32(2),r.GetInt32(3),r.GetInt32(4),r.GetInt32(5),r.GetInt32(6),r.GetInt32(7));
+        return new(r.GetInt32(0),r.GetInt32(1),r.GetInt32(2),r.GetInt32(3),r.GetInt32(4));
     }
 
     internal static Task<int> SaveBalance(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, string type, InventoryBalance b, CancellationToken ct) => Exec(conn, tx, """
-        UPDATE plugin_kunlun_waterstation.container_configs SET total_qty=@total,in_station_qty=@available,in_transit_qty=@transit,
-        member_held_qty=@held,inspecting_qty=@inspect,abnormal_qty=@abnormal,damaged_qty=@damaged,scrapped_qty=@scrapped
+        UPDATE plugin_kunlun_waterstation.container_configs SET total_qty=@total,in_station_qty=@available,
+        member_held_qty=@held,damaged_qty=@damaged,scrapped_qty=@scrapped
         WHERE tenant_id=@tid AND container_type=@type
-        """, ct, ("tid",tid),("type",type),("total",b.TotalQty),("available",b.InStationQty),("transit",b.InTransitQty),
-        ("held",b.MemberHeldQty),("inspect",b.InspectingQty),("abnormal",b.AbnormalQty),("damaged",b.DamagedQty),("scrapped",b.ScrappedQty));
+        """, ct, ("tid",tid),("type",type),("total",b.TotalQty),("available",b.InStationQty),
+        ("held",b.MemberHeldQty),("damaged",b.DamagedQty),("scrapped",b.ScrappedQty));
 
     internal static string Hash(object value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value, JsonOptions))));
     internal static string Json(object value) => JsonSerializer.Serialize(value, JsonOptions);
@@ -139,10 +136,6 @@ public static class ContainerInventory
             throw new BusinessRuleException("库存只办理入库和报废；会员破损请到袋桶台账登记");
         if (string.IsNullOrWhiteSpace(req.Reason) || req.Reason.Length>500 || req.Quantity is <=0 or >1000000)
             throw new BusinessRuleException("请填写有效数量和不超过 500 字的原因");
-        if (req.MemberId.HasValue || req.CountedQuantity.HasValue || req.ExpectedQuantity.HasValue)
-            throw new BusinessRuleException("会员报废请通过袋桶台账处理并结算押金");
-        if (req.Action=="SCRAP" && req.SourceState is not ("AVAILABLE" or "INSPECTING" or "ABNORMAL" or "DAMAGED"))
-            throw new BusinessRuleException("请选择门店报废来源，会员持有容器需先登记破损归还");
         var hash=Hash(req with{Reason=req.Reason.Trim()}); var tid=repo.DefaultTenantId;
         await using var conn=await db.OpenConnectionAsync(ct); await using var tx=await conn.BeginTransactionAsync(ct);
         await LockRequest(conn,tx,tid,"inventory",req.IdempotencyKey,ct);
@@ -158,19 +151,13 @@ public static class ContainerInventory
             if(req.Action=="RECEIVE")after=before with{TotalQty=checked(before.TotalQty+req.Quantity),InStationQty=checked(before.InStationQty+req.Quantity)};
             else
             {
-                var available=before.At(req.SourceState);
-                if(req.SourceState=="DAMAGED")
-                {
-                    await using var reserved=Command(conn,tx,"SELECT COALESCE(sum(quantity),0) FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND container_type=@type AND status='PENDING'",("tid",tid),("type",req.ContainerType));
-                    available-=Convert.ToInt32(await reserved.ExecuteScalarAsync(ct));
-                }
-                if(available<req.Quantity)throw new BusinessRuleException("该位置可报废数量不足；会员待处理破损须在袋桶台账确认报废");
-                after=before.Remove(req.SourceState,req.Quantity) with{TotalQty=before.TotalQty-req.Quantity,ScrappedQty=checked(before.ScrappedQty+req.Quantity)};
+                if(before.InStationQty<req.Quantity)throw new BusinessRuleException($"门店可用仅 {before.InStationQty} 个，报废数量不能超过；会员归还的破损请在袋桶台账办理");
+                after=before with{TotalQty=before.TotalQty-req.Quantity,InStationQty=before.InStationQty-req.Quantity,ScrappedQty=checked(before.ScrappedQty+req.Quantity)};
             }
         }
         catch(OverflowException){throw new BusinessRuleException("库存数量超出允许范围");}
         await SaveBalance(conn,tx,tid,req.ContainerType,after,ct);
-        var receipt=await RecordOperation(conn,tx,tid,req.IdempotencyKey,hash,req.ContainerType,req.Action,req.Action=="RECEIVE"?"EXTERNAL":req.SourceState,req.Quantity,req.Reason.Trim(),null,user,before,after,ct);
+        var receipt=await RecordOperation(conn,tx,tid,req.IdempotencyKey,hash,req.ContainerType,req.Action,req.Action=="RECEIVE"?"EXTERNAL":"AVAILABLE",req.Quantity,req.Reason.Trim(),null,user,before,after,ct);
         await tx.CommitAsync(ct);return Results.Ok(receipt);
     }
 }

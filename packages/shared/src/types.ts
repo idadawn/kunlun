@@ -177,18 +177,16 @@ export interface FulfillOrderRequest {
   diffReason?: string | null;
 }
 
+/** 现存总量 = 门店可用 + 会员持有 + 待报废；库存只经入库增加、报废减少，累计报废另计。 */
 export interface ContainerSummaryItem {
   containerType: ContainerType;
   unitDeposit: number;
   totalQty: number;
   inStationQty: number;
-  inTransitQty: number;
   memberHeldQty: number;
-  inspectingQty: number;
-  abnormalQty: number;
+  /** 会员破损归还、尚未确认报废扣押金的数量。 */
   damagedQty: number;
   scrappedQty: number;
-  pendingMemberDamageQty: number;
   warnThreshold: number;
   identityValid: boolean;
   lowStockWarning: boolean;
@@ -397,24 +395,22 @@ export interface StaffAccount {
 }
 
 export type InventoryAction = 'RECEIVE' | 'SCRAP';
-export type InventorySource = 'AVAILABLE' | 'TRANSIT' | 'INSPECTING' | 'ABNORMAL' | 'MEMBER' | 'DAMAGED' | 'EXTERNAL';
+/** EXTERNAL：入库；AVAILABLE：门店报废；DAMAGED：会员破损确认报废。早期记录可能带有已停用的来源。 */
+export type InventorySource = 'EXTERNAL' | 'AVAILABLE' | 'DAMAGED';
 
+/** 入库计入门店可用，报废从门店可用扣减。 */
 export interface InventoryRequest {
   containerType: ContainerType;
   action: InventoryAction;
   reason: string;
   idempotencyKey: string;
   quantity: number;
-  sourceState: InventorySource;
 }
 
 export interface InventoryBalance {
   totalQty: number;
   inStationQty: number;
-  inTransitQty: number;
   memberHeldQty: number;
-  inspectingQty: number;
-  abnormalQty: number;
   damagedQty: number;
   scrappedQty: number;
 }
