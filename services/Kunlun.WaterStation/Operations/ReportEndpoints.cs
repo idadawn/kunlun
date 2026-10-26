@@ -111,7 +111,10 @@ public static class ReportEndpoints
                 refunds.Parameters.AddWithValue("tid", tenantId);
                 rechargeRefundedTotal = Convert.ToDecimal(await refunds.ExecuteScalarAsync(ct));
             }
-            var netDepositFromFlows = depositCollectedTotal - depositRefundedTotal;
+            decimal depositDeductedTotal;
+            await using (var deductions = TicketBatches.Command(conn, null, "SELECT COALESCE(sum(deposit_amount),0) FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED'", ("tid",tenantId)))
+                depositDeductedTotal = Convert.ToDecimal(await deductions.ExecuteScalarAsync(ct));
+            var netDepositFromFlows = depositCollectedTotal - depositRefundedTotal - depositDeductedTotal;
 
             return Results.Ok(new
             {
@@ -126,6 +129,7 @@ public static class ReportEndpoints
                 depositCollectCount,
                 depositRefundedTotal,
                 depositRefundCount,
+                depositDeductedTotal,
                 unrefundedDepositPoolTotal = unrefundedDepositPoolFromLots,
                 netDepositFromFlows,
                 reconciledZeroDiff = unrefundedDepositPoolFromLots == netDepositFromFlows,
@@ -205,6 +209,10 @@ public static class ReportEndpoints
                                ROUND(refund_amount / refund_qty, 2) AS unit_price, refund_amount AS amount, 0 AS remaining_qty, operator_name, created_at
                         FROM plugin_kunlun_waterstation.deposit_refunds
                         WHERE tenant_id = @tid
+                        UNION ALL
+                        SELECT scrap_no AS doc_no,'DEDUCT' AS flow_type,member_id,container_type,quantity AS qty,
+                               ROUND(deposit_amount/quantity,2) AS unit_price,deposit_amount AS amount,0 AS remaining_qty,scrap_operator AS operator_name,scrapped_at AS created_at
+                        FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED'
                         ORDER BY created_at DESC
                         """, conn);
                     cmd.Parameters.AddWithValue("tid", tenantId);
@@ -236,18 +244,18 @@ public static class ReportEndpoints
                 }
                 case "inventory-operations":
                 {
-                    sb.AppendLine("库存单号,容器,业务,来源,数量或盘点差额,总量变化,调整后现存总量,调整后破损,累计报废,原因,操作人,时间");
-                    await using var cmd = TicketBatches.Command(conn, null, "SELECT operation_no,container_type,action,source_state,quantity,delta_total,after_state->>'totalQty',after_state->>'damagedQty',after_state->>'scrappedQty',reason,operator_name,created_at FROM plugin_kunlun_waterstation.container_inventory_operations WHERE tenant_id=@tid ORDER BY created_at DESC,id DESC", ("tid", tenantId));
+                    sb.AppendLine("库存单号,容器,业务,来源,数量,总量变化,调整后现存总量,调整后破损,累计报废,原因,操作人,时间");
+                    await using var cmd = TicketBatches.Command(conn, null, "SELECT operation_no,container_type,action,source_state,quantity,delta_total,after_state->>'totalQty',after_state->>'damagedQty',after_state->>'scrappedQty',reason,operator_name,created_at FROM plugin_kunlun_waterstation.container_inventory_operations WHERE tenant_id=@tid AND action IN ('RECEIVE','SCRAP') ORDER BY created_at DESC,id DESC", ("tid", tenantId));
                     await using var r = await cmd.ExecuteReaderAsync(ct);
                     while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{r.GetString(1)},{r.GetString(2)},{r.GetString(3)},{r.GetInt32(4)},{r.GetInt32(5)},{r.GetString(6)},{r.GetString(7)},{r.GetString(8)},{Csv(r.GetString(9))},{Csv(r.GetString(10))},{r.GetDateTime(11):O}");
                     break;
                 }
                 case "container-ledgers":
                 {
-                    sb.AppendLine("流水号,会员ID,容器类型,满桶领出,空桶收回,持有变化,持有余额,操作人,时间");
-                    await using var cmd = TicketBatches.Command(conn, null, "SELECT ledger_no,member_id,container_type,full_out_qty,empty_in_qty,delta_held,held_after,operator_name,created_at FROM plugin_kunlun_waterstation.container_ledgers WHERE tenant_id=@tid ORDER BY id DESC", ("tid", tenantId));
+                    sb.AppendLine("流水号,会员ID,容器类型,领出,归还,持有变化,持有余额,操作人,时间,业务类型,扣押金额,关联单号,原因,报废数量");
+                    await using var cmd = TicketBatches.Command(conn, null, "SELECT ledger_no,member_id,container_type,full_out_qty,empty_in_qty,delta_held,held_after,operator_name,created_at,business_type,deposit_deducted_amount,COALESCE(order_no,''),COALESCE(remark,''),scrapped_qty FROM plugin_kunlun_waterstation.container_ledgers WHERE tenant_id=@tid ORDER BY id DESC", ("tid", tenantId));
                     await using var r = await cmd.ExecuteReaderAsync(ct);
-                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{r.GetGuid(1)},{r.GetString(2)},{r.GetInt32(3)},{r.GetInt32(4)},{r.GetInt32(5)},{r.GetInt32(6)},{Csv(r.GetString(7))},{r.GetDateTime(8):O}");
+                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{r.GetGuid(1)},{r.GetString(2)},{r.GetInt32(3)},{r.GetInt32(4)},{r.GetInt32(5)},{r.GetInt32(6)},{Csv(r.GetString(7))},{r.GetDateTime(8):O},{r.GetString(9)},{r.GetDecimal(10):F2},{Csv(r.GetString(11))},{Csv(r.GetString(12))},{r.GetInt32(13)}");
                     break;
                 }
                 case "recharges":
@@ -317,6 +325,10 @@ public static class ReportEndpoints
                 FROM plugin_kunlun_waterstation.deposit_refunds rf
                 JOIN plugin_kunlun_waterstation.members m ON m.id = rf.member_id
                 WHERE rf.tenant_id = @tid
+                UNION ALL
+                SELECT d.scrap_no,m.name,'DEDUCT',d.container_type,d.quantity,ROUND(d.deposit_amount/d.quantity,2),d.deposit_amount,0,d.scrap_operator,d.scrapped_at
+                FROM plugin_kunlun_waterstation.container_damages d JOIN plugin_kunlun_waterstation.members m ON m.id=d.member_id AND m.tenant_id=d.tenant_id
+                WHERE d.tenant_id=@tid AND d.status='SCRAPPED'
                 ORDER BY created_at DESC
                 LIMIT 30
                 """, conn);

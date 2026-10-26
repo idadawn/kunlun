@@ -119,6 +119,7 @@ export interface ContainerSummaryItem {
   abnormalQty: number;
   damagedQty: number;
   scrappedQty: number;
+  pendingMemberDamageQty: number;
   warnThreshold: number;
   identityValid: boolean;
   lowStockWarning: boolean;
@@ -135,6 +136,7 @@ export interface FinanceSummaryReport {
   depositCollectedTotal: number;
   depositCollectCount: number;
   depositRefundedTotal: number;
+  depositDeductedTotal: number;
   depositRefundCount: number;
   unrefundedDepositPoolTotal: number;
   netDepositFromFlows: number;
