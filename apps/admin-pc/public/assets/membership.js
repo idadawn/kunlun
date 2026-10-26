@@ -144,11 +144,11 @@
     root.querySelector('[data-new-plan]').onclick=run(()=>editPlan());
     root.querySelectorAll('[data-edit-plan]').forEach(b=>b.onclick=run(()=>editPlan(all.find(p=>p.id===b.dataset.editPlan))));
     root.querySelector('[data-poster]').onclick=run(async e=>{
-      const button=e.currentTarget;button.disabled=true;button.textContent='正在生成…';
+      const button=e.currentTarget,idleMarkup=button.innerHTML;button.disabled=true;button.setAttribute('aria-busy','true');button.textContent='正在生成…';
       try {
         const [plans,products]=await Promise.all([live().req('/api/plans'),live().req('/api/products')]);
         await window.KunlunPricePoster.preview({plans,products,store:window.GQ.store});
-      } finally {button.disabled=false;button.textContent='生成价目表图片';}
+      } finally {button.disabled=false;button.removeAttribute('aria-busy');button.innerHTML=idleMarkup;}
     });
   }
   async function renderCoupons() {
