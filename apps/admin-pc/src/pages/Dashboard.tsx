@@ -36,7 +36,7 @@ export function Dashboard() {
         <b>{KUNLUN_BRAND.slogan}</b>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
           <button type="button" className="btn sm" onClick={() => exportCsv('ticket-ledgers')}><Icon name="export" size="sm" />导出水票流水</button>
-          <button type="button" className="btn primary sm" onClick={() => ops.order()}><Icon name="plus" size="sm" />代开水单</button>
+          <button type="button" className="btn primary sm" onClick={() => ops.order()}><Icon name="plus" size="sm" />门店点单</button>
         </div>
       </div>
     </div>
@@ -88,7 +88,7 @@ export function Dashboard() {
         <div className="card-head"><div className="card-title">最新水单</div><button type="button" className="text-btn" onClick={() => go('orders')}>全部水单 ›</button></div>
         <div className="order-mini">
           <div className="order-row head"><span>会员 / 单号</span><span>方式</span><span>水品与数量</span><span>状态</span></div>
-          {orders.length === 0 ? <div style={{ padding: '18px 0', color: 'var(--muted)', textAlign: 'center', fontSize: 12.5 }}>暂无水单，可通过「代开水单」创建</div>
+          {orders.length === 0 ? <div style={{ padding: '18px 0', color: 'var(--muted)', textAlign: 'center', fontSize: 12.5 }}>暂无水单，可通过「门店点单」创建</div>
             : orders.slice(0, 4).map(o => (
               <div key={o.id} className="order-row">
                 <span><b>{o.addressSnapshot?.contactName || '会员'}</b><br /><small style={{ color: 'var(--muted)' }}>{o.orderNo}</small></span>

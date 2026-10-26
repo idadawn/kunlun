@@ -6,4 +6,5 @@ export * from './auth';
 export * from './hooks';
 export * from './plan-picker';
 export * from './addresses';
+export * from './ordering';
 export * from './operations';

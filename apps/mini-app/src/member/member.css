@@ -83,7 +83,7 @@
 .profile-row span{flex:1}
 .profile-row small{color:var(--muted);font-size:12px}
 
-.h5-bottom{position:absolute;left:0;right:0;bottom:0;height:64px;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);z-index:20}
+.h5-bottom{position:absolute;left:0;right:0;bottom:0;height:64px;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-top:1px solid var(--line);display:grid;grid-auto-flow:column;grid-auto-columns:1fr;z-index:20}
 .h5-nav{border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;color:var(--muted)}
 .h5-nav.active{color:var(--brand-600);font-weight:600}
 
@@ -112,3 +112,4 @@
 .profile-row small{min-width:0;flex:0 1 auto;max-width:58%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .address-hint{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;margin-bottom:12px;border-radius:12px;background:var(--brand-50);color:var(--brand-700);font-size:12px;line-height:1.6}
 .address-hint .icon{flex:none;margin-top:1px}
+.h5-scroll .cart-bar{bottom:74px}

@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
-import { KUNLUN_BRAND, isActiveOrder, pathFor, type RoleCode, type WaterOrder } from '@kunlun/shared';
-import { ChangePasswordDialog, Icon, useAuth, useDialogs, useRun, type IconName } from '@kunlun/ui';
+import { KUNLUN_BRAND, KUNLUN_PERMISSIONS as P, isActiveOrder, pathFor, type RoleCode, type WaterOrder } from '@kunlun/shared';
+import { ChangePasswordDialog, CounterOrder, Icon, useAuth, useDialogs, useRun, type IconName } from '@kunlun/ui';
 import { OrderCard } from '../shared/OrderCard';
 import { Loading } from '../shared/H5Shell';
 import { useStaffData } from './data';
@@ -30,7 +30,7 @@ export function StaffHome({ go }: StaffPageProps) {
   const quick: Array<[string, IconName, string, () => void]> = [
     ['水费充值', 'wallet', '', ops.recharge],
     ['交/退押金', 'deposit', 'gold', ops.deposit],
-    ['代开水单', 'order', 'aqua', ops.order],
+    ['门店点单', 'order', 'aqua', () => go('order')],
     ['自提核销', 'qr', 'orange', ops.pickup],
     ['登记领还', 'box', 'violet', ops.container],
     ['新建会员', 'users', '', ops.newMember],
@@ -63,6 +63,22 @@ export function StaffHome({ go }: StaffPageProps) {
       {!loaded ? <Loading error={error} onRetry={() => refresh().catch(() => undefined)} />
         : active.length ? active.slice(0, 3).map(o => <StaffOrder key={o.id} order={o} />)
         : <p className="membership-note">暂无待办水单</p>}
+    </div>
+  </>;
+}
+
+/** 门店点单：找到顾客后像点外卖一样选水；自提即当场交付并换桶，配送则生成待送水单。 */
+export function StaffCounter() {
+  const { can } = useAuth();
+  const { products, selectedMemberId, setSelectedMemberId, refresh } = useStaffData();
+  const ops = useStaffOperations();
+  return <>
+    <div className="mobile-top"><h2>门店点单</h2><span className="tag green">到店取水 · 送水上门</span></div>
+    <div className="h5-body">
+      {can(P.OrderCreate)
+        ? <CounterOrder products={products} memberId={selectedMemberId} onMemberChange={setSelectedMemberId}
+          onRecharge={can(P.RechargeCreate) ? ops.rechargeFor : undefined} onNewMember={can(P.MemberWrite) ? ops.createMember : undefined} onPlaced={refresh} />
+        : <p className="account-error" role="alert">当前账号没有点单权限</p>}
     </div>
   </>;
 }

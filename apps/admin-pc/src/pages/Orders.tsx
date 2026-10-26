@@ -39,7 +39,7 @@ export function Orders() {
       <div><h2>水单管理</h2><p>下单预占水票与地址快照，交付时同步登记满桶领出与空桶收回</p></div>
       <div className="head-actions">
         <button type="button" className="btn" onClick={() => exportCsv('orders')}><Icon name="export" />导出汇总</button>
-        <button type="button" className="btn primary" onClick={() => ops.order()}><Icon name="plus" />代开水单</button>
+        <button type="button" className="btn primary" onClick={() => ops.order()}><Icon name="plus" />门店点单</button>
       </div>
     </div>
     <div className="summary-strip">
@@ -69,7 +69,7 @@ export function Orders() {
         <table>
           <thead><tr><th>水单号 / 创建时间</th><th>收货联系人</th><th>方式 / 地址快照</th><th>水品与数量</th><th>水票预占</th><th>交付</th><th>状态</th><th>操作</th></tr></thead>
           <tbody>
-            {rows.length === 0 ? <EmptyRow colSpan={8}>{orders.length ? '没有符合条件的水单' : '暂无水单，可代客开单或由会员预约'}</EmptyRow> : rows.map(o => {
+            {rows.length === 0 ? <EmptyRow colSpan={8}>{orders.length ? '没有符合条件的水单' : '暂无水单，可门店点单或由会员自助下单'}</EmptyRow> : rows.map(o => {
               const pickup = o.fulfillMode === 'PICKUP';
               const state = orderStatusLabel(o);
               return (

@@ -4,16 +4,17 @@ import { pathFor, resolveRoute } from '@kunlun/shared';
 import { DialogProvider, useToast } from '@kunlun/ui';
 import { H5Shell, type H5Tab } from '../shared/H5Shell';
 import { StaffDataProvider, useStaffData } from './data';
-import { StaffHome, StaffMembers, StaffOrders, StaffProfile, type StaffPageProps } from './StaffPages';
+import { StaffCounter, StaffHome, StaffMembers, StaffOrders, StaffProfile, type StaffPageProps } from './StaffPages';
 import './staff.css';
 
 const TABS: H5Tab[] = [
   { page: 'home', label: '工作台', icon: 'home' },
+  { page: 'order', label: '点单', icon: 'drop' },
   { page: 'orders', label: '水单', icon: 'order' },
   { page: 'members', label: '会员', icon: 'users' },
   { page: 'profile', label: '我的', icon: 'user' },
 ];
-const PAGES: Record<string, ComponentType<StaffPageProps>> = { home: StaffHome, orders: StaffOrders, members: StaffMembers, profile: StaffProfile };
+const PAGES: Record<string, ComponentType<StaffPageProps>> = { home: StaffHome, order: StaffCounter, orders: StaffOrders, members: StaffMembers, profile: StaffProfile };
 
 export function StaffApp() {
   return (

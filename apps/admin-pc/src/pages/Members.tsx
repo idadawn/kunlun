@@ -122,7 +122,7 @@ function MemberDrawer({ member: m, onClose }: { member: MemberProfile; onClose: 
           <div className="drawer-actions">
             <button type="button" className="btn primary" onClick={() => ops.recharge(m.id)}>水费充值</button>
             <button type="button" className="btn" onClick={() => ops.deposit(m.id)}>押金收退</button>
-            <button type="button" className="btn" onClick={() => ops.order(m.id)}>代开水单</button>
+            <button type="button" className="btn" onClick={() => ops.order(m.id)}>点单</button>
             <button type="button" className="btn" onClick={() => ops.movement(m.id)}>登记领还</button>
           </div>
           <div className="detail-card">

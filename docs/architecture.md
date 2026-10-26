@@ -104,7 +104,7 @@ kunlun/
 
 默认套餐是自提 100/16、500/95，配送 100/13、500/70；`buy_qty` 表示全部固定付费票。历史 `gift_qty` 字段保留兼容原单，新方案设置为零，额外赠水由券生成。`recharge_orders.plan_snapshot`、`coupon_snapshot` 保存交易条件，改价不改变退款计价。退款按批次一次退清，最终金额舍入到分，无重复分次舍入损失。
 
-管理端为 `apps/admin-pc` React 应用；员工端与会员端为 `apps/mini-app` React H5 应用，按路径加载对应端的代码与样式。`@kunlun/shared` 的 `KunlunApi` 是唯一 API 入口，`@kunlun/ui` 提供登录门禁、弹窗栈以及充值、发券、退款、代开水单、履约、押金和领还等员工业务弹窗，管理端和员工端共用。当前交付为浏览器 H5 页面，并非已打包发布的原生微信小程序。
+管理端为 `apps/admin-pc` React 应用；员工端与会员端为 `apps/mini-app` React H5 应用，按路径加载对应端的代码与样式。`@kunlun/shared` 的 `KunlunApi` 是唯一 API 入口，`@kunlun/ui` 提供登录门禁、弹窗栈以及充值、发券、退款、履约、押金和领还等员工业务弹窗，管理端和员工端共用；点单组件见 5.2。当前交付为浏览器 H5 页面，并非已打包发布的原生微信小程序。
 
 接口：`POST/PUT /api/plans`，`POST /api/recharges`（可选 `couponId`），`GET /api/members/{id}/ticket-batches`，`POST /api/ticket-batches/{id}/refund`，`GET/POST/PUT /api/coupon-templates`，`POST /api/coupon-templates/{id}/issue`，`GET /api/members/{id}/coupons`。退款需 `recharge:refund` 权限，仅默认授予管理员；会员查询强制本人范围。充值汇总分别返回累计收款、累计退款及水费净收。
 
@@ -124,6 +124,14 @@ kunlun/
 
 配送水单提交 `addressId`（省略时使用默认地址），没有可用地址时拒绝下单；`address_snapshot` 记录地址 ID、联系人、手机号、收货地址、门牌号和完整地址文本，之后修改或删除地址不影响已下单水单。升级前只有单行文本地址的会员在启动时自动迁移为一条默认地址，门牌号留空，提示会员或员工补充。
 
+
+## 5.2 点单与桶袋押金
+
+`@kunlun/ui` 的 `OrderMenu` 是唯一的下单界面：先选「送水上门 / 到店自提」，再像点外卖一样在水品卡片上加减数量，底部购物袋显示扣票与需补押金，「选好了」后确认地址、时段或门店并提交。每个水品生成一张水单，各自带幂等键；同一次结算中已完成的步骤记在组件内，重试只补做未完成的部分。
+
+- 会员端 `/member/order`：会员自助点单；配送按地址簿选址，自提生成取水码。
+- 门店点单：员工端 `/staff/order` 与管理端「门店点单」弹窗共用 `CounterOrder`（查找或新建顾客 + `OrderMenu`）。顾客在店选「到店取水」时，提交即依次创建水单、收取需补押金、按「满桶领出 N / 换回空桶 M」交付；配送则生成待送水单。原「代开水单」表单已移除。
+- 押金按 `calcDepositGap` 计算：需补个数 = max(0, 当前持有 + N − M − 押金覆盖)，押金覆盖 = 已交未退 − 待报废占用，与交付时服务端校验一致。下单时默认按「有多少空桶换多少」估算并提示；配送交付弹窗按实际换回数量计算，不足时可选收款方式先收押金再交付，交付时服务端仍会拦截押金不足。
 
 ## 6. 袋桶库存、周转与报废扣押
 

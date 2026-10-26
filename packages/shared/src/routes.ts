@@ -15,11 +15,11 @@ export const WEB_ROUTES: Record<AppArea, AreaRoutes> = {
   },
   staff: {
     home: 'home',
-    pages: ['home', 'orders', 'members', 'profile'],
+    pages: ['home', 'order', 'orders', 'members', 'profile'],
   },
   member: {
     home: 'home',
-    pages: ['home', 'orders', 'assets', 'records', 'profile', 'addresses'],
+    pages: ['home', 'order', 'orders', 'assets', 'records', 'profile', 'addresses'],
   },
 };
 

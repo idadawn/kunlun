@@ -51,3 +51,11 @@ export function calcHoldingDelta(fullOutN: number, emptyInM: number): number {
 export function calcRefundableDepositQty(paidRemainingQty: number, heldQty: number): number {
   return Math.max(0, paidRemainingQty - heldQty);
 }
+
+/**
+ * 需补押金个数 = max(0, 交付后持有 - 押金覆盖个数)，交付后持有 = 当前持有 + 满桶领出 N - 空桶收回 M。
+ * 押金覆盖个数 = 已交未退 - 待报废占用，与交付时服务端校验一致。
+ */
+export function calcDepositGap(coveredQty: number, heldQty: number, fullOutN: number, emptyInM: number): number {
+  return Math.max(0, heldQty + calcHoldingDelta(fullOutN, emptyInM) - coveredQty);
+}

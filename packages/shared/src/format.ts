@@ -1,10 +1,18 @@
-import type { ContainerType, FulfillMode, OrderStatus, PayMethod, WaterOrder, WaterType } from './types';
+import type { ContainerType, FulfillMode, MemberProfile, OrderStatus, PayMethod, WaterOrder, WaterType } from './types';
 
 export const money = (value: number | string) => Number(value).toFixed(2);
 export const unitOf = (water: WaterType) => (water === 'BAG_7_5L' ? '袋' : '桶');
 export const modeLabel = (mode: FulfillMode) => (mode === 'PICKUP' ? '自提' : '配送');
 export const waterFallbackLabel = (water: WaterType) => (water === 'BAG_7_5L' ? '袋装水' : '桶装水');
 export const containerLabel = (type: ContainerType) => (type === 'BUCKET' ? '15L 周转桶' : '5L 周转水袋');
+/** Every water product travels in its own reusable container: buckets for bucket water, bags for bag water. */
+export const containerOf = (water: WaterType): ContainerType => (water === 'BAG_7_5L' ? 'BAG' : 'BUCKET');
+
+/** Available (unreserved) tickets of one product and fulfilment mode. */
+export function ticketsFor(member: Pick<MemberProfile, 'bucketDeliveryTickets' | 'bucketPickupTickets' | 'bagDeliveryTickets' | 'bagPickupTickets'>, water: WaterType, mode: FulfillMode) {
+  if (water === 'BAG_7_5L') return mode === 'DELIVERY' ? member.bagDeliveryTickets : member.bagPickupTickets;
+  return mode === 'DELIVERY' ? member.bucketDeliveryTickets : member.bucketPickupTickets;
+}
 
 export const PAY_METHODS: ReadonlyArray<{ value: PayMethod; label: string }> = [
   { value: 'CASH', label: '现金' },

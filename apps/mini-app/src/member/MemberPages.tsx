@@ -1,6 +1,6 @@
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { KUNLUN_BRAND, containerLabel, isActiveOrder, modeLabel, money, pathFor, type FulfillMode, type MemberProfile, type WaterOrder } from '@kunlun/shared';
-import { AddressBook, BatchCards, ChangePasswordDialog, CouponCards, Icon, Logo, useAuth, useDialogs, useLoader, useRun, useToast } from '@kunlun/ui';
+import { AddressBook, BatchCards, ChangePasswordDialog, CouponCards, Icon, Logo, OrderMenu, useAuth, useDialogs, useLoader, useRun, useToast } from '@kunlun/ui';
 import { OrderCard } from '../shared/OrderCard';
 import { Loading } from '../shared/H5Shell';
 import { useMemberData } from './data';
@@ -63,10 +63,10 @@ export function MemberHome({ profile, openOrder, showPickup, openAssets }: Membe
       </div>
       <div className="member-actions">
         <button type="button" className="member-action" onClick={() => openOrder('DELIVERY')}>
-          <Icon name="truck" size="xl" /><span><b>送水到家</b><small>扣配送票 · 预约上门</small></span>
+          <Icon name="truck" size="xl" /><span><b>送水上门</b><small>像点外卖一样下单</small></span>
         </button>
         <button type="button" className="member-action aqua" onClick={() => openOrder('PICKUP')}>
-          <Icon name="store" size="xl" /><span><b>到店自提</b><small>扣自提票 · 取水码核销</small></span>
+          <Icon name="store" size="xl" /><span><b>到店自提</b><small>先下单 · 凭取水码领取</small></span>
         </button>
       </div>
       <div className="h5-section-head"><h3>进行中的水单</h3><Link to={pathFor('member', 'orders')}>全部水单 ›</Link></div>
@@ -83,10 +83,24 @@ export function MemberHome({ profile, openOrder, showPickup, openAssets }: Membe
   </>;
 }
 
+/** 点单：会员自助选水，配送或自提二选一。 */
+export function MemberOrderPage({ profile, go }: MemberPageProps) {
+  const { products, refresh } = useMemberData();
+  const [params] = useSearchParams();
+  const mode: FulfillMode = params.get('mode') === 'pickup' ? 'PICKUP' : 'DELIVERY';
+  return <>
+    <div className="mobile-top"><h2>点单</h2><span className="tag green">{KUNLUN_BRAND.store}</span></div>
+    <div className="h5-body">
+      <OrderMenu key={mode} member={profile} products={products} initialMode={mode} onPlaced={() => refresh()}
+        doneActions={<button type="button" className="btn primary" onClick={() => go('orders')}>查看水单</button>} />
+    </div>
+  </>;
+}
+
 export function MemberOrders({ openOrder, showPickup }: MemberPageProps) {
   const { orders } = useMemberData();
   return <>
-    <div className="mobile-top"><h2>我的水单</h2><button type="button" className="btn primary sm" onClick={() => openOrder('DELIVERY')}><Icon name="plus" size="sm" />预约用水</button></div>
+    <div className="mobile-top"><h2>我的水单</h2><button type="button" className="btn primary sm" onClick={() => openOrder('DELIVERY')}><Icon name="plus" size="sm" />去点单</button></div>
     <div className="h5-body">
       {orders.length ? orders.map(o => <MemberOrder key={o.id} order={o} showPickup={showPickup} />) : <p className="membership-note">暂无水单</p>}
     </div>

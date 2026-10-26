@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router-dom';
-import { pathFor, stationDay, type DateFilter, type ExportDataset, type WaterOrder } from '@kunlun/shared';
+import { useState } from 'react';
+import { pathFor, stationDay, type DateFilter, type ExportDataset, type MemberProfile, type WaterOrder, type WaterProduct } from '@kunlun/shared';
 import {
-  DepositDialog, FulfillDialog, IssueCouponDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog, RechargeDialog, StaffOrderDialog,
+  CounterOrder, DepositDialog, Dialog, FulfillDialog, IssueCouponDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog, RechargeDialog,
   saveBlob, useApi, useDialogs, useRun, useToast,
 } from '@kunlun/ui';
 import { useAdminData, useSelectedMemberId } from './data';
@@ -37,7 +38,8 @@ export function useOperations() {
     recharge: (id = memberId) => run(() => dialogs.open(close => <RechargeDialog members={members} memberId={id} onClose={close} onDone={refresh} />))(),
     issueCoupon: (id?: string, templateId?: string) => run(() => dialogs.open(close => <IssueCouponDialog members={members} memberId={id ?? memberId} templateId={templateId} onClose={close} onDone={refresh} />))(),
     deposit: (id = memberId) => run(() => dialogs.open(close => <DepositDialog members={members} containers={data.containers} memberId={id} onClose={close} onDone={refresh} />))(),
-    order: (id = memberId) => run(() => dialogs.open(close => <StaffOrderDialog members={members} products={data.products} memberId={id} onClose={close} onDone={refresh} />))(),
+    // Opened from a member row it starts with that customer; elsewhere it starts by finding the customer at the counter.
+    order: (id?: string) => run(() => dialogs.open(close => <CounterOrderDialog products={data.products} memberId={id} onClose={close} onDone={refresh} />))(),
     movement: (id = memberId) => run(() => dialogs.open(close => <MovementDialog members={members} memberId={id} onClose={close} onDone={refresh} />))(),
     fulfill: (order?: WaterOrder) => run(() => dialogs.open(close => <FulfillDialog order={order} onClose={close} onDone={refresh} />))(),
     assets: (id: string) => run(() => dialogs.open(close => <MemberAssetsDialog memberId={id} members={members} onClose={close} onDone={refresh} />))(),
@@ -46,6 +48,19 @@ export function useOperations() {
       if (created) data.setSelectedMemberId(created.id);
     })(),
   };
+}
+
+/** 门店点单：与员工 H5 共用同一份点单菜单，顾客在店自提即当场交付。 */
+function CounterOrderDialog({ products, memberId: initial, onClose, onDone }: { products: WaterProduct[]; memberId?: string; onClose: () => void; onDone: () => Promise<void> }) {
+  const dialogs = useDialogs();
+  const [memberId, setMemberId] = useState(initial);
+  const recharge = (member: MemberProfile) => dialogs.open(close => <RechargeDialog members={[member]} memberId={member.id} onClose={close} onDone={onDone} />);
+  const createMember = async () => (await dialogs.open<{ id: string }>(close => <NewMemberDialog onClose={close} onDone={onDone} />))?.id;
+  return (
+    <Dialog title="门店点单" description="选好水品后选择到店取水或送水上门" className="counter-order-dialog" onClose={onClose}>
+      <CounterOrder products={products} memberId={memberId} onMemberChange={setMemberId} onRecharge={recharge} onNewMember={createMember} onPlaced={onDone} />
+    </Dialog>
+  );
 }
 
 export const DATE_FILTERS: Array<[DateFilter, string]> = [['ALL', '全部时间'], ['TODAY', '今天'], ['WEEK', '近 7 天'], ['MONTH', '本月']];
