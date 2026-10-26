@@ -79,6 +79,15 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+app.Use(async (context, next) =>
+{
+    try { await next(); }
+    catch (BusinessRuleException ex) when (!context.Response.HasStarted)
+    {
+        context.Response.StatusCode = ex.Status;
+        await context.Response.WriteAsJsonAsync(new { error = ex.Message });
+    }
+});
 app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();
@@ -93,6 +102,7 @@ using (var scope = app.Services.CreateScope())
     await finRepo.EnsureFinanceSchemaAndSeedAsync();
     var ordRepo = scope.ServiceProvider.GetRequiredService<KunlunOrderRepository>();
     await ordRepo.EnsureOrderSchemaAsync();
+    await TicketBatches.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>(), repo.DefaultTenantId);
 }
 
 app.MapGet("/healthz", async (NpgsqlDataSource ds) =>
@@ -199,37 +209,26 @@ app.MapPatch("/api/staff/{staffId:guid}/status", async (
         return Results.Json(new { error = "需要站长管理员权限 (kunlun.waterstation:staff:manage)" }, statusCode: StatusCodes.Status403Forbidden);
     }
 
+    if (req.Status is not ("ACTIVE" or "DISABLED")) return Results.BadRequest(new { error = "员工状态无效" });
+    var tid = Guid.Parse(user.FindFirstValue("tenant_id")!);
     await using var conn = await ds.OpenConnectionAsync(ct);
-    if (req.Status == "DISABLED")
+    await using var tx = await conn.BeginTransactionAsync(ct);
+    await TicketBatches.Exec(conn, tx, "SELECT pg_advisory_xact_lock(hashtextextended(@key,0))", ct, ("key", $"{tid}:staff-status"));
+    await using var target = TicketBatches.Command(conn, tx, "SELECT role FROM plugin_kunlun_waterstation.staff WHERE tenant_id=@tid AND id=@id FOR UPDATE", ("tid", tid), ("id", staffId));
+    var role = await target.ExecuteScalarAsync(ct);
+    if (role is null) return Results.NotFound();
+    if (req.Status == "DISABLED" && (string)role == "ADMIN")
     {
-        // PRD 12.3: 管理员不得通过操作导致系统失去最后一个可用管理账号
-        await using var checkCmd = new NpgsqlCommand("""
-            SELECT COUNT(*) FROM plugin_kunlun_waterstation.staff
-            WHERE role = 'ADMIN' AND status = 'ACTIVE' AND id <> @id
-            """, conn);
-        checkCmd.Parameters.AddWithValue("id", staffId);
-        var remainingAdmins = Convert.ToInt32(await checkCmd.ExecuteScalarAsync(ct));
-        if (remainingAdmins == 0)
-        {
-            return Results.BadRequest(new { error = "不能停用系统最后一个启用中的管理员账号" });
-        }
+        await using var count = TicketBatches.Command(conn, tx, "SELECT count(*) FROM plugin_kunlun_waterstation.staff WHERE tenant_id=@tid AND role='ADMIN' AND status='ACTIVE' AND id<>@id", ("tid", tid), ("id", staffId));
+        if (Convert.ToInt64(await count.ExecuteScalarAsync(ct)) == 0) return Results.BadRequest(new { error = "不能停用最后一个管理员" });
     }
-
-    await using var updCmd = new NpgsqlCommand("""
-        UPDATE plugin_kunlun_waterstation.staff
-        SET status = @status, token_version = token_version + 1
-        WHERE id = @id
-        RETURNING staff_no, status, token_version
-        """, conn);
-    updCmd.Parameters.AddWithValue("status", req.Status);
-    updCmd.Parameters.AddWithValue("id", staffId);
-    await using var r = await updCmd.ExecuteReaderAsync(ct);
-    if (!await r.ReadAsync(ct)) return Results.NotFound();
-
-    return Results.Ok(new { staffNo = r.GetString(0), status = r.GetString(1), tokenVersion = r.GetInt32(2) });
+    await TicketBatches.Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.staff SET status=@status,token_version=token_version+1 WHERE tenant_id=@tid AND id=@id", ct, ("status", req.Status), ("tid", tid), ("id", staffId));
+    await tx.CommitAsync(ct);
+    return Results.Ok(new { id = staffId, status = req.Status });
 }).RequireAuthorization();
 
 app.MapFinanceEndpoints();
+app.MapMembershipEndpoints();
 app.MapOrderEndpoints();
 app.MapReportEndpoints();
 app.Run();

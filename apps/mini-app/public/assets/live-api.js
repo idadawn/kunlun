@@ -8,6 +8,7 @@
 (function () {
   const API_BASE = window.KUNLUN_API_BASE || '';
   document.documentElement.classList.add('auth-pending');
+  const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   const Live = (window.KunlunLive = {
     baseUrl: API_BASE,
@@ -177,7 +178,8 @@
       const depCol = Number(this.finance?.depositCollectedTotal || 0);
       const depRef = Number(this.finance?.depositRefundedTotal || 0);
       const depPool = Number(this.finance?.unrefundedDepositPoolTotal || 0);
-      const netCash = rcgRev + (depCol - depRef);
+      const rechargeRefunded = Number(this.finance?.rechargeRefundedTotal || 0);
+      const netCash = rcgRev - rechargeRefunded + (depCol - depRef);
 
       // 计算实库可退押金总额 = 各会员 max(0, 押金余额 - (持桶*50 + 持袋*30))
       const refundableTotal = this.members.reduce((sum, m) => {
@@ -191,9 +193,9 @@
 
       const dashStats = document.querySelectorAll('#page-dashboard .stats-grid .stat-card');
       if (dashStats.length >= 4) {
-        dashStats[0].querySelector('.stat-top span').textContent = '实库累计实收（元）';
+        dashStats[0].querySelector('.stat-top span').textContent = '累计净收款（元）';
         dashStats[0].querySelector('.stat-value').textContent = `¥ ${netCash.toFixed(2)}`;
-        dashStats[0].querySelector('.stat-foot').innerHTML = `<span class="trend-up">实库</span>水费实收 ¥${rcgRev.toFixed(2)} · 押金净收 ¥${(depCol - depRef).toFixed(2)}`;
+        dashStats[0].querySelector('.stat-foot').innerHTML = `<span class="trend-up">实库</span>水费净收 ¥${(rcgRev - rechargeRefunded).toFixed(2)} · 押金净收 ¥${(depCol - depRef).toFixed(2)}`;
 
         dashStats[1].querySelector('.stat-top span').textContent = '实库已核销用水';
         dashStats[1].querySelector('.stat-value').innerHTML = `${doneBuckets}<small>桶</small> · ${doneBags}<small>袋</small>`;
@@ -234,7 +236,7 @@
                       : isPickup
                       ? `<span class="tag aqua dot">待自提(${o.pickupCode})</span>`
                       : '<span class="tag orange dot">待接单</span>';
-                  return `<div class="order-row"><span><b>${o.addressSnapshot?.contactName || '会员'}</b><br><small style="color:var(--muted)">${o.orderNo}</small></span><span>${isPickup ? '自提' : '配送'}</span><span>${wLabel} × ${o.orderQty}</span>${stText}</div>`;
+                  return `<div class="order-row"><span><b>${escapeHtml(o.addressSnapshot?.contactName || '会员')}</b><br><small style="color:var(--muted)">${o.orderNo}</small></span><span>${isPickup ? '自提' : '配送'}</span><span>${wLabel} × ${o.orderQty}</span>${stText}</div>`;
                 })
                 .join('');
         orderMini.innerHTML = `<div class="order-row head"><span>会员 / 单号</span><span>方式</span><span>水品与数量</span><span>状态</span></div>${rowsHtml}`;
@@ -284,15 +286,15 @@
         memberTable.innerHTML = this.members
           .map(
             (m, i) => `
-          <tr data-member="${m.name}">
-            <td><div class="member-cell"><div class="member-avatar" style="${palette[i % palette.length]}">${m.name[0]}</div><div><b>${m.name}</b><small>${m.memberNo}</small></div></div></td>
+          <tr data-member="${escapeHtml(m.name)}">
+            <td><div class="member-cell"><div class="member-avatar" style="${palette[i % palette.length]}">${escapeHtml(m.name[0])}</div><div><b>${escapeHtml(m.name)}</b><small>${m.memberNo}</small></div></div></td>
             <td>${m.phone}</td>
             <td><b>${m.bucketPickupTickets}</b> / <b>${m.bucketDeliveryTickets}</b> 桶${m.reservedBucketDeliveryTickets + m.reservedBucketPickupTickets > 0 ? ` <span class="tag orange">预占 ${m.reservedBucketDeliveryTickets + m.reservedBucketPickupTickets}</span>` : ''}</td>
             <td><b>${m.bagPickupTickets}</b> / <b>${m.bagDeliveryTickets}</b> 袋</td>
             <td>¥ ${Number(m.depositAmount).toFixed(2)}</td>
             <td>${m.heldBuckets} 桶 / ${m.heldBags} 袋</td>
             <td>${(m.createdAt || '').slice(0, 10) || '2026-10-26'}</td>
-            <td><button class="link" onclick="openMember('${m.name}')">360° 详情</button></td>
+            <td><button class="link" onclick="openMember('${m.id}')">360° 详情</button></td>
           </tr>`
           )
           .join('');
@@ -331,7 +333,7 @@
               return `
               <tr data-status="${st.text}">
                 <td><span class="order-no">${o.orderNo}</span><br><small style="color:var(--muted)">${new Date(o.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</small></td>
-                <td><b>${contactName}</b><br><small style="color:var(--muted)">${contactPhone}</small></td>
+                <td><b>${escapeHtml(contactName)}</b><br><small style="color:var(--muted)">${escapeHtml(contactPhone)}</small></td>
                 <td><span class="tag ${isPickup ? 'aqua' : 'green'}">${isPickup ? '自提' : '配送'}</span> ${addr}</td>
                 <td>小分子团弱碱活性水 ${waterLabel} × <b>${o.orderQty}</b></td>
                 <td>${o.status === 'COMPLETED' ? `已核销 ${o.actualQty ?? o.orderQty}` : o.status === 'CANCELLED' ? '已释放预占' : `预占 ${o.reservedQty} ${unit}`}</td>
@@ -339,7 +341,7 @@
                 <td><span class="tag ${st.cls}">${st.text}</span></td>
                 <td>${
                   o.status === 'PENDING' || o.status === 'DISPATCHED'
-                    ? `<button class="link" onclick="openFulfill('${o.orderNo}','${contactName}','${waterLabel}',${o.orderQty},'${o.id}')">${isPickup ? '核验自提' : '接单并交付'}</button>
+                    ? `<button class="link" onclick="openFulfill('${o.orderNo}',${escapeHtml(JSON.stringify(contactName))},'${waterLabel}',${o.orderQty},'${o.id}')">${isPickup ? '核验自提' : '接单并交付'}</button>
                        <button class="link" style="color:var(--red-500);margin-left:8px" onclick="KunlunLive.cancelOrderById('${o.id}','${o.orderNo}')">取消</button>`
                     : `<span style="color:var(--muted)">已完结</span>`
                 }</td>
@@ -354,7 +356,7 @@
       if (finStats.length >= 4) {
         finStats[0].querySelector('.stat-top').textContent = '实库水费充值累计';
         finStats[0].querySelector('.stat-value').textContent = `¥ ${rcgRev.toFixed(2)}`;
-        finStats[0].querySelector('.stat-foot').textContent = `充值 ${this.finance?.rechargeOrderCount || 0} 笔 · 售票 ${this.finance?.ticketsSoldBuyQty || 0} + 赠票 ${this.finance?.ticketsGiftedQty || 0}`;
+        finStats[0].querySelector('.stat-foot').textContent = `退款 ¥${Number(this.finance?.rechargeRefundedTotal || 0).toFixed(2)} · 水费净收 ¥${Number(this.finance?.rechargeNetReceived || 0).toFixed(2)}`;
 
         finStats[1].querySelector('.stat-top').textContent = '实库押金收支净额';
         finStats[1].querySelector('.stat-value').textContent = `¥ ${(depCol - depRef).toFixed(2)}`;
@@ -400,13 +402,13 @@
                   : `<span class="tag aqua">${c.deltaHeld}（退回容器）</span>`;
               return `<tr>
                 <td><span class="order-no">${c.ledgerNo}</span><br><small style="color:var(--muted)">${new Date(c.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</small></td>
-                <td><b>${c.memberName}</b></td>
+                <td><b>${escapeHtml(c.memberName)}</b></td>
                 <td>${c.orderNo}</td>
                 <td>${c.containerType === 'BUCKET' ? '18.9L 周转桶' : '7.5L 袋装容器'}</td>
                 <td><b>${c.fullOutQty}</b></td>
                 <td><b>${c.emptyInQty}</b></td>
                 <td>${deltaTag} (持有 ${c.heldAfter})</td>
-                <td>${c.operatorName}</td>
+                <td>${escapeHtml(c.operatorName)}</td>
               </tr>`;
             })
             .join('');
@@ -429,12 +431,12 @@
             .map(
               (r) => `<tr>
               <td><span class="order-no">${r.rechargeNo}</span><br><small style="color:var(--muted)">${new Date(r.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</small></td>
-              <td><b>${r.memberName}</b> <small style="color:var(--muted)">(${r.memberNo})</small></td>
-              <td>${r.planName}</td>
+              <td><b>${escapeHtml(r.memberName)}</b> <small style="color:var(--muted)">(${r.memberNo})</small></td>
+              <td>${escapeHtml(r.planName)}</td>
               <td><b>¥ ${Number(r.paidAmount).toFixed(2)}</b></td>
               <td>购 ${r.buyQty} + 赠 ${r.giftQty}</td>
               <td>${r.payMethod}</td>
-              <td>${r.operatorName}</td>
+              <td>${escapeHtml(r.operatorName)}</td>
               <td><button class="link" onclick="toast('实库 JSONB 套餐快照已锁定 (AC-02/13)')">查看快照</button></td>
             </tr>`
             )
@@ -449,13 +451,13 @@
             .map(
               (d) => `<tr>
               <td><span class="order-no">${d.docNo}</span><br><small style="color:var(--muted)">${new Date(d.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</small></td>
-              <td><b>${d.memberName}</b></td>
+              <td><b>${escapeHtml(d.memberName)}</b></td>
               <td><span class="tag ${d.flowType === 'COLLECT' ? 'green' : 'orange'}">${d.flowType === 'COLLECT' ? '交押金' : '退押金'}</span></td>
               <td>${d.containerType === 'BUCKET' ? '18.9L 周转桶' : '7.5L 袋装容器'} × ${d.qty}</td>
               <td>¥ ${Number(d.unitPrice).toFixed(2)}</td>
               <td><b>${d.flowType === 'COLLECT' ? '+' : '-'}¥ ${Number(d.amount).toFixed(2)}</b></td>
               <td>${d.remainingQty} 个</td>
-              <td>${d.operatorName}</td>
+              <td>${escapeHtml(d.operatorName)}</td>
             </tr>`
             )
             .join('');
@@ -507,6 +509,12 @@
     if (kind === 'admin') { await Live.syncAdminAll(); hookAdminActions(); }
     else if (kind === 'staff') { await syncStaffMiniApp(); hookStaffActions(); }
     else { await syncMemberMiniApp(); hookMemberActions(); }
+    Live.refreshPage = async () => {
+      if (kind === 'admin') await Live.syncAdminAll();
+      else if (kind === 'staff') await syncStaffMiniApp();
+      else await syncMemberMiniApp();
+    };
+    window.KunlunMembership?.mount(kind);
     document.getElementById('kunlunLoginGate')?.remove();
     document.documentElement.classList.remove('auth-pending');
     if (!document.getElementById('changePasswordButton')) {
@@ -559,7 +567,7 @@
   function hookAdminActions() {
     // 覆盖 openMember(name)，使 360° 会员抽屉完全渲染实库字段
     window.openMember = function (name) {
-      const m = Live.members.find((x) => x.name === name) || Live.members[0];
+      const m = Live.members.find((x) => x.id === name || x.name === name) || Live.members[0];
       if (!m) return;
       Live.selectedMember = m;
       document.getElementById('drawerName').textContent = m.name;
@@ -579,7 +587,7 @@
         detailCards[0].innerHTML = `
           <h4>基础资料 (k3s 实库)</h4>
           <div class="detail-row"><span>联系电话</span><b>${m.phone}</b></div>
-          <div class="detail-row"><span>默认配送地址</span><b>${m.defaultAddress || '门店自提'}</b></div>
+          <div class="detail-row"><span>默认配送地址</span><b>${escapeHtml(m.defaultAddress || '门店自提')}</b></div>
           <div class="detail-row"><span>会员卡号</span><b>${m.memberNo}</b></div><button class="btn sm" onclick="KunlunLive.setMemberCredentials('${m.id}')">设置登录账号</button>`;
         detailCards[1].innerHTML = `
           <h4>四类水票与押金明细</h4>
@@ -593,10 +601,10 @@
 
     // 覆盖 selectedMember() 辅助条，显示当前选中的实库会员
     window.selectedMember = function (name) {
-      const m = (name && Live.members.find((x) => x.name === name)) || Live.selectedMember || Live.members[0];
+      const m = (name && Live.members.find((x) => x.id === name || x.name === name)) || Live.selectedMember || Live.members[0];
       if (!m) return '';
       Live.selectedMember = m;
-      return `<div class="selected-member"><div class="member-avatar">${m.name[0]}</div><div><b>${m.name}</b><small>${m.phone} · ${m.memberNo}</small></div><button class="text-btn" onclick="openModal('memberSearch')">更换会员</button></div>`;
+      return `<div class="selected-member"><div class="member-avatar">${escapeHtml(m.name[0])}</div><div><b>${escapeHtml(m.name)}</b><small>${m.phone} · ${m.memberNo}</small></div><button class="text-btn" onclick="openModal('memberSearch')">更换会员</button></div>`;
     };
 
     // 覆盖 openMemberSearch()，列出实库全部会员供选择
@@ -604,7 +612,7 @@
       const listHtml = Live.members
         .map(
           (m) =>
-            `<div class="detail-card" style="cursor:pointer" onclick="KunlunLive.pickMemberAndOpen('${m.id}')"><div class="member-cell"><div class="member-avatar">${m.name[0]}</div><div><b>${m.name}</b><small>${m.phone} · ${m.memberNo}（桶票 ${m.bucketDeliveryTickets + m.bucketPickupTickets} / 袋票 ${m.bagPickupTickets}）</small></div><span class="tag green" style="margin-left:auto">选择</span></div></div>`
+            `<div class="detail-card" style="cursor:pointer" onclick="KunlunLive.pickMemberAndOpen('${m.id}')"><div class="member-cell"><div class="member-avatar">${escapeHtml(m.name[0])}</div><div><b>${escapeHtml(m.name)}</b><small>${m.phone} · ${m.memberNo}（桶票 ${m.bucketDeliveryTickets + m.bucketPickupTickets} / 袋票 ${m.bagPickupTickets}）</small></div><span class="tag green" style="margin-left:auto">选择</span></div></div>`
         )
         .join('');
       window.setModal(
@@ -630,7 +638,7 @@
       const inputs = document.querySelectorAll('#modalBody input, #modalBody textarea');
       const name = document.getElementById('newMemberName')?.value?.trim();
       const phone = document.getElementById('newMemberPhone')?.value?.trim();
-      const addr = inputs[2]?.value?.trim() || '幸福里小区 1 栋 101 室';
+      const addr = inputs[2]?.value?.trim() || '';
       if (!name || !/^1\d{10}$/.test(phone || '')) {
         window.GQ?.toast('请填写姓名和正确的 11 位手机号');
         return;
@@ -674,7 +682,7 @@
         await Live.syncAdminAll();
         window.setModal?.(
           '充值入账成功 (k3s 实库)',
-          `<div class="success-state"><div class="success-icon">${window.GQ.icon('check')}</div><h3>水票已实时入账</h3><p>水费实收与优惠方案 JSONB 快照已写入 PostgreSQL</p><div class="success-detail"><div class="detail-row"><span>会员</span><b>${m.name} · ${m.phone} (${m.memberNo})</b></div><div class="detail-row"><span>实库充值单号</span><b>${res.rechargeNo}</b></div><div class="detail-row"><span>到账明细</span><b style="color:var(--brand-600)">购 ${res.buyQty} + 赠 ${res.giftQty} = 共 ${res.totalTickets} 张水票</b></div></div></div>`,
+          `<div class="success-state"><div class="success-icon">${window.GQ.icon('check')}</div><h3>水票已实时入账</h3><p>水费实收与优惠方案 JSONB 快照已写入 PostgreSQL</p><div class="success-detail"><div class="detail-row"><span>会员</span><b>${escapeHtml(m.name)} · ${m.phone} (${m.memberNo})</b></div><div class="detail-row"><span>实库充值单号</span><b>${res.rechargeNo}</b></div><div class="detail-row"><span>到账明细</span><b style="color:var(--brand-600)">购 ${res.buyQty} + 赠 ${res.giftQty} = 共 ${res.totalTickets} 张水票</b></div></div></div>`,
           `<button class="btn" onclick="closeModal()">返回</button><button class="btn primary" onclick="openModal('order')">继续代开水单</button>`
         );
         window.GQ?.toast(`实库充值成功：单号 ${res.rechargeNo}`);
@@ -697,7 +705,7 @@
             body: JSON.stringify({
               memberId: m.id,
               containerType,
-              refundQty: qty,
+              quantity: qty,
               idempotencyKey: `ui-ref-${Date.now()}`,
             }),
           });
@@ -757,7 +765,7 @@
     const origOpenFulfill = window.openFulfill;
     window.openFulfill = function (no, name, water, qty, orderId) {
       window._currentFulfillOrderId = orderId || Live.orders.find((o) => o.orderNo === no)?.id;
-      if (origOpenFulfill) origOpenFulfill(no, name, water, qty);
+      if (origOpenFulfill) origOpenFulfill(no, escapeHtml(name), water, qty);
     };
 
     window.completeFulfill = async function (no) {
@@ -842,10 +850,13 @@
       miniAssets[2].textContent = `¥${Number(p.depositAmount).toFixed(0)}`;
     }
 
+    window.KunlunMembership?.renderOrders('member');
+    const address = document.getElementById('profAddr');
+    if (address) address.textContent = (p.defaultAddress || '未设置配送地址') + ' ›';
     // 个人中心实库信息 + 退出登录按钮
-    const profCard = document.querySelector('#member-profile .h5-card div');
+    const profCard = document.querySelector('#member-profile .h5-card > div:last-child');
     if (profCard) {
-      profCard.innerHTML = `<b style="font-size:16px;color:var(--ink)">${p.name}</b><div style="color:var(--muted);font-size:12px;margin-top:2px">${p.phone} · ${p.memberNo}</div>`;
+      profCard.innerHTML = `<b style="font-size:16px;color:var(--ink)">${escapeHtml(p.name)}</b><div style="color:var(--muted);font-size:12px;margin-top:2px">${p.phone} · ${p.memberNo}</div>`;
     }
     const profList = document.querySelector('#member-profile .profile-list');
     if (profList && !document.getElementById('mLogoutRow')) {
@@ -860,11 +871,21 @@
   }
 
   function hookMemberActions() {
+    const originalMemberOrder = window.openMemberOrder;
+    window.openMemberOrder = mode => {
+      Live.orderMode = mode; Live.orderRequestKey = crypto.randomUUID();
+      originalMemberOrder(mode);
+      const p = Live.selectedMember, pickup = mode === '自提';
+      const choices = document.getElementById('mWaterSel');
+      choices.options[0].textContent = `18.9L 桶装水（可用 ${pickup ? p.bucketPickupTickets : p.bucketDeliveryTickets} 桶）`;
+      choices.options[1].textContent = `7.5L 袋装水（可用 ${pickup ? p.bagPickupTickets : p.bagDeliveryTickets} 袋）`;
+      if (!pickup) document.querySelector('#mSheetBody .field input').value = p.defaultAddress || '';
+    };
     window.openWxAuth = () => Live.logoutMember();
     window.submitMemberOrder = async function () {
       const m = Live.selectedMember;
       if (!m) return;
-      const isPickup = window.mMode === '自提';
+      const isPickup = Live.orderMode === '自提';
       const isBag = document.getElementById('mWaterSel')?.value === '袋';
       const qty = Number(document.getElementById('mOrdQty')?.value || 2);
       try {
@@ -875,7 +896,8 @@
             waterType: isBag ? 'BAG_7_5L' : 'BUCKET_18_9L',
             fulfillMode: isPickup ? 'PICKUP' : 'DELIVERY',
             orderQty: qty,
-            idempotencyKey: `mp-ord-${Date.now()}`,
+            idempotencyKey: Live.orderRequestKey,
+            addressOverride: isPickup ? null : document.querySelector('#mSheetBody .field input')?.value,
           }),
         });
         window.closeMSheet?.();
@@ -910,14 +932,15 @@
       workNums[2].textContent = `¥${Number(Live.finance?.rechargeRevenueTotal || 0).toFixed(0)}`;
     }
 
+    window.KunlunMembership?.renderOrders('staff');
     // 渲染员工端查会员列表 (#staffMemberList)
     const staffMemberList = document.getElementById('staffMemberList');
     if (staffMemberList) {
       staffMemberList.innerHTML = Live.members
         .map(
           (m) => `
-        <div class="h5-card" onclick="openSheet('memberDetail','${m.name}')" style="cursor:pointer">
-          <div class="member-cell"><div class="member-avatar">${m.name[0]}</div><div><b>${m.name}</b><small>${m.phone} · ${m.memberNo}</small></div><span class="tag green" style="margin-left:auto">办理 ›</span></div>
+        <div class="h5-card" onclick="openSheet('memberDetail','${m.id}')" style="cursor:pointer">
+          <div class="member-cell"><div class="member-avatar">${escapeHtml(m.name[0])}</div><div><b>${escapeHtml(m.name)}</b><small>${m.phone} · ${m.memberNo}</small></div><span class="tag green" style="margin-left:auto">办理 ›</span></div>
           <div class="wallet-sub"><span>自提/配送桶 <b>${m.bucketPickupTickets}/${m.bucketDeliveryTickets}</b></span><span>袋票 <b>${m.bagPickupTickets}</b></span><span>押金 <b>¥${Number(m.depositAmount).toFixed(0)}</b></span><span>持桶/袋 <b>${m.heldBuckets}/${m.heldBags}</b></span></div>
         </div>`
         )

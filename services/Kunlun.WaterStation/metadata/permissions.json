@@ -54,6 +54,11 @@
       "code": "kunlun.waterstation:report:export",
       "title": "报表导出",
       "risk": "high"
+    },
+    {
+      "code": "kunlun.waterstation:recharge:refund",
+      "title": "原价退清充值剩余权益",
+      "risk": "high"
     }
   ]
 }

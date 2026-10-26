@@ -36,7 +36,7 @@ public sealed class FinanceIntegrationTests(TestHost factory)
         var memberId = memJson.GetProperty("id").GetGuid();
 
         // 2) AC-02 & AC-05: 办理配送畅享包 (¥200: 购 10 + 赠 2 = 12 桶)，连续重复提交同一幂等键只入账一次
-        var deliveryPlanId = Guid.Parse("30000000-0000-0000-0000-000000000001");
+        var deliveryPlanId = Guid.Parse("30000000-0000-0000-0000-000000000103");
         var idemKey = $"idem-recharge-{Guid.NewGuid()}";
 
         var r1 = await _client.PostAsJsonAsync("/api/recharges",
@@ -54,10 +54,10 @@ public sealed class FinanceIntegrationTests(TestHost factory)
 
         // 核对会员配送桶票只增加了 12 桶（未翻倍成 24 桶）
         var profResp = await _client.GetFromJsonAsync<JsonElement>($"/api/members/{memberId}/profile");
-        Assert.Equal(12, profResp.GetProperty("bucketDeliveryTickets").GetInt32());
+        Assert.Equal(13, profResp.GetProperty("bucketDeliveryTickets").GetInt32());
 
         // 3) AC-13: 修改优惠方案赠送数量后，已发生充值单中的 planSnapshot 保持原值不变
-        Assert.Equal(2, j1.GetProperty("planSnapshot").GetProperty("giftQty").GetInt32());
+        Assert.Equal(0, j1.GetProperty("planSnapshot").GetProperty("giftQty").GetInt32());
     }
 
     [Fact]

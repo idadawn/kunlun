@@ -105,12 +105,20 @@ public static class ReportEndpoints
                 waterFulfilledTotalQty = r.GetInt64(1);
             }
 
+            decimal rechargeRefundedTotal;
+            await using (var refunds = new NpgsqlCommand("SELECT COALESCE(sum(amount),0) FROM plugin_kunlun_waterstation.recharge_refunds WHERE tenant_id=@tid", conn))
+            {
+                refunds.Parameters.AddWithValue("tid", tenantId);
+                rechargeRefundedTotal = Convert.ToDecimal(await refunds.ExecuteScalarAsync(ct));
+            }
             var netDepositFromFlows = depositCollectedTotal - depositRefundedTotal;
 
             return Results.Ok(new
             {
                 brand = "绿麒麟水站｜小分子团弱碱活性水",
                 rechargeRevenueTotal,
+                rechargeRefundedTotal,
+                rechargeNetReceived = rechargeRevenueTotal - rechargeRefundedTotal,
                 rechargeOrderCount,
                 ticketsSoldBuyQty,
                 ticketsGiftedQty,

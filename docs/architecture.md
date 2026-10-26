@@ -58,9 +58,9 @@ kunlun/
 
 ---
 
-## 3. 四账分离数据库设计（PostgreSQL 16 + RLS）
+## 3. 四账分离数据库设计（PostgreSQL 16）
 
-数据库 Schema 统一为 `plugin_kunlun_waterstation`，所有业务表均含 `tenant_id UUID NOT NULL` 并开启 PostgreSQL 行级安全策略（RLS），天然支持从“绿麒麟单水站”平滑扩展至“多水站独立核算”。
+数据库 Schema 统一为 `plugin_kunlun_waterstation`，当前宿主使用配置的单水站租户 ID，新增业务接口按租户与会员身份过滤；数据库未部署 RLS 策略，不能将本实现视为已验收的多租户隔离平台。
 
 ### 3.1 10 张核心表清单
 
@@ -84,3 +84,25 @@ kunlun/
    - 交付时记录实际交付量 `actual_deliver_qty`、**满桶领出 `full_out_qty (N)`**、**空桶收回 `empty_in_qty (M)`** 及差异原因。
 10. **`member_container_holdings` & `container_ledgers`（会员容器持有表与桶袋流水表）**：
     - 每次交付或独立登记按 `会员持有变化 = N - M` 更新持有量，并联动校验押金覆盖。
+
+
+## 4. 固定套餐与批次权益实现
+
+实际实现位于 `Operations/MembershipEndpoints.cs` 和 `Operations/TicketBatches.cs`。当前水票汇总仍保存在 `members` 的四类可用/预占字段中；上述早期 `member_ticket_accounts` 分表设计尚未采用。批次是新充值的权益来源，汇总字段与批次分配在同一事务内更新。
+
+| 表 | 职责 |
+| --- | --- |
+| `ticket_batches` | 原充值金额、固定数量、付费/赠票剩余与预占、历史余额标识、退款终态 |
+| `order_ticket_allocations` | 水单到批次的付费/赠票分配，以及核销和取消来源 |
+| `coupon_templates` | 优惠券配置与每会员领取次数 |
+| `member_coupons` | 发券快照、所属会员、核销状态与关联充值单 |
+| `recharge_refunds` | 每批次唯一退清记录，原价退款及赠票收回的审计依据 |
+| `membership_migrations` / `finance_migrations` | 按租户一次性初始化历史余额和升级套餐，重复启动不重复入账 |
+
+充值、发券、退款先锁定业务幂等键，再锁会员行；水单创建锁会员后分配批次，取消/核销锁订单再锁会员，不在退款中反向锁水单。批次按创建时间和 ID 排序。付费票还被其他未完成订单占用时，不允许提前消费同批次赠票。退款与下单竞争同一会员行，只有一方可以占用相同余额。
+
+默认套餐是自提 100/16、500/95，配送 100/13、500/70；`buy_qty` 表示全部固定付费票。历史 `gift_qty` 字段保留兼容原单，新方案设置为零，额外赠水由券生成。`recharge_orders.plan_snapshot`、`coupon_snapshot` 保存交易条件，改价不改变退款计价。退款按批次一次退清，最终金额舍入到分，无重复分次舍入损失。
+
+管理端沿用根目录 `admin.html`，员工端与会员端沿用 `staff.html`、`member.html`；`assets/live-api.js` 负责登录与原有数据绑定，`assets/membership.js` 接通套餐、发券、充值、批次退款和订单履约。当前交付为浏览器 H5 页面，并非已打包发布的原生微信小程序。
+
+接口：`POST/PUT /api/plans`，`POST /api/recharges`（可选 `couponId`），`GET /api/members/{id}/ticket-batches`，`POST /api/ticket-batches/{id}/refund`，`GET/POST/PUT /api/coupon-templates`，`POST /api/coupon-templates/{id}/issue`，`GET /api/members/{id}/coupons`。退款需 `recharge:refund` 权限，仅默认授予管理员；会员查询强制本人范围。充值汇总分别返回累计收款、累计退款及水费净收。

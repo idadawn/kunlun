@@ -11,6 +11,22 @@ public static class OrderEndpoints
     {
         var api = app.MapGroup("/api");
 
+        api.MapPost("/orders/{orderId:guid}/accept", async (Guid orderId, ClaimsPrincipal user, NpgsqlDataSource db, KunlunOrderRepository repo, CancellationToken ct) =>
+        {
+            if (!user.HasClaim("perm", KunlunPermissions.OrderAccept)) return Results.Forbid();
+            await using var conn = await db.OpenConnectionAsync(ct);
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            await using var cmd = TicketBatches.Command(conn, tx, "SELECT status,fulfill_mode FROM plugin_kunlun_waterstation.water_orders WHERE tenant_id=@tid AND id=@id FOR UPDATE", ("tid", repo.TenantId), ("id", orderId));
+            await using var r = await cmd.ExecuteReaderAsync(ct);
+            if (!await r.ReadAsync(ct)) return Results.NotFound();
+            var status = r.GetString(0);
+            if (r.GetString(1) != "DELIVERY" || status is not ("PENDING" or "DISPATCHED")) throw new BusinessRuleException("当前订单不能接单");
+            await r.CloseAsync();
+            await TicketBatches.Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.water_orders SET status='DISPATCHED' WHERE tenant_id=@tid AND id=@id", ct, ("tid", repo.TenantId), ("id", orderId));
+            await tx.CommitAsync(ct);
+            return Results.Ok(new { id = orderId, status = "DISPATCHED" });
+        }).RequireAuthorization();
+
         // 1. 创建用水订单 (会员自助下单 / 员工代客下单) - AC-04, AC-05, AC-15, AC-16
         api.MapPost("/orders", async (
             CreateWaterOrderRequest req,
@@ -21,7 +37,7 @@ public static class OrderEndpoints
         {
             var subjectType = user.FindFirstValue("subject_type");
             var subStr = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
-            var actorName = user.FindFirstValue(ClaimTypes.Name) ?? "未知操作人";
+            var actorName = user.FindFirstValue("display_name") ?? "未知操作人";
 
             if (subjectType == "MEMBER")
             {
@@ -48,14 +64,17 @@ public static class OrderEndpoints
                 return Results.BadRequest(new { error = "INVALID_ORDER", message = "订水数量必须大于 0 且必须提供幂等键" });
             }
 
+            if (req.WaterType is not ("BUCKET_18_9L" or "BAG_7_5L") || req.FulfillMode is not ("PICKUP" or "DELIVERY"))
+                throw new BusinessRuleException("水品或领取方式无效");
             (string availCol, string reservedCol, _) = KunlunOrderRepository.ResolveTicketColumns(req.WaterType, req.FulfillMode);
 
             await using var conn = await db.OpenConnectionAsync(ct);
             await using var tx = await conn.BeginTransactionAsync(ct);
 
+            await TicketBatches.LockRequest(conn, tx, orderRepo.TenantId, "order", req.IdempotencyKey, ct);
             // AC-05: 幂等键检查
             await using (var idemCmd = new NpgsqlCommand("""
-                SELECT id, order_no, water_type, fulfill_mode, order_qty, reserved_qty, pickup_code, status, address_snapshot
+                SELECT id, order_no, water_type, fulfill_mode, order_qty, reserved_qty, pickup_code, status, address_snapshot, member_id
                 FROM plugin_kunlun_waterstation.water_orders
                 WHERE tenant_id = @tid AND idempotency_key = @key
                 """, conn, tx))
@@ -65,6 +84,8 @@ public static class OrderEndpoints
                 await using var r = await idemCmd.ExecuteReaderAsync(ct);
                 if (await r.ReadAsync(ct))
                 {
+                    if (r.GetGuid(9) != req.MemberId || r.GetString(2) != req.WaterType || r.GetString(3) != req.FulfillMode || r.GetInt32(4) != req.OrderQty)
+                        throw new BusinessRuleException("请求标识已用于其他水单", 409);
                     var existingResp = new
                     {
                         id = r.GetGuid(0),
@@ -88,7 +109,7 @@ public static class OrderEndpoints
             string memberName, memberPhone, defaultAddress;
             int currentAvail, currentReserved;
             await using (var mCmd = new NpgsqlCommand($"""
-                SELECT name, phone, COALESCE(default_address, ''), {availCol}, {reservedCol}
+                SELECT name, phone, COALESCE(default_address, ''), {availCol}, {reservedCol}, status
                 FROM plugin_kunlun_waterstation.members
                 WHERE tenant_id = @tid AND id = @mid
                 FOR UPDATE
@@ -101,6 +122,7 @@ public static class OrderEndpoints
                 {
                     return Results.NotFound(new { error = "MEMBER_NOT_FOUND", message = "会员不存在" });
                 }
+                if (r.GetString(5) != "ACTIVE") throw new BusinessRuleException("会员已停用");
                 memberName = r.GetString(0);
                 memberPhone = r.GetString(1);
                 defaultAddress = r.GetString(2);
@@ -178,6 +200,7 @@ public static class OrderEndpoints
                 await insCmd.ExecuteNonQueryAsync(ct);
             }
 
+            await TicketBatches.Reserve(conn, tx, orderRepo.TenantId, req.MemberId, req.WaterType, req.FulfillMode, orderId, req.OrderQty, ct);
             // 写入水票预占流水 ORDER_RESERVE
             await using (var lCmd = new NpgsqlCommand("""
                 INSERT INTO plugin_kunlun_waterstation.ticket_ledgers
@@ -296,7 +319,7 @@ public static class OrderEndpoints
         {
             var subjectType = user.FindFirstValue("subject_type");
             var subStr = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
-            var actorName = user.FindFirstValue(ClaimTypes.Name) ?? "未知操作人";
+            var actorName = user.FindFirstValue("display_name") ?? "未知操作人";
 
             await using var conn = await db.OpenConnectionAsync(ct);
             await using var tx = await conn.BeginTransactionAsync(ct);
@@ -378,6 +401,7 @@ public static class OrderEndpoints
                 await uCmd.ExecuteNonQueryAsync(ct);
             }
 
+            await TicketBatches.Settle(conn, tx, orderId, 0, ct);
             // 写入水票释放流水 ORDER_RELEASE (AC-06)
             await using (var lCmd = new NpgsqlCommand("""
                 INSERT INTO plugin_kunlun_waterstation.ticket_ledgers
@@ -424,7 +448,7 @@ public static class OrderEndpoints
             if (!perms.Contains(KunlunPermissions.OrderFulfill))
                 return Results.Json(new { error = "FORBIDDEN_PERMISSION", message = "缺少订单核销/签收权限 order.fulfill（AC-16）" }, statusCode: 403);
 
-            var operatorName = user.FindFirstValue(ClaimTypes.Name) ?? "配送员/店员";
+            var operatorName = user.FindFirstValue("display_name") ?? "配送员/店员";
             return await ExecuteFulfillOrderAsync(orderId, null, req, operatorName, db, orderRepo, ct);
         }).RequireAuthorization();
 
@@ -651,6 +675,9 @@ public static class OrderEndpoints
                 uncoveredGap
             });
         }
+
+        if (extraNeeded > 0) await TicketBatches.Reserve(conn, tx, orderRepo.TenantId, memberId, waterType, fulfillMode, resolvedOrderId, extraNeeded, ct);
+        await TicketBatches.Settle(conn, tx, resolvedOrderId, req.ActualQty, ct);
 
         // 更新会员水票（释放多余预占或扣减补差）与持有容器数（AC-10: 退桶不自动退押金，deposit_amount 保持不变）
         var newAvail = currentAvail - extraNeeded; // 若 extraNeeded < 0 (实送少于下单)，则自动加回可用水票!
