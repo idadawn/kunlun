@@ -37,6 +37,7 @@ var dataSource = NpgsqlDataSource.Create(connStr);
 builder.Services.AddSingleton(dataSource);
 builder.Services.AddSingleton<KunlunAuthRepository>();
 builder.Services.AddSingleton<KunlunFinanceRepository>();
+builder.Services.AddSingleton<KunlunOrderRepository>();
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
 var signingKey = Encoding.UTF8.GetBytes(
@@ -97,6 +98,8 @@ using (var scope = app.Services.CreateScope())
     await repo.EnsureSchemaAndSeedAsync();
     var finRepo = scope.ServiceProvider.GetRequiredService<KunlunFinanceRepository>();
     await finRepo.EnsureFinanceSchemaAndSeedAsync();
+    var ordRepo = scope.ServiceProvider.GetRequiredService<KunlunOrderRepository>();
+    await ordRepo.EnsureOrderSchemaAsync();
 }
 
 app.MapGet("/healthz", async (NpgsqlDataSource ds) =>
@@ -308,7 +311,9 @@ app.MapGet("/api/members/{memberId:guid}/profile", async (
     await using var cmd = new NpgsqlCommand("""
         SELECT id, member_no, name, phone, default_address,
                bucket_delivery_tickets, bucket_pickup_tickets, bag_pickup_tickets, bag_delivery_tickets,
-               deposit_amount, held_buckets, held_bags, status
+               deposit_amount, held_buckets, held_bags, status,
+               reserved_bucket_delivery_tickets, reserved_bucket_pickup_tickets,
+               reserved_bag_pickup_tickets, reserved_bag_delivery_tickets
         FROM plugin_kunlun_waterstation.members
         WHERE id = @id
         """, conn);
@@ -330,7 +335,11 @@ app.MapGet("/api/members/{memberId:guid}/profile", async (
         depositAmount = r.GetDecimal(9),
         heldBuckets = r.GetInt32(10),
         heldBags = r.GetInt32(11),
-        status = r.GetString(12)
+        status = r.GetString(12),
+        reservedBucketDeliveryTickets = r.GetInt32(13),
+        reservedBucketPickupTickets = r.GetInt32(14),
+        reservedBagPickupTickets = r.GetInt32(15),
+        reservedBagDeliveryTickets = r.GetInt32(16)
     });
 }).RequireAuthorization();
 
@@ -380,6 +389,7 @@ app.MapPatch("/api/staff/{staffId:guid}/status", async (
 }).RequireAuthorization();
 
 app.MapFinanceEndpoints();
+app.MapOrderEndpoints();
 app.Run();
 
 public partial class Program;
