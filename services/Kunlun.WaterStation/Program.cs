@@ -390,6 +390,7 @@ app.MapPatch("/api/staff/{staffId:guid}/status", async (
 
 app.MapFinanceEndpoints();
 app.MapOrderEndpoints();
+app.MapReportEndpoints();
 app.Run();
 
 public partial class Program;
