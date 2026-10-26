@@ -168,7 +168,7 @@ app.MapGet("/api/members/{memberId:guid}/profile", async (
                bucket_delivery_tickets, bucket_pickup_tickets, bag_pickup_tickets, bag_delivery_tickets,
                deposit_amount, held_buckets, held_bags, status,
                reserved_bucket_delivery_tickets, reserved_bucket_pickup_tickets,
-               reserved_bag_pickup_tickets, reserved_bag_delivery_tickets
+               reserved_bag_pickup_tickets, reserved_bag_delivery_tickets, remark
         FROM plugin_kunlun_waterstation.members
         WHERE id = @id
         """, conn);
@@ -194,7 +194,8 @@ app.MapGet("/api/members/{memberId:guid}/profile", async (
         reservedBucketDeliveryTickets = r.GetInt32(13),
         reservedBucketPickupTickets = r.GetInt32(14),
         reservedBagPickupTickets = r.GetInt32(15),
-        reservedBagDeliveryTickets = r.GetInt32(16)
+        reservedBagDeliveryTickets = r.GetInt32(16),
+        remark = r.IsDBNull(17) ? null : r.GetString(17)
     });
 }).RequireAuthorization();
 

@@ -80,6 +80,7 @@ public sealed class KunlunOrderRepository(NpgsqlDataSource dataSource, KunlunAut
             );
 
             ALTER TABLE water_orders ADD COLUMN IF NOT EXISTS product_snapshot JSONB;
+            ALTER TABLE water_orders ADD COLUMN IF NOT EXISTS remark VARCHAR(200);
 
             CREATE TABLE IF NOT EXISTS container_ledgers (
                 id BIGSERIAL PRIMARY KEY,

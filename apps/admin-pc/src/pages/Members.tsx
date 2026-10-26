@@ -135,6 +135,7 @@ function MemberDrawer({ member: m, onClose }: { member: MemberProfile; onClose: 
             <div className="detail-row"><span>联系电话</span><b>{m.phone}</b></div>
             <div className="detail-row"><span>默认收货地址</span><b style={{ textAlign: 'right', maxWidth: 260 }}>{m.defaultAddress || '未设置'}</b></div>
             <div className="detail-row"><span>会员卡号</span><b>{m.memberNo}</b></div>
+            {m.remark && <div className="detail-row"><span>备注</span><b style={{ textAlign: 'right', maxWidth: 260, whiteSpace: 'pre-wrap' }}>{m.remark}</b></div>}
             <button type="button" className="btn sm" style={{ marginTop: 8 }} onClick={() => dialogs.open(close => <CredentialsDialog subjectType="MEMBER" id={m.id} onClose={close} />)}>设置登录账号</button>
           </div>
           <div className="detail-card">

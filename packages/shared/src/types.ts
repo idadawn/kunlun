@@ -52,6 +52,8 @@ export interface MemberProfile {
   reservedBagPickupTickets: number;
   reservedBagDeliveryTickets: number;
   createdAt?: string;
+  /** Staff note recorded when the member was created; null when none. */
+  remark?: string | null;
 }
 
 /** 会员收货地址：收货地址 + 门牌号 + 联系人 + 手机号，每位会员最多一个默认地址。 */
@@ -135,6 +137,8 @@ export interface WaterOrder {
   diffReason?: string | null;
   cancelReason?: string | null;
   createdAt: string;
+  /** Delivery note from whoever placed the order, e.g. where to leave empty buckets. */
+  remark?: string | null;
 }
 
 export interface CreateOrderRequest {
@@ -161,6 +165,7 @@ export interface CreateOrderResult {
   pickupCode?: string | null;
   status: OrderStatus;
   addressSnapshot: OrderAddressSnapshot;
+  remark?: string | null;
   idempotentReplay: boolean;
 }
 
