@@ -5,7 +5,7 @@ import {
   CounterOrder, DepositDialog, Dialog, FulfillDialog, IssueCouponDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog, RechargeDialog,
   saveBlob, useApi, useDialogs, useLoader, useRun, useToast,
 } from '@kunlun/ui';
-import { useAdminData, useSelectedMemberId } from './data';
+import { useAdminData } from './data';
 
 export const PAGE_NAMES: Record<string, string> = {
   dashboard: '经营总览', members: '会员管理', orders: '水单管理', finance: '充值与押金', inventory: '袋桶库存', assets: '袋桶台账',
@@ -27,22 +27,25 @@ export function useExport() {
   })();
 }
 
-/** Opens the shared staff-operation dialogs with the console's current data and refreshes afterwards. */
+/**
+ * Opens the shared staff-operation dialogs and refreshes afterwards. They preselect the member last opened in the
+ * 360° drawer; staff can search for any other member inside the dialog.
+ */
 export function useOperations() {
   const data = useAdminData();
   const dialogs = useDialogs();
-  const memberId = useSelectedMemberId();
-  const { members, refresh } = data;
+  const memberId = data.selectedMemberId ?? undefined;
+  const { refresh } = data;
   const run = useRun();
   return {
-    recharge: (id = memberId) => run(() => dialogs.open(close => <RechargeDialog members={members} memberId={id} onClose={close} onDone={refresh} />))(),
-    issueCoupon: (id?: string, templateId?: string) => run(() => dialogs.open(close => <IssueCouponDialog members={members} memberId={id ?? memberId} templateId={templateId} onClose={close} onDone={refresh} />))(),
-    deposit: (id = memberId) => run(() => dialogs.open(close => <DepositDialog members={members} containers={data.containers} memberId={id} onClose={close} onDone={refresh} />))(),
+    recharge: (id = memberId) => run(() => dialogs.open(close => <RechargeDialog memberId={id} onClose={close} onDone={refresh} />))(),
+    issueCoupon: (id?: string, templateId?: string) => run(() => dialogs.open(close => <IssueCouponDialog memberId={id ?? memberId} templateId={templateId} onClose={close} onDone={refresh} />))(),
+    deposit: (id = memberId) => run(() => dialogs.open(close => <DepositDialog containers={data.containers} memberId={id} onClose={close} onDone={refresh} />))(),
     // Opened from a member row it starts with that customer; elsewhere it starts by finding the customer at the counter.
     order: (id?: string) => run(() => dialogs.open(close => <CounterOrderDialog products={data.products} memberId={id} onClose={close} onDone={refresh} />))(),
-    movement: (id = memberId) => run(() => dialogs.open(close => <MovementDialog members={members} memberId={id} onClose={close} onDone={refresh} />))(),
+    movement: (id = memberId) => run(() => dialogs.open(close => <MovementDialog memberId={id} onClose={close} onDone={refresh} />))(),
     fulfill: (order?: WaterOrder) => run(() => dialogs.open(close => <FulfillDialog order={order} onClose={close} onDone={refresh} />))(),
-    assets: (id: string) => run(() => dialogs.open(close => <MemberAssetsDialog memberId={id} members={members} onClose={close} onDone={refresh} />))(),
+    assets: (member: Pick<MemberProfile, 'id' | 'name'>) => run(() => dialogs.open(close => <MemberAssetsDialog memberId={member.id} memberName={member.name} onClose={close} onDone={refresh} />))(),
     newMember: () => run(async () => {
       const created = await dialogs.open<{ id: string }>(close => <NewMemberDialog onClose={close} onDone={refresh} />);
       if (created) data.setSelectedMemberId(created.id);
@@ -54,7 +57,7 @@ export function useOperations() {
 function CounterOrderDialog({ products, memberId: initial, onClose, onDone }: { products: WaterProduct[]; memberId?: string; onClose: () => void; onDone: () => Promise<void> }) {
   const dialogs = useDialogs();
   const [memberId, setMemberId] = useState(initial);
-  const recharge = (member: MemberProfile) => dialogs.open(close => <RechargeDialog members={[member]} memberId={member.id} onClose={close} onDone={onDone} />);
+  const recharge = (member: MemberProfile) => dialogs.open(close => <RechargeDialog memberId={member.id} onClose={close} onDone={onDone} />);
   const createMember = async () => (await dialogs.open<{ id: string }>(close => <NewMemberDialog onClose={close} onDone={onDone} />))?.id;
   return (
     <Dialog title="门店点单" description="选好水品后选择到店取水或送水上门" className="counter-order-dialog" onClose={onClose}>

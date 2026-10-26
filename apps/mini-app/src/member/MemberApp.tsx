@@ -65,7 +65,7 @@ function MemberShell() {
           go={go}
           openOrder={(mode: FulfillMode) => navigate(`${pathFor('member', 'order')}?mode=${mode === 'PICKUP' ? 'pickup' : 'delivery'}`)}
           showPickup={(orderNo, code) => setSheet({ orderNo, code })}
-          openAssets={() => dialogs.open(close => <MemberAssetsDialog memberId={profile.id} memberName={profile.name} members={[]} onClose={close} onDone={refresh} />)}
+          openAssets={() => dialogs.open(close => <MemberAssetsDialog memberId={profile.id} memberName={profile.name} onClose={close} onDone={refresh} />)}
         />
       ) : <Loading error={error} onRetry={() => refresh().catch(() => undefined)} />}
     </H5Shell>

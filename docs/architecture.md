@@ -135,7 +135,7 @@ kunlun/
 
 ## 5.3 列表分页与筛选
 
-`GET /api/members`、`GET /api/orders` 与 `GET /api/ledgers/recharges|deposits|containers` 接受 `page`、`pageSize`（1–100，默认 20）。传入任一参数时返回 `{ rows, total, page, pageSize }`（与 `/api/containers/holdings|circulation|damages` 相同），`page`/`pageSize` 为服务端实际采用的值；都不传时仍返回旧的数组（会员、水单最新 50 条，流水最新 30 条），兼容会员选择器等调用方。筛选在服务端完成：会员 `q`（编号/姓名/手机号）、`status`、`water`（持有该类水票）；水单 `q`（单号、取水码、地址快照联系人/手机号/地址、会员姓名/手机号）、`status`、`mode`、`memberId`、`pickupCode`；充值与押金流水 `q`；水单与这两类流水另有 `from`（含）/`to`（不含）时间区间；容器流水 `containerType`。`q` 中的 `%`、`_` 按字面匹配。管理端会员管理、水单管理、充值与押金、桶袋台账的表格和员工端会员查询均按页加载，`KunlunApi` 的 `membersPage`、`ordersPage` 及三个流水方法始终带 `page`。
+`GET /api/members`、`GET /api/orders` 与 `GET /api/ledgers/recharges|deposits|containers` 接受 `page`、`pageSize`（1–100，默认 20）。传入任一参数时返回 `{ rows, total, page, pageSize }`（与 `/api/containers/holdings|circulation|damages` 相同），`page`/`pageSize` 为服务端实际采用的值；都不传时仍返回旧的数组（会员、水单最新 50 条，流水最新 30 条），兼容会员选择器等调用方。筛选在服务端完成：会员 `q`（编号/姓名/手机号）、`status`、`water`（持有该类水票）；水单 `q`（单号、取水码、地址快照联系人/手机号/地址、会员姓名/手机号）、`status`、`mode`、`memberId`、`pickupCode`；充值与押金流水 `q`；水单与这两类流水另有 `from`（含）/`to`（不含）时间区间；容器流水 `containerType`。`q` 中的 `%`、`_` 按字面匹配。管理端会员管理、水单管理、充值与押金、桶袋台账的表格和员工端会员查询均按页加载；充值、发券、押金、开单、领还和破损登记弹窗用 `@kunlun/ui` 的 `MemberPicker` 按姓名、手机号或会员编号向服务端检索会员，预选会员按 ID 读取档案，不依赖页面已加载的会员列表。`KunlunApi` 的 `membersPage`、`ordersPage` 及三个流水方法始终带 `page`。
 
 
 ## 6. 袋桶库存、周转与报废扣押

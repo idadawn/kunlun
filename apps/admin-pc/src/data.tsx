@@ -6,8 +6,8 @@ import {
 } from '@kunlun/shared';
 import { useAuth, useToast } from '@kunlun/ui';
 
-/** Members per page; the current page also feeds the member pickers of the operation dialogs. */
-export const MEMBER_PAGE_SIZE = 50;
+/** Members per page of the 会员管理 list. */
+export const MEMBER_PAGE_SIZE = 20;
 /** Newest orders kept for the dashboard and badges; the 水单管理 table pages on its own. */
 const RECENT_ORDERS = 50;
 
@@ -36,6 +36,7 @@ interface AdminData extends AdminSnapshot {
   setMemberFilter(filter: MemberFilter): void;
   memberPage: number;
   setMemberPage(page: number): void;
+  /** The member last opened in the 360° drawer; operation dialogs preselect them. */
   selectedMemberId: string | null;
   setSelectedMemberId(id: string | null): void;
   refresh(): Promise<void>;
@@ -99,10 +100,4 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       {children}
     </AdminDataContext.Provider>
   );
-}
-
-/** The member last opened in the 360° drawer, used as the default in operation dialogs. */
-export function useSelectedMemberId() {
-  const { members, selectedMemberId } = useAdminData();
-  return members.some(m => m.id === selectedMemberId) ? selectedMemberId! : members[0]?.id;
 }

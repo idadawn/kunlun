@@ -6,11 +6,11 @@ import {
 } from '@kunlun/ui';
 import { useStaffData } from './data';
 
-/** Opens the shared staff operation dialogs with the current member list and refreshes afterwards. */
+/** Opens the shared staff operation dialogs, preselecting the member last opened from the list, and refreshes afterwards. */
 export function useStaffOperations() {
   const { api, can } = useAuth();
   const data = useStaffData();
-  const { members, containers, selectedMemberId, refresh } = data;
+  const { containers, selectedMemberId, refresh } = data;
   const dialogs = useDialogs();
   const toast = useToast();
   const run = useRun();
@@ -29,17 +29,17 @@ export function useStaffOperations() {
 
   const ops = {
     recharge: guard(can(P.RechargeCreate), '当前账号没有充值权限', () =>
-      dialogs.open(close => <RechargeDialog members={members} memberId={selectedMemberId} onClose={close} onDone={refresh} />)),
+      dialogs.open(close => <RechargeDialog memberId={selectedMemberId} onClose={close} onDone={refresh} />)),
     deposit: guard(can(P.DepositCollect) || can(P.DepositRefundApply) || can(P.DepositRefundApprove), '当前账号没有押金办理权限', () =>
-      dialogs.open(close => <DepositDialog members={members} containers={containers} memberId={selectedMemberId} onClose={close} onDone={refresh} />)),
+      dialogs.open(close => <DepositDialog containers={containers} memberId={selectedMemberId} onClose={close} onDone={refresh} />)),
     pickup: guard(can(P.PickupVerify) || can(P.OrderFulfill), '当前账号没有自提核销权限', () =>
       dialogs.open(close => <FulfillDialog onClose={close} onDone={refresh} />)),
     container: guard(can(P.ContainerRegister) || can(P.OrderFulfill), '当前账号没有容器登记权限', () =>
-      dialogs.open(close => <MovementDialog members={members} memberId={selectedMemberId} onClose={close} onDone={refresh} />)),
+      dialogs.open(close => <MovementDialog memberId={selectedMemberId} onClose={close} onDone={refresh} />)),
     newMember: guard(can(P.MemberWrite), '当前账号没有新建会员权限', () => createMember()),
     createMember,
     /** Recharges one member from the counter and resolves once the dialog closes, so the order menu can re-read tickets. */
-    rechargeFor: (member: MemberProfile) => dialogs.open(close => <RechargeDialog members={[member]} memberId={member.id} onClose={close} onDone={refresh} />),
+    rechargeFor: (member: MemberProfile) => dialogs.open(close => <RechargeDialog memberId={member.id} onClose={close} onDone={refresh} />),
     fulfill: (order: WaterOrder) => run(() => dialogs.open(close => <FulfillDialog order={order} onClose={close} onDone={refresh} />))(),
     accept: (order: WaterOrder) => run(async () => {
       await api.acceptOrder(order.id);
@@ -47,7 +47,7 @@ export function useStaffOperations() {
       toast(`已接单：${order.orderNo}`);
     })(),
     assets: (member: MemberProfile) => run(() =>
-      dialogs.open(close => <MemberAssetsDialog memberId={member.id} memberName={member.name} members={members} onClose={close} onDone={refresh} />))(),
+      dialogs.open(close => <MemberAssetsDialog memberId={member.id} memberName={member.name} onClose={close} onDone={refresh} />))(),
     detail: (member: MemberProfile) => {
       data.setSelectedMemberId(member.id);
       void dialogs.open(close => <MemberDetailDialog member={member} onClose={close} />);
