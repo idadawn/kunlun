@@ -178,7 +178,8 @@
       const depCol = Number(this.finance?.depositCollectedTotal || 0);
       const depRef = Number(this.finance?.depositRefundedTotal || 0);
       const depPool = Number(this.finance?.unrefundedDepositPoolTotal || 0);
-      const netCash = rcgRev + (depCol - depRef);
+      const rechargeRefunded = Number(this.finance?.rechargeRefundedTotal || 0);
+      const netCash = rcgRev - rechargeRefunded + (depCol - depRef);
 
       // 计算实库可退押金总额 = 各会员 max(0, 押金余额 - (持桶*50 + 持袋*30))
       const refundableTotal = this.members.reduce((sum, m) => {
@@ -192,9 +193,9 @@
 
       const dashStats = document.querySelectorAll('#page-dashboard .stats-grid .stat-card');
       if (dashStats.length >= 4) {
-        dashStats[0].querySelector('.stat-top span').textContent = '实库累计实收（元）';
+        dashStats[0].querySelector('.stat-top span').textContent = '累计净收款（元）';
         dashStats[0].querySelector('.stat-value').textContent = `¥ ${netCash.toFixed(2)}`;
-        dashStats[0].querySelector('.stat-foot').innerHTML = `<span class="trend-up">实库</span>水费实收 ¥${rcgRev.toFixed(2)} · 押金净收 ¥${(depCol - depRef).toFixed(2)}`;
+        dashStats[0].querySelector('.stat-foot').innerHTML = `<span class="trend-up">实库</span>水费净收 ¥${(rcgRev - rechargeRefunded).toFixed(2)} · 押金净收 ¥${(depCol - depRef).toFixed(2)}`;
 
         dashStats[1].querySelector('.stat-top span').textContent = '实库已核销用水';
         dashStats[1].querySelector('.stat-value').innerHTML = `${doneBuckets}<small>桶</small> · ${doneBags}<small>袋</small>`;
