@@ -1,25 +1,25 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   KUNLUN_PERMISSIONS as P, modeLabel, money, unitOf, waterFallbackLabel,
-  type CouponTemplate, type MemberCoupon, type MemberProfile, type PayMethod, type RechargePlan, type TicketBatch,
+  type CouponTemplate, type MemberCoupon, type PayMethod, type RechargePlan, type TicketBatch,
 } from '@kunlun/shared';
 import { useApi, useAuth } from '../auth';
 import { Dialog, Field, FormDialog, useDialogs, useRun, useToast } from '../feedback';
 import { useIdempotencyKey } from '../hooks';
 import { PlanSelector } from '../plan-picker';
-import { MemberOptions, PayOptions, UnavailableDialog, errorText, initialMember, type Done } from './common';
+import { MemberPicker, PayOptions, UnavailableDialog, errorText, usePickedMember, type Done } from './common';
 
 const couponFits = (c: MemberCoupon, plan: RechargePlan, now = new Date()) =>
   c.status === 'AVAILABLE' && c.snapshot.planId === plan.id && c.snapshot.price === plan.price && c.snapshot.fixedQty === plan.buyQty
   && c.snapshot.fulfillMode === plan.fulfillMode && c.snapshot.waterType === plan.waterType
   && new Date(c.snapshot.startsAt) <= now && new Date(c.snapshot.expiresAt) > now;
 
-export function RechargeDialog({ members, memberId, onClose, onDone }: { members: MemberProfile[]; memberId?: string; onClose: () => void; onDone?: Done }) {
+export function RechargeDialog({ memberId, onClose, onDone }: { memberId?: string; onClose: () => void; onDone?: Done }) {
   const { api, can } = useAuth();
   const toast = useToast();
   const key = useIdempotencyKey();
   const [hasPlans, setHasPlans] = useState<boolean | null>(null);
-  const [member, setMember] = useState(initialMember(members, memberId));
+  const [member, setMember] = usePickedMember(memberId);
   const [plan, setPlan] = useState<RechargePlan | null>(null);
   const [coupons, setCoupons] = useState<MemberCoupon[]>([]);
   const [couponId, setCouponId] = useState('');
@@ -27,30 +27,31 @@ export function RechargeDialog({ members, memberId, onClose, onDone }: { members
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => { api.listPlans().then(p => setHasPlans(p.some(x => x.status === 'ACTIVE'))).catch(e => setLoadError(errorText(e))); }, [api]);
+  const owner = member?.id;
   useEffect(() => {
     let alive = true;
     setCoupons([]); setCouponId('');
-    if (!plan || !member) return;
-    api.memberCoupons(member).then(list => alive && setCoupons(list.filter(c => couponFits(c, plan)))).catch(e => alive && toast(errorText(e)));
+    if (!plan || !owner) return;
+    api.memberCoupons(owner).then(list => alive && setCoupons(list.filter(c => couponFits(c, plan)))).catch(e => alive && toast(errorText(e)));
     return () => { alive = false; };
-  }, [api, member, plan, toast]);
+  }, [api, owner, plan, toast]);
 
   if (!can(P.RechargeCreate)) return <UnavailableDialog title="水费充值登记" message="当前账号没有充值权限" onClose={onClose} />;
   if (loadError) return <UnavailableDialog title="水费充值登记" message={loadError} onClose={onClose} />;
   if (hasPlans === false) return <UnavailableDialog title="水费充值登记" message="请先配置并启用充值套餐" onClose={onClose} />;
-  if (!members.length) return <UnavailableDialog title="水费充值登记" message="请先建立会员档案" onClose={onClose} />;
 
   const coupon = coupons.find(c => c.id === couponId);
   const gift = (plan?.giftQty ?? 0) + (coupon?.snapshot.giftQty ?? 0);
   const submit = async () => {
+    if (!member) throw new Error('请选择会员');
     if (!plan) throw new Error('请选择启用中的充值套餐');
-    const result = await api.createRecharge({ memberId: member, planId: plan.id, couponId: couponId || null, payMethod: pay, idempotencyKey: key });
+    const result = await api.createRecharge({ memberId: member.id, planId: plan.id, couponId: couponId || null, payMethod: pay, idempotencyKey: key });
     await onDone?.();
     toast(`充值成功：付费 ${result.buyQty} + 赠送 ${result.giftQty}，共 ${result.totalTickets} 张水票`);
   };
   return (
     <FormDialog title="水费充值登记" submitLabel="确认已收款并登记" onClose={onClose} onSubmit={submit}>
-      <Field label="会员" htmlFor="chargeMember"><select id="chargeMember" className="select" value={member} onChange={e => setMember(e.target.value)}><MemberOptions members={members} /></select></Field>
+      <Field label="会员" htmlFor="chargeMember"><MemberPicker id="chargeMember" value={member} onChange={setMember} /></Field>
       <Field label="充值套餐" htmlFor="chargePlanPicker"><PlanSelector id="chargePlanPicker" plan={plan} onChange={setPlan} /></Field>
       <Field label="优惠券（每笔最多一张）" htmlFor="chargeCoupon">
         <select id="chargeCoupon" className="select" value={couponId} onChange={e => setCouponId(e.target.value)}>
@@ -67,13 +68,13 @@ export function RechargeDialog({ members, memberId, onClose, onDone }: { members
   );
 }
 
-export function IssueCouponDialog({ members, memberId, templateId, onClose, onDone }: { members: MemberProfile[]; memberId?: string; templateId?: string; onClose: () => void; onDone?: Done }) {
+export function IssueCouponDialog({ memberId, templateId, onClose, onDone }: { memberId?: string; templateId?: string; onClose: () => void; onDone?: Done }) {
   const api = useApi();
   const toast = useToast();
   const key = useIdempotencyKey();
   const [templates, setTemplates] = useState<CouponTemplate[] | null>(null);
   const [error, setError] = useState('');
-  const [member, setMember] = useState(initialMember(members, memberId));
+  const [member, setMember] = usePickedMember(memberId);
   const [template, setTemplate] = useState('');
 
   useEffect(() => {
@@ -88,14 +89,14 @@ export function IssueCouponDialog({ members, memberId, templateId, onClose, onDo
   if (error) return <UnavailableDialog title="发放充值赠水券" message={error} onClose={onClose} />;
   if (!templates) return <Dialog title="发放充值赠水券" onClose={onClose}><p className="membership-note">正在加载优惠券…</p></Dialog>;
   if (!templates.length) return <UnavailableDialog title="发放充值赠水券" message="暂无可发放优惠券，请先在优惠券页面创建" onClose={onClose} />;
-  if (!members.length) return <UnavailableDialog title="发放充值赠水券" message="请先建立会员档案" onClose={onClose} />;
   return (
     <FormDialog title="发放充值赠水券" submitLabel="确认发券" onClose={onClose} onSubmit={async () => {
-      await api.issueCoupon(template, member, key);
+      if (!member) throw new Error('请选择会员');
+      await api.issueCoupon(template, member.id, key);
       await onDone?.();
       toast('优惠券已到账，符合套餐的下次充值可使用');
     }}>
-      <Field label="会员" htmlFor="issueMember"><select id="issueMember" className="select" value={member} onChange={e => setMember(e.target.value)}><MemberOptions members={members} /></select></Field>
+      <Field label="会员" htmlFor="issueMember"><MemberPicker id="issueMember" value={member} onChange={setMember} /></Field>
       <Field label="优惠券" htmlFor="issueTemplate">
         <select id="issueTemplate" className="select" value={template} onChange={e => setTemplate(e.target.value)}>
           {templates.map(c => <option key={c.id} value={c.id}>{c.name} · 赠 {c.giftQty} 张 · 每人限 {c.perMemberLimit} 次</option>)}
@@ -171,7 +172,7 @@ export function CouponCards({ coupons }: { coupons: MemberCoupon[] }) {
 }
 
 /** Recharge batches and coupons of one member; staff with permissions can recharge, issue coupons and refund from here. */
-export function MemberAssetsDialog({ memberId, memberName, members, onClose, onDone }: { memberId: string; memberName?: string; members: MemberProfile[]; onClose: () => void; onDone?: Done }) {
+export function MemberAssetsDialog({ memberId, memberName, onClose, onDone }: { memberId: string; memberName: string; onClose: () => void; onDone?: Done }) {
   const { api, can } = useAuth();
   const dialogs = useDialogs();
   const run = useRun();
@@ -182,13 +183,12 @@ export function MemberAssetsDialog({ memberId, memberName, members, onClose, onD
     .catch(e => setError(errorText(e))), [api, memberId]);
   useEffect(() => { void load(); }, [load]);
   const changed = async () => { await onDone?.(); await load(); };
-  const name = memberName ?? members.find(m => m.id === memberId)?.name ?? '我的';
   return (
-    <Dialog title={`${name} · 水票与优惠券`} onClose={onClose}>
+    <Dialog title={`${memberName} · 水票与优惠券`} onClose={onClose}>
       {can(P.RechargeCreate) && (
         <div className="membership-actions">
-          <button type="button" className="btn primary" onClick={run(() => dialogs.open(close => <RechargeDialog members={members} memberId={memberId} onClose={close} onDone={changed} />))}>充值</button>
-          <button type="button" className="btn" onClick={run(() => dialogs.open(close => <IssueCouponDialog members={members} memberId={memberId} onClose={close} onDone={changed} />))}>发券</button>
+          <button type="button" className="btn primary" onClick={run(() => dialogs.open(close => <RechargeDialog memberId={memberId} onClose={close} onDone={changed} />))}>充值</button>
+          <button type="button" className="btn" onClick={run(() => dialogs.open(close => <IssueCouponDialog memberId={memberId} onClose={close} onDone={changed} />))}>发券</button>
         </div>
       )}
       {error && <p className="account-error" role="alert">{error}</p>}

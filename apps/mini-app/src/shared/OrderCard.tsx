@@ -22,6 +22,7 @@ export function OrderCard({ order, title, showContact = false, actions }: { orde
       {showContact && delivery && snapshot?.contactPhone && (
         <div className="h5-address"><Icon name="phone" />收货人 {snapshot.contactName} <a href={`tel:${snapshot.contactPhone}`}>{snapshot.contactPhone}</a></div>
       )}
+      {order.remark && <div className="h5-address">备注：{order.remark}</div>}
       <div className="h5-order-foot">
         <small>{active ? `预占 ${order.reservedQty} 张` : `实取 ${order.actualQty || 0} 张`}</small>
         {actions && <div className="membership-actions">{actions}</div>}

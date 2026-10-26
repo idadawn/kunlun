@@ -225,11 +225,11 @@ public static class ReportEndpoints
                 }
                 case "orders":
                 {
-                    sb.AppendLine("订单号,会员ID,水种,履约方式,下单数量,实送数量,发出重桶N,收回空桶M,自提码,状态,差异原因,创建时间");
+                    sb.AppendLine("订单号,会员ID,水种,履约方式,下单数量,实送数量,发出重桶N,收回空桶M,自提码,状态,差异原因,备注,创建时间");
                     await using var cmd = new NpgsqlCommand("""
                         SELECT order_no, member_id, water_type, fulfill_mode, order_qty,
                                COALESCE(actual_qty, 0), COALESCE(full_out_qty, 0), COALESCE(empty_in_qty, 0),
-                               COALESCE(pickup_code, ''), status, COALESCE(diff_reason, ''), created_at
+                               COALESCE(pickup_code, ''), status, COALESCE(diff_reason, ''), created_at, COALESCE(remark, '')
                         FROM plugin_kunlun_waterstation.water_orders
                         WHERE tenant_id = @tid
                         ORDER BY created_at DESC
@@ -238,7 +238,7 @@ public static class ReportEndpoints
                     await using var r = await cmd.ExecuteReaderAsync(ct);
                     while (await r.ReadAsync(ct))
                     {
-                        sb.AppendLine($"{Csv(r.GetString(0))},{r.GetGuid(1)},{r.GetString(2)},{r.GetString(3)},{r.GetInt32(4)},{r.GetInt32(5)},{r.GetInt32(6)},{r.GetInt32(7)},{Csv(r.GetString(8))},{r.GetString(9)},{Csv(r.GetString(10))},{r.GetDateTime(11):O}");
+                        sb.AppendLine($"{Csv(r.GetString(0))},{r.GetGuid(1)},{r.GetString(2)},{r.GetString(3)},{r.GetInt32(4)},{r.GetInt32(5)},{r.GetInt32(6)},{r.GetInt32(7)},{Csv(r.GetString(8))},{r.GetString(9)},{Csv(r.GetString(10))},{Csv(r.GetString(12))},{r.GetDateTime(11):O}");
                     }
                     break;
                 }
@@ -394,7 +394,7 @@ public static class ReportEndpoints
     {
         if (string.IsNullOrEmpty(val)) return "";
         if ("=+-@\t\r".Contains(val[0])) val = "'" + val;
-        if (val.Contains(',') || val.Contains('"') || val.Contains('\n'))
+        if (val.Contains(',') || val.Contains('"') || val.Contains('\n') || val.Contains('\r'))
         {
             return $"\"{val.Replace("\"", "\"\"")}\"";
         }

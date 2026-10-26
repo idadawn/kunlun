@@ -3,7 +3,7 @@ import {
   KUNLUN_PERMISSIONS as P, money,
   type CirculationBusinessType, type CirculationRow, type ContainerDamageRow, type ContainerHoldingRow, type ContainerType, type Paged,
 } from '@kunlun/shared';
-import { Field, FormDialog, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
+import { Field, FormDialog, MemberPicker, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
 import { EmptyRow, Pager, useExport, useOperations } from '../common';
 import { useAdminData } from '../data';
 import { CONTAINER_NAMES, ReasonField } from './Inventory';
@@ -139,20 +139,15 @@ export function Assets() {
 function DamageDialog({ member, onClose, onDone }: { member?: Member; onClose: (reported?: boolean) => void; onDone: () => Promise<void> }) {
   const api = useApi();
   const toast = useToast();
-  const run = useRun();
   const key = useIdempotencyKey();
-  const [search, setSearch] = useState('');
-  const [found, setFound] = useState<Member[] | null>(member ? [member] : null);
-  const members = useLoader(() => found ? Promise.resolve(found) : api.listMembers(), [api, found]);
-  const [memberId, setMemberId] = useState(member?.id ?? '');
+  const [selected, setSelected] = useState<Member | null>(member ?? null);
   const [type, setType] = useState<ContainerType>(member && member.heldBags === 0 ? 'BUCKET' : 'BAG');
   const [quantity, setQuantity] = useState(1);
   const [reason, setReason] = useState('');
-  const selected = members.data?.find(m => m.id === memberId);
-  const find = run(async () => { setFound(await api.listMembers(search)); setMemberId(''); });
 
   const submit = async () => {
-    await api.reportDamage({ memberId, containerType: type, quantity, reason: reason.trim(), idempotencyKey: key });
+    if (!selected) throw new Error('请选择会员');
+    await api.reportDamage({ memberId: selected.id, containerType: type, quantity, reason: reason.trim(), idempotencyKey: key });
     await onDone();
     toast('破损已登记，押金尚未扣除');
     onClose(true);
@@ -160,19 +155,7 @@ function DamageDialog({ member, onClose, onDone }: { member?: Member; onClose: (
   return (
     <FormDialog title="登记破损归还" className="inventory-dialog" submitLabel="登记破损归还" onClose={() => onClose()} onSubmit={submit}>
       <div className="membership-summary">实物收回后登记。减少会员持有、转入待报废；此时不扣押金，对应押金暂不可退款或用于新领用。</div>
-      <Field label="查找会员" htmlFor="damageMemberSearch">
-        <div className="container-search">
-          <input id="damageMemberSearch" className="input" placeholder="姓名、手机号或会员号" value={search} onChange={e => setSearch(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); find(); } }} />
-          <button type="button" className="btn sm" onClick={find}>查询</button>
-        </div>
-      </Field>
-      <Field label="会员" htmlFor="damageMember">
-        <select id="damageMember" className="select" required value={memberId} onChange={e => setMemberId(e.target.value)}>
-          <option value="">请选择会员</option>
-          {members.data?.map(m => <option key={m.id} value={m.id}>{m.name} · {m.memberNo}</option>)}
-        </select>
-      </Field>
+      <Field label="会员" htmlFor="damageMember"><MemberPicker id="damageMember" value={selected} onChange={setSelected} /></Field>
       <Field label="容器类型" htmlFor="damageType">
         <select id="damageType" className="select" value={type} onChange={e => setType(e.target.value as ContainerType)}>
           <option value="BAG">周转水袋</option><option value="BUCKET">周转桶</option>
