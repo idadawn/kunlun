@@ -5,7 +5,7 @@ import { useAdminData } from '../data';
 
 const EMPTY_CONTAINER: ContainerSummaryItem = {
   containerType: 'BUCKET', unitDeposit: 0, totalQty: 0, inStationQty: 0, inTransitQty: 0, memberHeldQty: 0, inspectingQty: 0,
-  abnormalQty: 0, damagedQty: 0, scrappedQty: 0, warnThreshold: 0, identityValid: true, lowStockWarning: false,
+  abnormalQty: 0, damagedQty: 0, scrappedQty: 0, pendingMemberDamageQty: 0, warnThreshold: 0, identityValid: true, lowStockWarning: false,
 };
 
 export function Dashboard() {

@@ -10,7 +10,7 @@ export interface AreaRoutes {
 export const WEB_ROUTES: Record<AppArea, AreaRoutes> = {
   admin: {
     home: 'dashboard',
-    pages: ['dashboard', 'members', 'orders', 'finance', 'assets', 'products', 'plans', 'coupons', 'staff-accounts'],
+    pages: ['dashboard', 'members', 'orders', 'finance', 'inventory', 'assets', 'products', 'plans', 'coupons', 'staff-accounts'],
     aliases: { settings: 'plans', 'deposit-settings': 'products' },
   },
   staff: {

@@ -8,6 +8,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Members } from './pages/Members';
 import { Orders } from './pages/Orders';
 import { Finance } from './pages/Finance';
+import { Inventory } from './pages/Inventory';
 import { Assets } from './pages/Assets';
 import { Products } from './pages/Products';
 import { Plans } from './pages/Plans';
@@ -24,6 +25,7 @@ export function App() {
             <Route path="members" element={<Members />} />
             <Route path="orders" element={<Orders />} />
             <Route path="finance" element={<Finance />} />
+            <Route path="inventory" element={<Inventory />} />
             <Route path="assets" element={<Assets />} />
             <Route path="products" element={<Products />} />
             <Route path="plans" element={<Plans />} />
@@ -40,7 +42,7 @@ export function App() {
 }
 
 const NAV: Array<{ label: string; items: Array<[string, IconName]> }> = [
-  { label: '经营管理', items: [['dashboard', 'grid'], ['members', 'users'], ['orders', 'order'], ['finance', 'wallet'], ['assets', 'box']] },
+  { label: '经营管理', items: [['dashboard', 'grid'], ['members', 'users'], ['orders', 'order'], ['finance', 'wallet'], ['inventory', 'box'], ['assets', 'box']] },
   { label: '商品与营销', items: [['products', 'drop'], ['plans', 'wallet'], ['coupons', 'deposit']] },
   { label: '系统设置', items: [['staff-accounts', 'shield']] },
 ];

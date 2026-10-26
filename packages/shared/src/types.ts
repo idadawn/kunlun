@@ -183,6 +183,7 @@ export interface ContainerSummaryItem {
   abnormalQty: number;
   damagedQty: number;
   scrappedQty: number;
+  pendingMemberDamageQty: number;
   warnThreshold: number;
   identityValid: boolean;
   lowStockWarning: boolean;
@@ -199,6 +200,7 @@ export interface FinanceSummaryReport {
   depositCollectedTotal: number;
   depositCollectCount: number;
   depositRefundedTotal: number;
+  depositDeductedTotal: number;
   depositRefundCount: number;
   unrefundedDepositPoolTotal: number;
   netDepositFromFlows: number;
@@ -248,7 +250,7 @@ export interface RechargeLedgerRow {
 export interface DepositLedgerRow {
   docNo: string;
   memberName: string;
-  flowType: 'COLLECT' | 'REFUND';
+  flowType: 'COLLECT' | 'REFUND' | 'DEDUCT';
   containerType: ContainerType;
   qty: number;
   unitPrice: number;
@@ -336,6 +338,8 @@ export interface DepositSummaryRow {
   paidQty: number;
   paidAmount: number;
   heldQty: number;
+  pendingDamageQty: number;
+  pendingDamageAmount: number;
   refundableQty: number;
   refundableAmount: number;
 }
@@ -350,7 +354,7 @@ export interface StaffAccount {
   status: ActiveStatus;
 }
 
-export type InventoryAction = 'RECEIVE' | 'DAMAGE' | 'REPAIR' | 'SCRAP' | 'COUNT';
+export type InventoryAction = 'RECEIVE' | 'SCRAP';
 export type InventorySource = 'AVAILABLE' | 'TRANSIT' | 'INSPECTING' | 'ABNORMAL' | 'MEMBER' | 'DAMAGED' | 'EXTERNAL';
 
 export interface InventoryRequest {
@@ -360,9 +364,6 @@ export interface InventoryRequest {
   idempotencyKey: string;
   quantity: number;
   sourceState: InventorySource;
-  memberId: string | null;
-  countedQuantity: number | null;
-  expectedQuantity: number | null;
 }
 
 export interface InventoryBalance {
@@ -390,6 +391,64 @@ export interface InventoryOperation {
   before: InventoryBalance;
   after: InventoryBalance;
   createdAt: string;
+}
+
+export interface Paged<T> {
+  rows: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface ContainerHoldingRow {
+  id: string;
+  memberNo: string;
+  name: string;
+  phone: string;
+  heldBags: number;
+  heldBuckets: number;
+  depositAmount: number;
+  pendingDamageQty: number;
+  pendingDamageAmount: number;
+}
+
+export type CirculationBusinessType = 'TURNOVER' | 'DAMAGE_RETURN' | 'SCRAP';
+
+export interface CirculationRow {
+  ledgerNo: string;
+  memberName: string;
+  memberNo: string;
+  containerType: ContainerType;
+  fullOutQty: number;
+  emptyInQty: number;
+  deltaHeld: number;
+  heldAfter: number;
+  operatorName: string;
+  createdAt: string;
+  referenceNo: string;
+  businessType: CirculationBusinessType;
+  depositDeductedAmount: number;
+  remark: string;
+  scrappedQty: number;
+}
+
+export type DamageStatus = 'PENDING' | 'SCRAPPED';
+
+export interface ContainerDamageRow {
+  id: string;
+  damageNo: string;
+  memberName: string;
+  memberNo: string;
+  containerType: ContainerType;
+  quantity: number;
+  depositAmount: number;
+  status: DamageStatus;
+  reason: string;
+  operatorName: string;
+  createdAt: string;
+  lotBreakdown: Array<{ lotId: string; lotNo: string; quantity: number; unitPrice: number }>;
+  scrapNo: string;
+  scrapReason: string;
 }
 
 export type ExportDataset =

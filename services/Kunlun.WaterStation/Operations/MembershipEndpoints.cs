@@ -30,12 +30,12 @@ public static class MembershipEndpoints
                 var heldColumn = container == "BUCKET" ? "held_buckets" : "held_bags";
                 await using var heldCmd = Command(conn, null, $"SELECT {heldColumn} FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND id=@mid", ("tid", repo.DefaultTenantId), ("mid", mid));
                 var held = Convert.ToInt32(await heldCmd.ExecuteScalarAsync(ct));
-                var lots = new List<(int Qty, decimal Price)>();
-                await using (var cmd = Command(conn, null, "SELECT remaining_qty,unit_price FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@container ORDER BY created_at,id", ("tid", repo.DefaultTenantId), ("mid", mid), ("container", container)))
-                await using (var r = await cmd.ExecuteReaderAsync(ct)) while (await r.ReadAsync(ct)) lots.Add((r.GetInt32(0), r.GetDecimal(1)));
-                var paidQty = lots.Sum(l => l.Qty); var refundQty = Math.Max(0, paidQty - held); var left = refundQty; decimal amount = 0;
-                foreach (var lot in lots) { var take = Math.Min(left, lot.Qty); amount += take * lot.Price; left -= take; }
-                result.Add(new { containerType = container, paidQty, paidAmount = lots.Sum(l => l.Price * l.Qty), heldQty = held, refundableQty = refundQty, refundableAmount = amount });
+                var lots = new List<(int Qty, decimal Price, int Reserved)>();
+                await using (var cmd = Command(conn, null, "SELECT remaining_qty,unit_price,reserved_damage_qty FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@container ORDER BY created_at,id", ("tid", repo.DefaultTenantId), ("mid", mid), ("container", container)))
+                await using (var r = await cmd.ExecuteReaderAsync(ct)) while (await r.ReadAsync(ct)) lots.Add((r.GetInt32(0), r.GetDecimal(1), r.GetInt32(2)));
+                var paidQty = lots.Sum(l => l.Qty); var reservedQty = lots.Sum(l => l.Reserved); var refundQty = Math.Max(0, paidQty - reservedQty - held); var left = refundQty; decimal amount = 0;
+                foreach (var lot in lots) { var take = Math.Min(left, lot.Qty - lot.Reserved); amount += take * lot.Price; left -= take; }
+                result.Add(new { containerType = container, paidQty, paidAmount = lots.Sum(l => l.Price * l.Qty), heldQty = held, pendingDamageQty = reservedQty, pendingDamageAmount = lots.Sum(l => l.Price * l.Reserved), refundableQty = refundQty, refundableAmount = amount });
             }
             return Results.Ok(result);
         }).RequireAuthorization();

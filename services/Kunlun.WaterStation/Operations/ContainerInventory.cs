@@ -83,7 +83,7 @@ public static class ContainerInventory
                 SELECT o.receipt::text,COALESCE(m.name,'')
                 FROM plugin_kunlun_waterstation.container_inventory_operations o
                 LEFT JOIN plugin_kunlun_waterstation.members m ON m.id=o.member_id AND m.tenant_id=o.tenant_id
-                WHERE o.tenant_id=@tid AND (@type='' OR o.container_type=@type)
+                WHERE o.tenant_id=@tid AND o.action IN ('RECEIVE','SCRAP') AND (@type='' OR o.container_type=@type)
                 ORDER BY o.created_at DESC,o.id DESC LIMIT 100
                 """, ("tid", repo.DefaultTenantId), ("type", containerType ?? ""));
             var rows = new List<object>(); await using var r = await cmd.ExecuteReaderAsync(ct);
@@ -92,106 +92,85 @@ public static class ContainerInventory
         }).RequireAuthorization();
     }
 
-    private static async Task<IResult> Execute(InventoryRequest req, ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct)
+    internal static async Task<InventoryBalance> ReadBalance(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, string type, CancellationToken ct)
     {
-        if (!Authorized(user)) return Results.Forbid();
-        if (req.ContainerType is not ("BUCKET" or "BAG") || req.Action is not ("RECEIVE" or "DAMAGE" or "REPAIR" or "SCRAP" or "COUNT")
-            || string.IsNullOrWhiteSpace(req.Reason) || req.Reason.Length > 500)
-            throw new BusinessRuleException("请填写有效容器类型、业务类型和操作原因");
-        if (req.Action == "COUNT")
-        {
-            if (req.CountedQuantity is null or < 0 or > 1000000 || req.ExpectedQuantity is null or < 0 || req.Quantity != 0)
-                throw new BusinessRuleException("请填写实盘数量，并保留本次读取的账面数量");
-        }
-        else if (req.Quantity <= 0 || req.Quantity > 1000000) throw new BusinessRuleException("操作数量应为 1 至 1000000 的整数");
-        if (req.Action == "DAMAGE" && req.SourceState is not ("AVAILABLE" or "TRANSIT" or "INSPECTING" or "ABNORMAL" or "MEMBER")) throw new BusinessRuleException("破损来源无效");
-        if (req.Action == "COUNT" && req.SourceState is not ("AVAILABLE" or "TRANSIT" or "INSPECTING" or "ABNORMAL" or "DAMAGED")) throw new BusinessRuleException("盘点位置无效，会员持有应通过领还或破损归还登记处理");
-        var fromMember = req.Action == "DAMAGE" && req.SourceState == "MEMBER";
-        if (fromMember != req.MemberId.HasValue) throw new BusinessRuleException("会员归还破损需选择对应会员，其他操作不关联会员");
-        var normalized = req with { Reason = req.Reason.Trim() };
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(normalized, JsonOptions))));
-        var tid = repo.DefaultTenantId;
-        await using var conn = await db.OpenConnectionAsync(ct); await using var tx = await conn.BeginTransactionAsync(ct);
-        await LockRequest(conn, tx, tid, "inventory", req.IdempotencyKey, ct);
-        await using (var replay = Command(conn, tx, "SELECT request_hash,receipt::text FROM plugin_kunlun_waterstation.container_inventory_operations WHERE tenant_id=@tid AND idempotency_key=@key", ("tid", tid), ("key", req.IdempotencyKey)))
-        await using (var r = await replay.ExecuteReaderAsync(ct))
-            if (await r.ReadAsync(ct))
-            {
-                if (r.GetString(0) != hash) throw new BusinessRuleException("该请求标识已用于其他库存操作", 409);
-                return Results.Ok(JsonSerializer.Deserialize<JsonElement>(r.GetString(1)));
-            }
-        var heldColumn = req.ContainerType == "BUCKET" ? "held_buckets" : "held_bags";
-        var memberHeld = 0;
-        // Same lock order as fulfillment: member first, then container configuration.
-        if (fromMember)
-        {
-            await using var member = Command(conn, tx, $"SELECT {heldColumn} FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND id=@id FOR UPDATE", ("tid", tid), ("id", req.MemberId!.Value));
-            var value = await member.ExecuteScalarAsync(ct);
-            if (value is null) throw new BusinessRuleException("会员不存在", 404);
-            memberHeld = (int)value;
-            if (memberHeld < req.Quantity) throw new BusinessRuleException("破损归还数量超过该会员持有数量");
-        }
-        InventoryBalance before;
-        await using (var read = Command(conn, tx, """
+        await using var cmd = Command(conn, tx, """
             SELECT total_qty,in_station_qty,in_transit_qty,member_held_qty,inspecting_qty,abnormal_qty,damaged_qty,scrapped_qty
             FROM plugin_kunlun_waterstation.container_configs WHERE tenant_id=@tid AND container_type=@type FOR UPDATE
-            """, ("tid", tid), ("type", req.ContainerType)))
-        await using (var r = await read.ExecuteReaderAsync(ct))
-        {
-            if (!await r.ReadAsync(ct)) throw new BusinessRuleException("容器配置不存在", 404);
-            before = new(r.GetInt32(0), r.GetInt32(1), r.GetInt32(2), r.GetInt32(3), r.GetInt32(4), r.GetInt32(5), r.GetInt32(6), r.GetInt32(7));
-        }
-        var after = before; var qty = req.Quantity;
-        try
-        {
-            switch (req.Action)
-            {
-                case "RECEIVE": after = before with { TotalQty = checked(before.TotalQty + qty), InStationQty = checked(before.InStationQty + qty) }; break;
-                case "DAMAGE":
-                    if (before.At(req.SourceState) < qty) throw new BusinessRuleException("来源位置的数量不足");
-                    after = before.Remove(req.SourceState, qty) with { DamagedQty = checked(before.DamagedQty + qty) }; break;
-                case "REPAIR":
-                    if (before.DamagedQty < qty) throw new BusinessRuleException("待处理破损数量不足");
-                    after = before with { DamagedQty = before.DamagedQty - qty, InStationQty = checked(before.InStationQty + qty) }; break;
-                case "SCRAP":
-                    if (before.DamagedQty < qty) throw new BusinessRuleException("待处理破损数量不足");
-                    after = before with { DamagedQty = before.DamagedQty - qty, TotalQty = before.TotalQty - qty, ScrappedQty = checked(before.ScrappedQty + qty) }; break;
-                case "COUNT":
-                    if (before.At(req.SourceState) != req.ExpectedQuantity) throw new BusinessRuleException("账面库存已变化，请刷新后重新盘点", 409);
-                    qty = req.CountedQuantity!.Value - before.At(req.SourceState);
-                    after = before.Remove(req.SourceState, -qty) with { TotalQty = checked(before.TotalQty + qty) }; break;
-            }
-        }
-        catch (OverflowException) { throw new BusinessRuleException("库存数量超出允许范围"); }
-        if (after.TotalQty < 0) throw new BusinessRuleException("调整后现存总量不能为负数");
-        await Exec(conn, tx, """
-            UPDATE plugin_kunlun_waterstation.container_configs
-            SET total_qty=@total,in_station_qty=@available,in_transit_qty=@transit,member_held_qty=@held,
-                inspecting_qty=@inspect,abnormal_qty=@abnormal,damaged_qty=@damaged,scrapped_qty=@scrapped
-            WHERE tenant_id=@tid AND container_type=@type
-            """, ct, ("tid", tid), ("type", req.ContainerType), ("total", after.TotalQty), ("available", after.InStationQty), ("transit", after.InTransitQty), ("held", after.MemberHeldQty), ("inspect", after.InspectingQty), ("abnormal", after.AbnormalQty), ("damaged", after.DamagedQty), ("scrapped", after.ScrappedQty));
-        var id = Guid.NewGuid(); var no = "CK" + id.ToString("N")[..28];
-        var actor = user.FindFirstValue("display_name") ?? "管理员";
-        if (fromMember)
-        {
-            await Exec(conn, tx, $"UPDATE plugin_kunlun_waterstation.members SET {heldColumn}={heldColumn}-@qty WHERE id=@id AND tenant_id=@tid", ct, ("qty", req.Quantity), ("id", req.MemberId!.Value), ("tid", tid));
-            await using var covered = Command(conn, tx, "SELECT COALESCE(sum(remaining_qty),0) FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@id AND container_type=@type", ("tid", tid), ("id", req.MemberId.Value), ("type", req.ContainerType));
-            var paid = Convert.ToInt32(await covered.ExecuteScalarAsync(ct));
-            await Exec(conn, tx, """
-                INSERT INTO plugin_kunlun_waterstation.container_ledgers(tenant_id,ledger_no,member_id,container_type,order_no,full_out_qty,empty_in_qty,delta_held,held_after,covered_deposit_qty_after,operator_name,remark)
-                VALUES(@tid,@no,@id,@type,@ref,0,@qty,-@qty,@held,@paid,@actor,@reason)
-                """, ct, ("tid", tid), ("no", "CL" + id.ToString("N")[..28]), ("id", req.MemberId.Value), ("type", req.ContainerType), ("ref", no), ("qty", req.Quantity), ("held", memberHeld - req.Quantity), ("paid", paid), ("actor", actor), ("reason", "破损归还：" + normalized.Reason));
-        }
-        var source = req.Action switch { "RECEIVE" => "EXTERNAL", "REPAIR" or "SCRAP" => "DAMAGED", _ => req.SourceState };
-        var receipt = new { id, operationNo = no, containerType = req.ContainerType, action = req.Action, sourceState = source, quantity = qty, deltaTotal = after.TotalQty - before.TotalQty,
-            memberId = req.MemberId, reason = normalized.Reason, operatorName = actor, before, after, createdAt = DateTimeOffset.UtcNow };
-        var json = JsonSerializer.Serialize(receipt, JsonOptions);
-        await Exec(conn, tx, """
+            """, ("tid", tid), ("type", type));
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        if (!await r.ReadAsync(ct)) throw new BusinessRuleException("容器配置不存在", 404);
+        return new(r.GetInt32(0),r.GetInt32(1),r.GetInt32(2),r.GetInt32(3),r.GetInt32(4),r.GetInt32(5),r.GetInt32(6),r.GetInt32(7));
+    }
+
+    internal static Task<int> SaveBalance(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, string type, InventoryBalance b, CancellationToken ct) => Exec(conn, tx, """
+        UPDATE plugin_kunlun_waterstation.container_configs SET total_qty=@total,in_station_qty=@available,in_transit_qty=@transit,
+        member_held_qty=@held,inspecting_qty=@inspect,abnormal_qty=@abnormal,damaged_qty=@damaged,scrapped_qty=@scrapped
+        WHERE tenant_id=@tid AND container_type=@type
+        """, ct, ("tid",tid),("type",type),("total",b.TotalQty),("available",b.InStationQty),("transit",b.InTransitQty),
+        ("held",b.MemberHeldQty),("inspect",b.InspectingQty),("abnormal",b.AbnormalQty),("damaged",b.DamagedQty),("scrapped",b.ScrappedQty));
+
+    internal static string Hash(object value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value, JsonOptions))));
+    internal static string Json(object value) => JsonSerializer.Serialize(value, JsonOptions);
+
+    internal static async Task<JsonElement> RecordOperation(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, string key, string hash,
+        string type, string action, string source, int qty, string reason, Guid? memberId, ClaimsPrincipal user,
+        InventoryBalance before, InventoryBalance after, CancellationToken ct)
+    {
+        var id=Guid.NewGuid(); var no="CK"+id.ToString("N")[..28];
+        var actor=user.FindFirstValue("display_name")??"管理员";
+        var receipt=new {id,operationNo=no,containerType=type,action,sourceState=source,quantity=qty,deltaTotal=after.TotalQty-before.TotalQty,
+            memberId,reason,operatorName=actor,before,after,createdAt=DateTimeOffset.UtcNow};
+        var json=Json(receipt);
+        await Exec(conn,tx,"""
             INSERT INTO plugin_kunlun_waterstation.container_inventory_operations
             (id,tenant_id,operation_no,idempotency_key,request_hash,container_type,action,source_state,quantity,delta_total,member_id,reason,operator_id,operator_name,before_state,after_state,receipt)
             VALUES(@id,@tid,@no,@key,@hash,@type,@action,@source,@qty,@delta,NULLIF(@member,'')::uuid,@reason,@operator,@actor,@before::jsonb,@after::jsonb,@receipt::jsonb)
-            """, ct, ("id", id), ("tid", tid), ("no", no), ("key", req.IdempotencyKey), ("hash", hash), ("type", req.ContainerType), ("action", req.Action), ("source", source), ("qty", qty), ("delta", after.TotalQty - before.TotalQty), ("member", req.MemberId?.ToString() ?? ""), ("reason", normalized.Reason), ("operator", Guid.Parse(user.FindFirstValue("sub")!)), ("actor", actor), ("before", JsonSerializer.Serialize(before, JsonOptions)), ("after", JsonSerializer.Serialize(after, JsonOptions)), ("receipt", json));
-        await tx.CommitAsync(ct);
-        return Results.Ok(receipt);
+            """,ct,("id",id),("tid",tid),("no",no),("key",key),("hash",hash),("type",type),("action",action),("source",source),
+            ("qty",qty),("delta",after.TotalQty-before.TotalQty),("member",memberId?.ToString()??""),("reason",reason),
+            ("operator",Guid.Parse(user.FindFirstValue("sub")!)),("actor",actor),("before",Json(before)),("after",Json(after)),("receipt",json));
+        return JsonSerializer.Deserialize<JsonElement>(json);
+    }
+
+    private static async Task<IResult> Execute(InventoryRequest req, ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct)
+    {
+        if (!Authorized(user)) return Results.Forbid();
+        if (req.ContainerType is not ("BUCKET" or "BAG") || req.Action is not ("RECEIVE" or "SCRAP"))
+            throw new BusinessRuleException("库存只办理入库和报废；会员破损请到袋桶台账登记");
+        if (string.IsNullOrWhiteSpace(req.Reason) || req.Reason.Length>500 || req.Quantity is <=0 or >1000000)
+            throw new BusinessRuleException("请填写有效数量和不超过 500 字的原因");
+        if (req.MemberId.HasValue || req.CountedQuantity.HasValue || req.ExpectedQuantity.HasValue)
+            throw new BusinessRuleException("会员报废请通过袋桶台账处理并结算押金");
+        if (req.Action=="SCRAP" && req.SourceState is not ("AVAILABLE" or "INSPECTING" or "ABNORMAL" or "DAMAGED"))
+            throw new BusinessRuleException("请选择门店报废来源，会员持有容器需先登记破损归还");
+        var hash=Hash(req with{Reason=req.Reason.Trim()}); var tid=repo.DefaultTenantId;
+        await using var conn=await db.OpenConnectionAsync(ct); await using var tx=await conn.BeginTransactionAsync(ct);
+        await LockRequest(conn,tx,tid,"inventory",req.IdempotencyKey,ct);
+        await using(var cmd=Command(conn,tx,"SELECT request_hash,receipt::text FROM plugin_kunlun_waterstation.container_inventory_operations WHERE tenant_id=@tid AND idempotency_key=@key",("tid",tid),("key",req.IdempotencyKey)))
+        await using(var r=await cmd.ExecuteReaderAsync(ct)) if(await r.ReadAsync(ct))
+        {
+            if(r.GetString(0)!=hash)throw new BusinessRuleException("该请求标识已用于其他库存操作",409);
+            return Results.Ok(JsonSerializer.Deserialize<JsonElement>(r.GetString(1)));
+        }
+        var before=await ReadBalance(conn,tx,tid,req.ContainerType,ct); InventoryBalance after;
+        try
+        {
+            if(req.Action=="RECEIVE")after=before with{TotalQty=checked(before.TotalQty+req.Quantity),InStationQty=checked(before.InStationQty+req.Quantity)};
+            else
+            {
+                var available=before.At(req.SourceState);
+                if(req.SourceState=="DAMAGED")
+                {
+                    await using var reserved=Command(conn,tx,"SELECT COALESCE(sum(quantity),0) FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND container_type=@type AND status='PENDING'",("tid",tid),("type",req.ContainerType));
+                    available-=Convert.ToInt32(await reserved.ExecuteScalarAsync(ct));
+                }
+                if(available<req.Quantity)throw new BusinessRuleException("该位置可报废数量不足；会员待处理破损须在袋桶台账确认报废");
+                after=before.Remove(req.SourceState,req.Quantity) with{TotalQty=before.TotalQty-req.Quantity,ScrappedQty=checked(before.ScrappedQty+req.Quantity)};
+            }
+        }
+        catch(OverflowException){throw new BusinessRuleException("库存数量超出允许范围");}
+        await SaveBalance(conn,tx,tid,req.ContainerType,after,ct);
+        var receipt=await RecordOperation(conn,tx,tid,req.IdempotencyKey,hash,req.ContainerType,req.Action,req.Action=="RECEIVE"?"EXTERNAL":req.SourceState,req.Quantity,req.Reason.Trim(),null,user,before,after,ct);
+        await tx.CommitAsync(ct);return Results.Ok(receipt);
     }
 }

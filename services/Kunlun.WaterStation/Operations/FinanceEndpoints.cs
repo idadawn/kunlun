@@ -291,7 +291,7 @@ public static class FinanceEndpoints
             var delta = req.FullOutN - req.EmptyInM;
             var nextHeld = held + delta;
             if (nextHeld < 0) throw new BusinessRuleException("归还数量超过会员当前持有和本次领出数量");
-            await using var cover = TicketBatches.Command(conn, tx, "SELECT COALESCE(sum(remaining_qty),0) FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@ct", ("tid", tid), ("mid", req.MemberId), ("ct", ctype));
+            await using var cover = TicketBatches.Command(conn, tx, "SELECT COALESCE(sum(remaining_qty-reserved_damage_qty),0) FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@ct", ("tid", tid), ("mid", req.MemberId), ("ct", ctype));
             var covered = Convert.ToInt32(await cover.ExecuteScalarAsync(ct));
             if (nextHeld > held && nextHeld > covered) throw new BusinessRuleException("押金不足，请先补交押金");
             if (await TicketBatches.Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.container_configs SET in_station_qty=in_station_qty-@delta,member_held_qty=member_held_qty+@delta WHERE tenant_id=@tid AND container_type=@ct AND in_station_qty-@delta>=0 AND member_held_qty+@delta>=0", ct, ("delta", delta), ("tid", tid), ("ct", ctype)) == 0)
@@ -347,10 +347,10 @@ public static class FinanceEndpoints
             // 读取未退押金批次（按 FIFO 顺序锁定）
             var lots = new List<(Guid Id, string No, decimal UnitPrice, int Remaining)>();
             await using (var lCmd = new NpgsqlCommand("""
-                SELECT id, deposit_no, unit_price, remaining_qty
+                SELECT id, deposit_no, unit_price, remaining_qty-reserved_damage_qty
                 FROM plugin_kunlun_waterstation.deposit_lots
-                WHERE tenant_id = @tid AND member_id = @mid AND container_type = @ct AND remaining_qty > 0
-                ORDER BY created_at ASC
+                WHERE tenant_id = @tid AND member_id = @mid AND container_type = @ct AND remaining_qty > reserved_damage_qty
+                ORDER BY created_at ASC,id
                 FOR UPDATE
                 """, conn, tx))
             {
@@ -372,7 +372,7 @@ public static class FinanceEndpoints
             {
                 return Results.BadRequest(new
                 {
-                    error = $"可退押金数量不足：已交未退 {totalPaidRemaining} 个，当前实际持有占用 {currentHeld} 个，最多可退 {refundableQty} 个（请先登记归还容器）",
+                    error = $"可退押金数量不足：可用押金 {totalPaidRemaining} 个（已排除待报废占用），当前实际持有占用 {currentHeld} 个，最多可退 {refundableQty} 个（请先登记归还容器）",
                     totalPaidRemaining,
                     currentHeld,
                     refundableQty

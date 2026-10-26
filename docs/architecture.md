@@ -125,10 +125,12 @@ kunlun/
 配送水单提交 `addressId`（省略时使用默认地址），没有可用地址时拒绝下单；`address_snapshot` 记录地址 ID、联系人、手机号、收货地址、门牌号和完整地址文本，之后修改或删除地址不影响已下单水单。升级前只有单行文本地址的会员在启动时自动迁移为一条默认地址，门牌号留空，提示会员或员工补充。
 
 
-## 6. 周转容器库存维护
+## 6. 袋桶库存、周转与报废扣押
 
-`container_configs` 新增 `damaged_qty`（破损待处理）及 `scrapped_qty`（累计报废）。现存总量约束包含破损但不包含累计报废，所有位置数量均受非负约束。`container_inventory_operations` 记录库存维护单、请求摘要、业务类型、来源、数量/盘点差额、前后快照和操作人。
+`ContainerInventory` 只接收 `RECEIVE` / `SCRAP`；库存操作保留 before/after 快照，现存总量恒等于可用、在途、会员持有、待检、异常和破损之和，累计报废独立累计。
 
-`POST /api/containers/inventory` 支持 RECEIVE / DAMAGE / REPAIR / SCRAP / COUNT；`GET /api/containers/inventory-operations` 查询最近流水；`/api/exports/inventory-operations` 导出完整库存维护记录。库存管理权限为 `container:inventory_manage`，默认授予 ADMIN。操作先锁幂等标识；涉及会员破损归还时先锁会员，再锁容器配置，与既有履约锁序一致。盘点提交携带原账面数量用于并发冲突检查。
+`ContainerCirculation` 管理会员破损归还和确认报废。`container_damages` 保存原押金批次及金额、状态、两次操作的幂等回执。破损归还将 `deposit_lots.reserved_damage_qty` 增加；正常退款、领用覆盖额和可退押金展示都排除暂占数量。报废才减少批次 `remaining_qty`、增加 `deducted_qty` 并释放暂占，同时扣会员押金、更新库存并写 `container_ledgers`。财务流水以 `DEDUCT` 区别于 `REFUND`，对账包含累计扣押。
 
-水袋标准一次性调整为 5 元/个，保留旧押金批次。历史演示收款中的 30 元是旧收款证据，不代表当前标准，也不随标准更新重新计价。
+所有写入使用同一事务；锁序为幂等请求、会员、破损记录（适用时）、容器、押金批次。门店报废在容器锁下排除会员待报废数量。会员破损金额不足时拒绝整笔；不同幂等键也不能重复处理已报废记录。新迁移不追溯扣除既有旧库存流水中的押金。
+
+路由 `/admin/inventory` 和 `/admin/assets` 独立呈现，主 HTML 与 `assets/inventory.js` 为唯一前端维护源，构建同步到两端。会员持有、周转流水、破损记录由服务器过滤和分页，避免仅展示最近记录造成台账遗漏。

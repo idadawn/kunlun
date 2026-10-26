@@ -108,16 +108,17 @@ export function MemberAssets({ profile }: MemberPageProps) {
             {rows.map(r => <span key={r.containerType}>{r.containerType === 'BUCKET' ? '桶押金' : '袋押金'} ¥{money(r.paidAmount)}（{r.paidQty}个）</span>)}
           </div>
         </div>
-        {rows.map(r => (
+        {rows.map(r => { const covered = r.heldQty <= r.paidQty - r.pendingDamageQty; return (
           <div key={r.containerType}>
-            <div className="h5-section-head"><h3>{containerLabel(r.containerType)}</h3><span className={`tag ${r.heldQty <= r.paidQty ? 'green' : 'orange'}`}>{r.heldQty <= r.paidQty ? '押金已覆盖' : '需补交押金'}</span></div>
+            <div className="h5-section-head"><h3>{containerLabel(r.containerType)}</h3><span className={`tag ${covered ? 'green' : 'orange'}`}>{covered ? '押金已覆盖' : '需补交押金'}</span></div>
             <div className="h5-card">
-              <div className="detail-row"><span>已交未退押金（按原收款批次）</span><b>{r.paidQty} 个 / ¥{money(r.paidAmount)}</b></div>
+              <div className="detail-row"><span>剩余押金（按原收款批次）</span><b>{r.paidQty} 个 / ¥{money(r.paidAmount)}</b></div>
               <div className="detail-row"><span>当前实际持有</span><b>{r.heldQty} 个</b></div>
               <div className="detail-row"><span>当前可退押金（已交 − 持有）</span><b style={{ color: 'var(--brand-600)' }}>{r.refundableQty} 个 / ¥{money(r.refundableAmount)}</b></div>
+              {r.pendingDamageQty > 0 && <p className="membership-note">待报废 {r.pendingDamageQty} 个，占用押金 ¥{money(r.pendingDamageAmount)}，确认报废后扣除。</p>}
             </div>
           </div>
-        ))}
+        ); })}
         <button type="button" className="btn block" onClick={() => toast('请先将空桶归还至绿麒麟水站或交由送水员登记收回，即可退还对应押金')}>如何退押金？</button>
       </div>
     )}

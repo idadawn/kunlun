@@ -493,8 +493,9 @@ public static class OrderEndpoints
             await using var conn = await db.OpenConnectionAsync(ct);
             await using var cmd = new NpgsqlCommand("""
                 SELECT container_type, unit_deposit, total_qty, in_station_qty, in_transit_qty,
-                       member_held_qty, inspecting_qty, abnormal_qty, warn_threshold, damaged_qty, scrapped_qty
-                FROM plugin_kunlun_waterstation.container_configs
+                       member_held_qty, inspecting_qty, abnormal_qty, warn_threshold, damaged_qty, scrapped_qty,
+                       (SELECT COALESCE(sum(d.quantity),0)::int FROM plugin_kunlun_waterstation.container_damages d WHERE d.tenant_id=c.tenant_id AND d.container_type=c.container_type AND d.status='PENDING')
+                FROM plugin_kunlun_waterstation.container_configs c
                 WHERE tenant_id = @tid
                 ORDER BY container_type
                 """, conn);
@@ -528,6 +529,7 @@ public static class OrderEndpoints
                     warnThreshold = threshold,
                     damagedQty = damaged,
                     scrappedQty = scrapped,
+                    pendingMemberDamageQty = r.GetInt32(11),
                     identityValid = total == sumParts,
                     lowStockWarning = inStation < threshold
                 });
@@ -667,7 +669,7 @@ public static class OrderEndpoints
 
         int coveredDepositQty;
         await using (var depCmd = new NpgsqlCommand("""
-            SELECT COALESCE(SUM(remaining_qty), 0)::INT
+            SELECT COALESCE(SUM(remaining_qty-reserved_damage_qty), 0)::INT
             FROM plugin_kunlun_waterstation.deposit_lots
             WHERE tenant_id = @tid AND member_id = @mid AND container_type = @ctype
             """, conn, tx))

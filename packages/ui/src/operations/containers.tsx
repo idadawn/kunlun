@@ -37,7 +37,7 @@ export function DepositDialog({ members, containers, memberId, onClose, onDone }
   const cfg = containers.find(c => c.containerType === container);
   const preview = previewError || (action === 'collect'
     ? (cfg ? `当前单价 ¥${money(cfg.unitDeposit)} / 个；本次应收 ¥${money(cfg.unitDeposit * quantity)}` : '押金标准加载中')
-    : row ? `已交未退 ${row.paidQty} 个，持有 ${row.heldQty} 个，最多可退 ${row.refundableQty} 个；退清可退押金 ¥${money(row.refundableAmount)}，退款按原收款单价计算。` : '正在查询可退押金…');
+    : row ? `已交未退 ${row.paidQty} 个，持有 ${row.heldQty} 个，待报废 ${row.pendingDamageQty} 个，最多可退 ${row.refundableQty} 个；退清可退押金 ¥${money(row.refundableAmount)}，退款按原收款单价计算。` : '正在查询可退押金…');
   const submit = async () => {
     const body = { memberId: member, containerType: container, quantity, payMethod: pay, idempotencyKey: key };
     const amount = action === 'collect' ? (await api.collectDeposit(body)).totalAmount : (await api.refundDeposit(body)).refundAmount;

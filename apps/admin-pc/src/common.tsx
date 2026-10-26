@@ -7,7 +7,7 @@ import {
 import { useAdminData, useSelectedMemberId } from './data';
 
 export const PAGE_NAMES: Record<string, string> = {
-  dashboard: '经营总览', members: '会员管理', orders: '水单管理', finance: '充值与押金', assets: '桶袋台账',
+  dashboard: '经营总览', members: '会员管理', orders: '水单管理', finance: '充值与押金', inventory: '袋桶库存', assets: '袋桶台账',
   products: '水品与押金', plans: '充值套餐', coupons: '优惠券', 'staff-accounts': '员工账号',
 };
 

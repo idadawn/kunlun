@@ -1,6 +1,9 @@
 import type {
   ActiveStatus,
   AuthSession,
+  CirculationRow,
+  ContainerDamageRow,
+  ContainerHoldingRow,
   ContainerLedgerRow,
   ContainerSummaryItem,
   ContainerType,
@@ -19,6 +22,7 @@ import type {
   MemberCoupon,
   MemberProfile,
   OverviewReport,
+  Paged,
   PayMethod,
   PlanSnapshot,
   RechargeLedgerRow,
@@ -50,6 +54,7 @@ export interface KunlunApiOptions {
 }
 
 const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) });
+const query = (params: Record<string, string | number>) => new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString();
 
 /** Typed client for the Kunlun water-station API. All business rules remain server-side. */
 export class KunlunApi {
@@ -193,6 +198,21 @@ export class KunlunApi {
   inventory(body: InventoryRequest) { return this.post<InventoryOperation>('/api/containers/inventory', body); }
   inventoryOperations(containerType?: ContainerType) {
     return this.request<Array<{ operation: InventoryOperation; memberName: string }>>('/api/containers/inventory-operations' + (containerType ? `?containerType=${containerType}` : ''));
+  }
+  containerHoldings(q: string, page: number) {
+    return this.request<Paged<ContainerHoldingRow>>('/api/containers/holdings?' + query({ q, page }));
+  }
+  containerCirculation(q: string, containerType: ContainerType | '', page: number) {
+    return this.request<Paged<CirculationRow>>('/api/containers/circulation?' + query({ q, containerType, page }));
+  }
+  containerDamages(q: string, containerType: ContainerType | '', status: string, page: number) {
+    return this.request<Paged<ContainerDamageRow>>('/api/containers/damages?' + query({ q, containerType, status, page }));
+  }
+  reportDamage(body: { memberId: string; containerType: ContainerType; quantity: number; reason: string; idempotencyKey: string }) {
+    return this.post<{ damageNo: string }>('/api/containers/damages', body);
+  }
+  scrapDamage(id: string, body: { reason: string; idempotencyKey: string }) {
+    return this.post<{ deductedAmount: number }>(`/api/containers/damages/${id}/scrap`, body);
   }
 
   // Reports

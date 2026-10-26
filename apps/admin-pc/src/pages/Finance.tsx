@@ -4,6 +4,8 @@ import { Dialog, Icon, useDialogs } from '@kunlun/ui';
 import { DateFilterSelect, EmptyRow, textMatch, useExport, useOperations } from '../common';
 import { useAdminData } from '../data';
 
+const FLOW_LABELS: Record<string, string> = { COLLECT: '交押金', REFUND: '退押金', DEDUCT: '报废扣押金' };
+
 export function Finance() {
   const { finance, overview, recharges, deposits } = useAdminData();
   const dialogs = useDialogs();
@@ -27,7 +29,7 @@ export function Finance() {
     </div>
     <div className="stats-grid">
       <div className="stat-card"><div className="stat-top">水费充值累计</div><div className="stat-value">¥ {money(revenue)}</div><div className="stat-foot">退款 ¥{money(finance?.rechargeRefundedTotal ?? 0)} · 水费净收 ¥{money(finance?.rechargeNetReceived ?? 0)}</div></div>
-      <div className="stat-card"><div className="stat-top">押金收支净额</div><div className="stat-value">¥ {money(depositIn - depositOut)}</div><div className="stat-foot">收押 {finance?.depositCollectCount ?? 0} 笔 (¥{depositIn.toFixed(0)}) · 退押 {finance?.depositRefundCount ?? 0} 笔 (¥{depositOut.toFixed(0)})</div></div>
+      <div className="stat-card"><div className="stat-top">押金收支净额</div><div className="stat-value">¥ {money(depositIn - depositOut)}</div><div className="stat-foot">收押 {finance?.depositCollectCount ?? 0} 笔 (¥{depositIn.toFixed(0)}) · 退押 {finance?.depositRefundCount ?? 0} 笔 (¥{depositOut.toFixed(0)}) · 报废扣押 ¥{money(finance?.depositDeductedTotal ?? 0)}</div></div>
       <div className="stat-card"><div className="stat-top">在池未退押金总额</div><div className="stat-value">¥ {money(finance?.unrefundedDepositPoolTotal ?? 0)}</div><div className="stat-foot">{finance?.reconciledZeroDiff ? '与收退流水零误差对齐' : '对账校验中'}</div></div>
       <div className="stat-card"><div className="stat-top">当前可退押金</div><div className="stat-value">¥ {money(overview?.refundableDeposit ?? 0)}</div><div className="stat-foot">已扣除会员实际持有容器占用押金</div></div>
     </div>
@@ -69,7 +71,7 @@ export function Finance() {
                 <tr key={d.docNo}>
                   <td><span className="order-no">{d.docNo}</span><br /><small style={{ color: 'var(--muted)' }}>{shortDateTime(d.createdAt)}</small></td>
                   <td><b>{d.memberName}</b></td>
-                  <td><span className={`tag ${d.flowType === 'COLLECT' ? 'green' : 'orange'}`}>{d.flowType === 'COLLECT' ? '交押金' : '退押金'}</span></td>
+                  <td><span className={`tag ${d.flowType === 'COLLECT' ? 'green' : 'orange'}`}>{FLOW_LABELS[d.flowType] ?? d.flowType}</span></td>
                   <td>{containerLabel(d.containerType)} × {d.qty}</td>
                   <td>¥ {money(d.unitPrice)}</td>
                   <td><b>{d.flowType === 'COLLECT' ? '+' : '-'}¥ {money(d.amount)}</b></td>
