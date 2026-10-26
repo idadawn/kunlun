@@ -1,0 +1,250 @@
+:root {
+  --bg-page: #f4fbf8;
+  --bg-card: #ffffff;
+  --bg-soft: #eaf6f1;
+  --brand-primary: #0b8f6a;
+  --brand-primary-dark: #076c50;
+  --brand-aqua: #0ea5a4;
+  --text-main: #0f2922;
+  --text-muted: #527067;
+  --border-light: #d5ece3;
+  --danger: #dc2626;
+  --warning: #d97706;
+  --success: #059669;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg-page);
+  color: var(--text-main);
+  line-height: 1.5;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 256px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: linear-gradient(180deg, #0b3b2f 0%, #072820 100%);
+  color: #fff;
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.brand-box {
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.brand-title {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.brand-sub {
+  font-size: 12px;
+  color: #9ce6cd;
+  margin-top: 4px;
+}
+
+.nav-btn {
+  width: 100%;
+  text-align: left;
+  padding: 11px 14px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: #d1fae5;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.nav-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.nav-btn.active {
+  background: var(--brand-primary);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(11, 143, 106, 0.35);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.topbar {
+  background: #fff;
+  border-bottom: 1px solid var(--border-light);
+  padding: 14px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.content {
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  padding: 18px 20px;
+  box-shadow: 0 2px 8px rgba(11, 143, 106, 0.04);
+}
+
+.kpi-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.kpi-val {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--brand-primary-dark);
+  margin-top: 6px;
+}
+
+.kpi-foot {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 15px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--brand-primary);
+  color: #fff;
+}
+
+.btn:hover {
+  background: var(--brand-primary-dark);
+}
+
+.btn-outline {
+  background: #fff;
+  color: var(--brand-primary-dark);
+  border-color: var(--border-light);
+}
+
+.btn-outline:hover {
+  background: var(--bg-soft);
+}
+
+.btn-danger {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.input, .select {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  font-size: 13px;
+  outline: none;
+  background: #fff;
+}
+
+.input:focus, .select:focus {
+  border-color: var(--brand-primary);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th, td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-light);
+}
+
+th {
+  color: var(--text-muted);
+  font-weight: 600;
+  background: var(--bg-soft);
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-green {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.badge-amber {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.badge-blue {
+  background: #cffafe;
+  color: #155e75;
+}
+
+.toast {
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: #ecfdf5;
+  border: 1px solid #6ee7b7;
+  color: #065f46;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.toast-error {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}

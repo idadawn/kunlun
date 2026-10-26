@@ -1,0 +1,169 @@
+:root {
+  --bg-stage: #e8f5f0;
+  --brand-primary: #0b8f6a;
+  --brand-primary-dark: #076c50;
+  --brand-aqua: #0ea5a4;
+  --text-main: #0f2922;
+  --text-muted: #527067;
+  --border-light: #d5ece3;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  background: radial-gradient(circle at top, #f0fbf7 0%, #dcf2ea 100%);
+  color: var(--text-main);
+  min-height: 100vh;
+}
+
+.stage {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 20px 16px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.mode-bar {
+  background: #fff;
+  border: 1px solid var(--border-light);
+  padding: 10px 16px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 4px 16px rgba(11, 143, 106, 0.08);
+}
+
+.pill-btn {
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.pill-btn.active {
+  background: var(--brand-primary);
+  color: #fff;
+}
+
+.phone-frame {
+  width: 396px;
+  min-height: 780px;
+  background: #f5fbf9;
+  border-radius: 42px;
+  border: 10px solid #122b24;
+  box-shadow: 0 24px 56px rgba(11, 61, 46, 0.22);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.wx-header {
+  background: linear-gradient(135deg, #0b8f6a 0%, #0ea5a4 100%);
+  color: #fff;
+  padding: 40px 16px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.wx-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.wx-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 12px;
+}
+
+.phone-body {
+  flex: 1;
+  padding: 14px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mp-card {
+  background: #fff;
+  border: 1px solid var(--border-light);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 2px 8px rgba(11, 143, 106, 0.04);
+}
+
+.ticket-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ticket-box {
+  background: #f2fbf7;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.mp-btn {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: none;
+  background: var(--brand-primary);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mp-btn-outline {
+  background: #eef8f4;
+  color: var(--brand-primary-dark);
+  border: 1px solid var(--border-light);
+}
+
+.mp-input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  font-size: 13px;
+}
+
+.mp-toast {
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #6ee7b7;
+}
+
+.mp-toast.err {
+  background: #fef2f2;
+  color: #991b1b;
+  border-color: #fca5a5;
+}
