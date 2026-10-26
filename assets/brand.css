@@ -114,42 +114,10 @@ a{color:var(--brand-600);text-decoration:none}
 .gq-toast.show{opacity:1;transform:translate(-50%,0)}
 .gq-toast .icon{color:var(--brand-300)}
 
-/* 悬浮演示切换胶囊（默认右下角极简收起，不占顶部空间、不破坏单端沉浸感） */
-.gq-dock{position:fixed;right:18px;bottom:18px;z-index:9000;display:flex;align-items:center;gap:4px;padding:5px;border-radius:999px;background:rgba(15,23,42,.82);backdrop-filter:blur(12px);box-shadow:0 10px 30px rgba(15,23,42,.22);border:1px solid rgba(255,255,255,.12);font-size:12px}
-.gq-dock a{color:#cbd5e1;padding:6px 12px;border-radius:999px;transition:.15s;font-weight:500;display:inline-flex;align-items:center;gap:5px}
-.gq-dock a:hover{color:#fff}
-.gq-dock a.active{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 2px 6px rgba(0,0,0,.12)}
-.gq-dock .home-link{padding:6px 10px;color:#7edac8}
-
-/* =========================================================
-   移动端独立展示舞台（H5 端专用：居中样机 + 顶部页面快捷切换器）
-   ========================================================= */
-.mobile-showcase{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px 36px;background:
-  radial-gradient(800px 420px at 50% 0%,rgba(14,165,233,.09),transparent 70%),
-  radial-gradient(700px 420px at 15% 90%,rgba(16,152,128,.08),transparent 70%),
-  #f1f5f9}
-.showcase-bar{display:flex;align-items:center;gap:14px;margin-bottom:18px;padding:6px 8px 6px 16px;background:#fff;border:1px solid var(--line);border-radius:999px;box-shadow:var(--shadow-sm)}
-.showcase-brand{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink);font-weight:600;padding-right:6px;border-right:1px solid var(--line)}
-.showcase-brand .dot{width:8px;height:8px;border-radius:50%;background:var(--brand-500)}
-.showcase-BrandSub{color:var(--muted);font-weight:400;font-size:12px}
-.showcase-tabs{display:flex;gap:4px}
-.showcase-tabs button{border:0;background:transparent;color:var(--muted);padding:6px 13px;border-radius:999px;font-size:12.5px;font-weight:500;transition:.15s}
-.showcase-tabs button:hover{color:var(--ink);background:var(--line-soft)}
-.showcase-tabs button.active{background:var(--brand-500);color:#fff;font-weight:600}
-
-.phone{width:392px;height:828px;max-height:calc(100vh - 110px);min-height:640px;border-radius:50px;background:#1e293b;padding:11px;box-shadow:0 30px 70px -12px rgba(15,23,42,.24),0 0 0 1px rgba(15,23,42,.08),inset 0 0 0 2px #334155;position:relative;flex:none}
-.phone-screen{width:100%;height:100%;border-radius:40px;overflow:hidden;background:var(--bg);position:relative;display:flex;flex-direction:column}
-.phone-notch{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:104px;height:26px;border-radius:999px;background:#0f172a;z-index:30}
-.status-bar{height:48px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 28px 7px;font-size:12.5px;font-weight:600;color:var(--ink);position:relative;z-index:20}
-
-/* 手机真机或窄屏直接全屏展示，无外壳 */
-@media (max-width:500px){
-  .mobile-showcase{padding:0;background:var(--bg)}
-  .showcase-bar{display:none}
-  .phone{width:100vw;height:100vh;max-height:none;min-height:0;border-radius:0;padding:0;box-shadow:none}
-  .phone-screen{border-radius:0}
-  .phone-notch{display:none}
-}
+/* 移动端业务页面：使用原内容布局，移除设备样机及展示舞台。 */
+.mobile-showcase{min-height:100dvh;background:var(--bg)}
+.phone{width:100%;height:100dvh;min-height:0;position:relative}
+.phone-screen{width:100%;height:100%;overflow:hidden;background:var(--bg);position:relative;display:flex;flex-direction:column}
 
 /* =========================================================
    微信小程序原生顶栏 + 右上角胶囊按钮（WeChat Mini Program UI）
@@ -176,5 +144,3 @@ a{color:var(--brand-600);text-decoration:none}
 @media(max-width:600px){.login-gate{padding:20px}.login-card{padding:24px}}
 
 .membership-dialog{width:min(640px,94vw);max-height:88vh;padding:24px;border:1px solid var(--line);border-radius:18px;color:var(--ink);background:#fff}.membership-dialog::backdrop{background:#102c2266}.membership-dialog header,.membership-heading,.membership-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.membership-dialog h2{font-size:20px;margin:0}.membership-dialog h3{font-size:15px}.membership-dialog header{margin-bottom:20px}.membership-dialog footer{display:flex;justify-content:flex-end;margin-top:18px}.membership-fields{display:flex;flex-direction:column;gap:10px}.membership-fields label{font-size:13px;font-weight:600}.membership-fields .select,.membership-fields .input{width:100%}.membership-summary{padding:16px;border-radius:12px;background:var(--brand-50);color:var(--brand-700);line-height:1.8}.membership-note{color:var(--muted);font-size:12px;line-height:1.7}.membership-card{border:1px solid var(--line);border-radius:12px;padding:16px;background:#fff}.membership-card p{font-size:13px;line-height:1.7;margin:8px 0}.membership-card small{font-size:11px;color:var(--muted);overflow-wrap:anywhere}.membership-card>.tag{float:right}.membership-heading{margin:26px 0 16px}.membership-actions{display:flex;gap:8px;flex-wrap:wrap}.membership-card .btn{margin-top:8px}
-
-.auth-pending .showcase-tabs,.auth-pending .wx-capsule{visibility:hidden}

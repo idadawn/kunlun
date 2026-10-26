@@ -4,12 +4,13 @@
 
 基于 [Qian](https://github.com/idadawn/qian) 平台插件规范与 [Kun](https://github.com/idadawn/kun)（.NET 10 云原生框架）构建的水站数字化会员管理系统，采用 **Monorepo** 架构组织后端服务、共享领域模型、管理端 PC 与微信小程序。
 
-## 在线交互原型（三端独立演示）
+## 业务入口
 
-- [演示中心总入口 (`index.html`)](./index.html)
-- [管理端 PC (`admin.html`)](./admin.html) —— 全屏桌面工作台
-- [员工端微信小程序 (`staff.html`)](./staff.html) —— 微信小程序样机 + 顶部流程快切
-- [会员端微信小程序 (`member.html`)](./member.html) —— 微信小程序样机 + 顶部流程快切
+- [管理后台 (`admin.html`)](./admin.html)：管理员登录后办理会员、订单、账务与设置。
+- [员工工作台 (`staff.html`)](./staff.html)：独立员工登录入口，适配移动设备。
+- [会员中心 (`member.html`)](./member.html)：会员登录后查看本人权益与预约用水。
+
+入口之间不展示角色切换导航；根入口跳转管理后台。页面沿用设计 HTML 的内容布局，移除样机外壳、演示目录和模拟成功操作。
 
 ## 文档导航 (`docs/`)
 
