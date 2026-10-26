@@ -46,7 +46,7 @@ export function Deposits() {
     {standards && (
       <div className="ledger-hint">
         <Icon name="info" size="sm" />
-        <span>现行押金标准：{standards}。调整标准只影响之后的收款，历史押金仍按原单价退还。</span>
+        <span>现行押金标准：{standards}。可在「水品与押金标准」调整，只影响之后的收款，历史押金仍按原单价退还。</span>
         <button type="button" className="text-btn" onClick={() => go('products')}>调整标准 ›</button>
       </div>
     )}

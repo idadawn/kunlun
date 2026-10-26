@@ -10,11 +10,7 @@
 .nav-item:hover{background:var(--line-soft);color:var(--ink)}
 .nav-item.active{background:var(--brand-50);color:var(--brand-600);font-weight:600}
 .nav-item .nav-badge{margin-left:auto;background:var(--orange-500);color:#fff;border-radius:999px;font-size:10.5px;min-width:20px;text-align:center;padding:1px 6px;font-weight:700}
-.sidebar-bottom{margin-top:auto;padding:14px 6px 0;border-top:1px solid var(--line)}
-.station{display:flex;align-items:center;gap:10px;padding:10px 11px;border-radius:12px;background:var(--bg);border:1px solid var(--line-soft)}
-.station-avatar{width:34px;height:34px;background:var(--brand-50);border-radius:9px;display:grid;place-items:center;color:var(--brand-600);flex:none}
-.station b{display:block;color:var(--ink);font-size:13px}
-.station small{font-size:11px;color:var(--muted)}
+.nav-item .nav-badge.warn{background:var(--gold-500)}
 
 .main-wrap{overflow:auto;min-width:0;background:var(--bg)}
 .topbar{height:64px;padding:0 30px;display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.88);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:9;backdrop-filter:blur(12px)}
