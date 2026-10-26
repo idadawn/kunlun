@@ -20,8 +20,8 @@ type TabKey = 'dashboard' | 'members' | 'orders' | 'containers' | 'plans' | 'exp
 
 export function App() {
   const [session, setSession] = useState<AuthSession | null>(null);
-  const [account, setAccount] = useState('YG0001');
-  const [password, setPassword] = useState('Kunlun@2026');
+  const [account, setAccount] = useState('');
+  const [password, setPassword] = useState('');
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
   const [toast, setToast] = useState<{ text: string; isError?: boolean } | null>(null);
 
@@ -83,7 +83,7 @@ export function App() {
 
   const handleLogin = async (acc = account, pwd = password) => {
     try {
-      const s = await api.staffLogin(acc, pwd);
+      const s = await api.staffLogin(acc, pwd, true);
       setSession(s);
       notify(`欢迎回来，${s.displayName}（${s.role}）！已连接 k3s PostgreSQL 实库`);
       await refreshAll(s);
@@ -92,9 +92,7 @@ export function App() {
     }
   };
 
-  useEffect(() => {
-    handleLogin('YG0001', 'Kunlun@2026');
-  }, []);
+
 
   if (!session) {
     return (
@@ -106,19 +104,12 @@ export function App() {
             <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>{KUNLUN_BRAND.slogan} · 管理端 PC 实库工作台</p>
           </div>
           {toast && <div className={`toast ${toast.isError ? 'toast-error' : ''}`}>{toast.text}</div>}
-          <label style={{ fontSize: 13, fontWeight: 600 }}>员工工号 / 手机号</label>
+          <label style={{ fontSize: 13, fontWeight: 600 }}>用户名</label>
           <input className="input" value={account} onChange={(e) => setAccount(e.target.value)} />
           <label style={{ fontSize: 13, fontWeight: 600 }}>登录密码</label>
           <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
           <button className="btn" onClick={() => handleLogin()}>登录实库管理台</button>
-          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-            <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { setAccount('YG0001'); handleLogin('YG0001', 'Kunlun@2026'); }}>
-              林站长 (ADMIN)
-            </button>
-            <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { setAccount('YG0012'); handleLogin('YG0012', 'Kunlun@2026'); }}>
-              店员小林 (CLERK)
-            </button>
-          </div>
+
         </div>
       </div>
     );
@@ -157,14 +148,7 @@ export function App() {
         <div style={{ marginTop: 'auto', fontSize: 12, color: '#a7f3d0', borderTop: '1px solid rgba(255,255,255,0.12)', paddingTop: 12 }}>
           <div>当前登录：{session.displayName} ({session.codeOrNo})</div>
           <div>角色：{session.role}（权限 {session.permissions.length} 项）</div>
-          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-            <button className="btn btn-outline" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => handleLogin('YG0001', 'Kunlun@2026')}>
-              切至林站长
-            </button>
-            <button className="btn btn-outline" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => handleLogin('YG0012', 'Kunlun@2026')}>
-              切至店员小林
-            </button>
-          </div>
+          <button onClick={() => { api.setToken(null); setSession(null); setPassword(''); }}>退出登录</button>
         </div>
       </aside>
 

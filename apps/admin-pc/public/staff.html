@@ -120,7 +120,7 @@
       <button data-top-staff="members" onclick="staffNav('members')">查会员</button>
       <button onclick="openSheet('recharge')">水费充值</button>
       <button onclick="openSheet('deposit')">交/退押金</button>
-      <button onclick="openSheet('pickupCode')">取水码核销</button><button onclick="openSheet('wxLogin')">微信登录演示</button>
+      <button onclick="openSheet('pickupCode')">取水码核销</button><button onclick="openSheet('wxLogin')">退出登录</button>
     </div>
   </div>
 
@@ -131,7 +131,7 @@
       <div class="wx-navbar">
         <div class="wx-title">绿麒麟水站·员工工作台 <span class="wx-badge">小程序</span></div>
         <div class="wx-capsule" title="微信小程序胶囊按钮">
-          <button onclick="openSheet('wxLogin')" title="切换微信员工账号"><span class="wx-dots"><span></span><span></span><span></span></span></button>
+          <button onclick="openSheet('wxLogin')" title="账号设置"><span class="wx-dots"><span></span><span></span><span></span></span></button>
           <i></i>
           <button onclick="location.href='index.html'" title="返回演示目录"><span class="wx-bullseye"></span></button>
         </div>
@@ -386,14 +386,7 @@ function openSheet(type,a,b,c,d){
       <div class="summary-box"><div><span>规则说明</span><b>仅更新容器台账，不扣水票、不自动退押金</b></div></div>`,
       `<button class="btn" onclick="closeSheet()">取消</button><button class="btn primary" onclick="closeSheet();GQ.toast('容器领还已登记')">确认登记</button>`);
   }else if(type==='wxLogin'){
-    setSheet('微信小程序 · 员工身份识别',`
-      <div style="text-align:center;padding:8px 0 14px">
-        <div style="width:52px;height:52px;border-radius:14px;background:var(--grad-aqua);display:grid;place-items:center;margin:0 auto 10px;color:#fff;font-weight:700;font-size:20px">麒</div>
-        <b style="font-size:16px;color:var(--ink)">绿麒麟水站 · 员工端小程序</b>
-        <p style="margin:4px 0 0;color:var(--muted);font-size:12px">通过微信绑定手机号自动匹配水站员工白名单与角色权限</p>
-      </div>
-      <button class="wx-auth-btn" onclick="switchStaffRole('CLERK')">微信手机号一键登录 · 店员小林 (CLERK)</button>
-      <button class="btn block" style="margin-top:8px;height:40px" onclick="switchStaffRole('COURIER')">切换为送水员王师傅 (COURIER · 受限权限)</button>`);
+    KunlunLive.logoutStaff();
   }else if(type==='newMember'){
     setSheet('新建会员',`
       <div class="field"><label>会员姓名 *</label><input class="input" id="nmName" placeholder="请输入真实姓名"></div>

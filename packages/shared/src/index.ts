@@ -175,20 +175,17 @@ export class KunlunApiClient {
   }
 
   // M1: Auth & RBAC
-  async staffLogin(account: string, password: string): Promise<AuthSession> {
+  async staffLogin(account: string, password: string, requireAdmin = false): Promise<AuthSession> {
     const session = await this.request<AuthSession>('/api/auth/staff/login', {
       method: 'POST',
-      body: JSON.stringify({ account, password }),
+      body: JSON.stringify({ account, password, requireAdmin }),
     });
     this.token = session.accessToken;
     return session;
   }
 
-  async wechatPhoneLogin(phone: string, wxOpenId?: string, name?: string): Promise<AuthSession> {
-    const session = await this.request<AuthSession>('/api/auth/wechat/phone-login', {
-      method: 'POST',
-      body: JSON.stringify({ phone, wxOpenId, name }),
-    });
+  async memberLogin(account: string, password: string): Promise<AuthSession> {
+    const session = await this.request<AuthSession>('/api/auth/member/login', { method: 'POST', body: JSON.stringify({ account, password }) });
     this.token = session.accessToken;
     return session;
   }

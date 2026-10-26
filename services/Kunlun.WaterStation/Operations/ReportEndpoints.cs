@@ -10,6 +10,13 @@ public static class ReportEndpoints
     public static void MapReportEndpoints(this WebApplication app)
     {
         var api = app.MapGroup("/api");
+        api.AddEndpointFilter(async (context, next) =>
+        {
+            if (context.HttpContext.Request.Path.StartsWithSegments("/api/ledgers") &&
+                (context.HttpContext.User.FindFirstValue("subject_type") != "STAFF" ||
+                 !context.HttpContext.User.HasClaim("perm", KunlunPermissions.MemberRead))) return Results.Forbid();
+            return await next(context);
+        });
 
         // 1. 经营财务对账汇总报表 (AC-17: 充值收款、押金收款、押金退款、未退押金总额分别统计且与明细汇总一致)
         api.MapGet("/reports/finance-summary", async (

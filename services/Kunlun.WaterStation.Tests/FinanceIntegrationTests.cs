@@ -10,13 +10,13 @@ using Xunit;
 namespace Kunlun.WaterStation.Tests;
 
 [Collection("KunlunIntegration")]
-public sealed class FinanceIntegrationTests(WebApplicationFactory<Program> factory)
+public sealed class FinanceIntegrationTests(TestHost factory)
 {
     private readonly HttpClient _client = factory.CreateClient();
 
     private async Task<string> GetAdminTokenAsync()
     {
-        var resp = await _client.PostAsJsonAsync("/api/auth/staff/login", new StaffLoginRequest("YG0001", "Kunlun@2026"));
+        var resp = await _client.PostAsJsonAsync("/api/auth/staff/login", new StaffLoginRequest("YG0001", TestHost.Password));
         var data = await resp.Content.ReadFromJsonAsync<AuthTokenResponse>();
         return data!.AccessToken;
     }

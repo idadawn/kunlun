@@ -251,7 +251,7 @@ td b{color:var(--ink)}
       <div class="top-actions">
         <label class="search-mini"><svg class="icon"><use href="#i-search"/></svg><input placeholder="搜索会员姓名、手机号、水单" onkeydown="globalSearch(event)"></label>
         <button class="icon-btn" onclick="toast('今日有 3 单待接单、2 笔退押金待核对')"><svg class="icon"><use href="#i-bell"/></svg><i class="dot"></i></button>
-        <div class="user" style="cursor:pointer" onclick="openModal('authSwitch')" title="点击切换登录身份与权限"><div class="avatar" id="topAvatar">林</div><div class="user-text"><b id="topUserName">林站长</b><small id="topUserRole">ADMIN · 水站管理员 ▾</small></div></div>
+        <div class="user" style="cursor:pointer" onclick="openModal('authSwitch')" title="退出登录"><div class="avatar" id="topAvatar">林</div><div class="user-text"><b id="topUserName">林站长</b><small id="topUserRole">ADMIN · 水站管理员 ▾</small></div></div>
       </div>
     </div>
 
@@ -690,26 +690,7 @@ function openModal(type){
   if(type==='memberSearch')openMemberSearch();
   if(type==='authSwitch')openAuthSwitch();
 }
-function openAuthSwitch(){
-  setModal('管理端登录身份与 RBAC 权限演示',`
-    <div class="detail-card" style="cursor:pointer" onclick="applyAdminRole('ADMIN','林站长','YG0001')">
-      <div class="member-cell"><div class="member-avatar">林</div><div><b>林站长（YG0001 · ADMIN）</b><small>拥有全部权限：含业务设置、优惠方案、大额退押复核与全量导出</small></div><span class="tag green" style="margin-left:auto">切换</span></div>
-    </div>
-    <div class="detail-card" style="cursor:pointer" onclick="applyAdminRole('CLERK','小林','YG0012')">
-      <div class="member-cell"><div class="member-avatar" style="background:var(--aqua-50);color:var(--aqua-600)">林</div><div><b>小林（YG0012 · CLERK 驻店店员）</b><small>允许查/建会员、充值、押金、水单；禁止业务设置与全量报表导出（AC-16）</small></div><span class="tag aqua" style="margin-left:auto">切换</span></div>
-    </div>
-    <div class="form-note">${ico('shield')}已对接 k3s PostgreSQL (10.78.1.209:5432/kunlun) 真实 JWT 与 token_version 秒级吊销校验。</div>`);
-}
-function applyAdminRole(role,name,no){
-  $('#topUserName').textContent=name;
-  $('#topAvatar').textContent=name[0];
-  $('#topUserRole').textContent=`${role} · ${no} ▾`;
-  const settingsBtn=document.querySelector('[data-page="settings"]');
-  if(settingsBtn) settingsBtn.style.display=role==='ADMIN'?'flex':'none';
-  if(role!=='ADMIN' && $('#page-settings').classList.contains('active')) showPage('dashboard');
-  closeModal();
-  toast(`已切换为 ${name} (${role})，越权菜单已实时按 RBAC 过滤`);
-}
+function openAuthSwitch(){ KunlunLive.logoutAdmin(); }
 
 function openRecharge(){
   window.rechargeDesc='配送桶装水票：购 10 桶 + 赠 2 桶'; window.rechargeGet=12;

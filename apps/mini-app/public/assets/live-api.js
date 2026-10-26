@@ -6,7 +6,8 @@
    3. 登录后所有 KPI 卡片、汇总条、表格、抽屉、水票与容器数据 100% 来自 k3s PostgreSQL
    ========================================================================= */
 (function () {
-  const API_BASE = window.KUNLUN_API_BASE || 'http://127.0.0.1:5180';
+  const API_BASE = window.KUNLUN_API_BASE || '';
+  document.documentElement.classList.add('auth-pending');
 
   const Live = (window.KunlunLive = {
     baseUrl: API_BASE,
@@ -28,6 +29,9 @@
       const res = await fetch(`${this.baseUrl}${path}`, { ...options, headers });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+        if (res.status === 401 && this.token && !path.includes('/login')) {
+          this.clearSession(); location.reload();
+        }
         throw new Error(err.message || err.error || `请求失败 (${res.status})`);
       }
       return res.json();
@@ -43,35 +47,33 @@
       return s;
     },
 
-    async wechatPhoneLogin(phone, name) {
-      const s = await this.req('/api/auth/wechat/phone-login', {
-        method: 'POST',
-        body: JSON.stringify({ phone, wxOpenId: `wx_${phone}`, name }),
+    async memberLogin(account, password) {
+      const s = await this.req('/api/auth/member/login', { method: 'POST', body: JSON.stringify({ account, password }) });
+      this.token = s.accessToken; this.session = s; return s;
+    },
+    clearSession() {
+      ['admin', 'staff', 'member'].forEach(x => sessionStorage.removeItem(`kunlun_${x}_session`));
+      this.token = null; this.session = null;
+    },
+    async logout() {
+      try { await this.req('/api/auth/logout', { method: 'POST' }); }
+      catch (e) { if (this.token) { window.GQ?.toast('退出失败，请重试：' + e.message); return; } }
+      this.clearSession(); location.reload();
+    },
+    logoutAdmin() { return this.logout(); },
+    logoutStaff() { return this.logout(); },
+    logoutMember() { return this.logout(); },
+    async changePassword() {
+      showAccountDialog('修改密码', '<label for="oldPassword">原密码</label><input id="oldPassword" class="input" type="password" autocomplete="current-password" required><label for="newPassword">新密码</label><input id="newPassword" class="input" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>', async form => {
+        await this.req('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword: form.querySelector('#oldPassword').value, newPassword: form.querySelector('#newPassword').value }) });
+        this.clearSession(); location.reload();
       });
-      this.token = s.accessToken;
-      this.session = s;
-      return s;
     },
-
-    logoutAdmin() {
-      sessionStorage.removeItem('kunlun_admin_session');
-      this.token = null;
-      this.session = null;
-      location.reload();
-    },
-
-    logoutStaff() {
-      sessionStorage.removeItem('kunlun_staff_session');
-      this.token = null;
-      this.session = null;
-      location.reload();
-    },
-
-    logoutMember() {
-      sessionStorage.removeItem('kunlun_member_session');
-      this.token = null;
-      this.session = null;
-      location.reload();
+    setMemberCredentials(id) {
+      showAccountDialog('设置会员登录账号', '<label for="credentialUsername">用户名</label><input id="credentialUsername" class="input" autocomplete="off" pattern="[A-Za-z0-9][A-Za-z0-9_.-]{2,31}" required><label for="credentialPassword">初始密码 / 重置密码</label><input id="credentialPassword" class="input" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>', async form => {
+        await this.req(`/api/accounts/MEMBER/${id}/credentials`, { method: 'PUT', body: JSON.stringify({ username: form.querySelector('#credentialUsername').value, password: form.querySelector('#credentialPassword').value }) });
+        window.GQ?.toast('账号已保存，请将用户名和密码告知会员');
+      });
     },
 
     /* ---------------------------------------------------------------------
@@ -84,10 +86,10 @@
           this.req('/api/plans'),
           this.req('/api/orders'),
           this.req('/api/containers/summary'),
-          this.req('/api/reports/finance-summary'),
-          this.req('/api/ledgers/recharges'),
-          this.req('/api/ledgers/deposits'),
-          this.req('/api/ledgers/containers'),
+          this.session.permissions.includes('kunlun.waterstation:report:export') ? this.req('/api/reports/finance-summary') : Promise.resolve(null),
+          this.session.permissions.includes('kunlun.waterstation:report:export') ? this.req('/api/ledgers/recharges') : Promise.resolve([]),
+          this.session.permissions.includes('kunlun.waterstation:report:export') ? this.req('/api/ledgers/deposits') : Promise.resolve([]),
+          this.session.permissions.includes('kunlun.waterstation:report:export') ? this.req('/api/ledgers/containers') : Promise.resolve([]),
         ]);
       this.members = members;
       this.plans = plans;
@@ -478,290 +480,80 @@
   /* -----------------------------------------------------------------------
      1. 管理端 PC 登录门禁界面（仅限 ADMIN 管理员登录）
      ----------------------------------------------------------------------- */
-  function showAdminLoginGate() {
-    const appEl = document.getElementById('adminApp');
-    if (appEl) appEl.style.display = 'none';
-
-    let gate = document.getElementById('kunlunLoginGate');
-    if (!gate) {
-      gate = document.createElement('div');
-      gate.id = 'kunlunLoginGate';
-      gate.style.cssText =
-        'min-height:100vh;display:grid;grid-template-columns:1.15fr 1fr;background:var(--bg);font-family:var(--font)';
-      gate.innerHTML = `
-        <div style="background:var(--grad-card);color:#fff;padding:56px 64px;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden">
-          <div style="position:relative;z-index:2">
-            <div style="display:inline-flex;align-items:center;gap:10px;padding:6px 14px;border-radius:999px;background:rgba(255,255,255,.14);font-size:12.5px;font-weight:600">
-              <span>绿麒麟水站｜小分子团弱碱活性水</span>
-            </div>
-            <h1 style="font-size:36px;margin:24px 0 12px;letter-spacing:1px">绿麒麟·水站会员管理系统</h1>
-            <p style="font-size:16px;opacity:.9;letter-spacing:2px;margin:0">鲜活每一滴，好水到你家</p>
-            <div style="margin-top:36px;display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:520px">
-              <div style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);padding:16px;border-radius:14px">
-                <b style="display:block;font-size:14px;margin-bottom:4px">四账独立核算</b>
-                <small style="opacity:.82;font-size:12px">水费实收、四类水票、批次押金、五维容器恒等式严格分离</small>
-              </div>
-              <div style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);padding:16px;border-radius:14px">
-                <b style="display:block;font-size:14px;margin-bottom:4px">k3s PostgreSQL 实库</b>
-                <small style="opacity:.82;font-size:12px">直连 10.78.1.209:5432/kunlun · 全部数据真实读写无硬编码</small>
-              </div>
-            </div>
-          </div>
-          <div style="font-size:12px;opacity:.75;position:relative;z-index:2">
-            管理端 PC 仅对水站管理员（ADMIN）开放 · 店员与送水员请使用微信小程序端
-          </div>
-        </div>
-
-        <div style="display:flex;align-items:center;justify-content:center;padding:40px">
-          <div class="card" style="width:100%;max-width:420px;padding:34px 36px;border-radius:20px;box-shadow:var(--shadow-lg)">
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:22px">
-              <div class="gq-logo" style="width:44px;height:44px">${window.GQ?.logoSvg || '麒'}</div>
-              <div>
-                <h2 style="margin:0;font-size:20px;color:var(--ink)">管理员登录</h2>
-                <small style="color:var(--muted);font-size:12px">管理端 PC · 仅限水站管理员 (ADMIN)</small>
-              </div>
-            </div>
-
-            <div id="loginErrBox" style="display:none;padding:10px 12px;border-radius:10px;background:var(--red-50);color:var(--red-500);font-size:12.5px;margin-bottom:14px;font-weight:500"></div>
-
-            <div class="field">
-              <label>管理员账号（工号或手机号）</label>
-              <input id="adminLoginAcc" class="input" value="YG0001" placeholder="请输入管理员账号 YG0001 或 13800000001">
-            </div>
-            <div class="field">
-              <label>登录密码</label>
-              <input id="adminLoginPwd" class="input" type="password" value="Kunlun@2026" placeholder="请输入登录密码">
-            </div>
-
-            <button id="adminLoginBtn" class="btn primary lg block" style="margin-top:8px">登录进入管理后台</button>
-
-            <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line-soft);font-size:12px;color:var(--muted)">
-              <div style="margin-bottom:8px;font-weight:600;color:var(--text)">实库账号测试快捷填入：</div>
-              <div style="display:flex;gap:8px">
-                <button type="button" class="btn sm" style="flex:1" id="fillAdminBtn">林站长 (YG0001 · ADMIN)</button>
-                <button type="button" class="btn sm" style="flex:1" id="fillClerkBtn" title="测试非管理员被拒绝登录">测试店员拦截 (YG0012)</button>
-              </div>
-            </div>
-          </div>
-        </div>`;
-      document.body.prepend(gate);
-
-      document.getElementById('fillAdminBtn').onclick = () => {
-        document.getElementById('adminLoginAcc').value = 'YG0001';
-        document.getElementById('adminLoginPwd').value = 'Kunlun@2026';
-      };
-      document.getElementById('fillClerkBtn').onclick = () => {
-        document.getElementById('adminLoginAcc').value = 'YG0012';
-        document.getElementById('adminLoginPwd').value = 'Kunlun@2026';
-      };
-
-      const doLogin = async () => {
-        const acc = document.getElementById('adminLoginAcc').value.trim();
-        const pwd = document.getElementById('adminLoginPwd').value;
-        const errBox = document.getElementById('loginErrBox');
-        const btn = document.getElementById('adminLoginBtn');
-        errBox.style.display = 'none';
-        btn.disabled = true;
-        btn.textContent = '正在校验管理员身份...';
-        try {
-          const s = await Live.staffLogin(acc, pwd, true); // requireAdmin = true
-          sessionStorage.setItem('kunlun_admin_session', JSON.stringify(s));
-          gate.remove();
-          if (appEl) appEl.style.display = 'grid';
-          await Live.syncAdminAll();
-          hookAdminActions();
-          window.GQ?.toast(`欢迎您，${s.displayName}！已加载 k3s PostgreSQL 实库数据`);
-        } catch (e) {
-          errBox.textContent = e.message || '登录失败';
-          errBox.style.display = 'block';
-        } finally {
-          btn.disabled = false;
-          btn.textContent = '登录进入管理后台';
-        }
-      };
-
-      document.getElementById('adminLoginBtn').onclick = doLogin;
-      document.getElementById('adminLoginPwd').onkeydown = (e) => {
-        if (e.key === 'Enter') doLogin();
-      };
-    }
+  function showAccountDialog(title, fields, save) {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'account-dialog';
+    dialog.innerHTML = `<form><h3>${title}</h3><div class="account-fields">${fields}</div><p role="alert" class="account-error"></p><div class="account-buttons"><button type="button" class="btn">取消</button><button class="btn primary" type="submit">保存</button></div></form>`;
+    dialog.querySelector('button[type=button]').onclick = () => dialog.close();
+    dialog.addEventListener('close', () => dialog.remove());
+    dialog.querySelector('form').onsubmit = async e => {
+      e.preventDefault(); const btn = dialog.querySelector('button[type=submit]'); btn.disabled = true;
+      try { await save(e.target); dialog.close(); }
+      catch (err) { dialog.querySelector('[role=alert]').textContent = err.message; }
+      finally { btn.disabled = false; }
+    };
+    document.body.append(dialog); dialog.showModal();
   }
 
-  /* -----------------------------------------------------------------------
-     2. 会员端小程序 & 员工端小程序手机壳内登录门禁
-     ----------------------------------------------------------------------- */
-  function showMemberLoginGate() {
-    const scrollEl = document.getElementById('memberScroll');
-    const bottomNav = document.querySelector('.phone-screen .h5-bottom');
-    if (scrollEl) scrollEl.style.display = 'none';
-    if (bottomNav) bottomNav.style.display = 'none';
-
-    const screen = document.querySelector('.phone-screen');
-    if (!screen) return;
-
-    let gate = document.getElementById('kunlunMemberGate');
-    if (!gate) {
-      gate = document.createElement('div');
-      gate.id = 'kunlunMemberGate';
-      gate.style.cssText = 'flex:1;padding:24px 20px;display:flex;flex-direction:column;justify-content:center;background:#fff';
-      gate.innerHTML = `
-        <div style="text-align:center;margin-bottom:22px">
-          <div class="gq-logo" style="width:56px;height:56px;border-radius:16px;margin:0 auto 12px">${window.GQ?.logoSvg || '麒'}</div>
-          <h3 style="margin:0;font-size:18px;color:var(--ink)">绿麒麟水站 · 会员小程序</h3>
-          <p style="margin:6px 0 0;font-size:12px;color:var(--muted)">鲜活每一滴，好水到你家</p>
-        </div>
-        <div id="mLoginErr" style="display:none;padding:8px 10px;border-radius:8px;background:var(--red-50);color:var(--red-500);font-size:12px;margin-bottom:10px"></div>
-        <div class="field">
-          <label>微信授权手机号（老会员自动绑定 / 新手机号自动建档）</label>
-          <input id="mLoginPhone" class="input" value="13800138000" maxlength="11" placeholder="请输入 11 位手机号">
-        </div>
-        <div class="field">
-          <label>会员姓名（新手机号首次注册时使用）</label>
-          <input id="mLoginName" class="input" value="陈静" placeholder="选填姓名">
-        </div>
-        <button id="mLoginSubmit" class="wx-auth-btn" style="margin-top:6px">微信手机号一键登录</button>
-        <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--line-soft);font-size:11.5px;color:var(--muted)">
-          <div style="margin-bottom:6px">快捷选择实库会员手机号：</div>
-          <div style="display:flex;gap:6px">
-            <button type="button" class="btn sm" style="flex:1" onclick="document.getElementById('mLoginPhone').value='13800138000';document.getElementById('mLoginName').value='陈静'">陈静 (13800138000)</button>
-            <button type="button" class="btn sm" style="flex:1" onclick="document.getElementById('mLoginPhone').value='13911223344';document.getElementById('mLoginName').value='周明'">周明 (13911223344)</button>
-          </div>
-        </div>`;
-      screen.appendChild(gate);
-
-      document.getElementById('mLoginSubmit').onclick = async () => {
-        const phone = document.getElementById('mLoginPhone').value.trim();
-        const name = document.getElementById('mLoginName').value.trim() || '微信会员';
-        const errEl = document.getElementById('mLoginErr');
-        errEl.style.display = 'none';
-        try {
-          const s = await Live.wechatPhoneLogin(phone, name);
-          sessionStorage.setItem('kunlun_member_session', JSON.stringify(s));
-          gate.remove();
-          if (scrollEl) scrollEl.style.display = 'block';
-          if (bottomNav) bottomNav.style.display = 'grid';
-          await syncMemberMiniApp();
-          hookMemberActions();
-          window.GQ?.toast(`登录成功：${s.displayName} (${s.codeOrNo})`);
-        } catch (e) {
-          errEl.textContent = e.message;
-          errEl.style.display = 'block';
-        }
-      };
-    }
+  function pageKind() {
+    return document.getElementById('adminApp') ? 'admin' : document.getElementById('staffScroll') ? 'staff' : 'member';
   }
-
-  function showStaffLoginGate() {
-    const scrollEl = document.getElementById('staffScroll');
-    const bottomNav = document.querySelector('.phone-screen .h5-bottom');
-    if (scrollEl) scrollEl.style.display = 'none';
-    if (bottomNav) bottomNav.style.display = 'none';
-
-    const screen = document.querySelector('.phone-screen');
-    if (!screen) return;
-
-    let gate = document.getElementById('kunlunStaffGate');
-    if (!gate) {
-      gate = document.createElement('div');
-      gate.id = 'kunlunStaffGate';
-      gate.style.cssText = 'flex:1;padding:24px 20px;display:flex;flex-direction:column;justify-content:center;background:#fff';
-      gate.innerHTML = `
-        <div style="text-align:center;margin-bottom:20px">
-          <div class="gq-logo" style="width:54px;height:54px;border-radius:15px;margin:0 auto 10px">${window.GQ?.logoSvg || '麒'}</div>
-          <h3 style="margin:0;font-size:18px;color:var(--ink)">绿麒麟水站 · 员工端小程序</h3>
-          <p style="margin:5px 0 0;font-size:12px;color:var(--muted)">店员 / 送水员移动履约工作台</p>
-        </div>
-        <div id="sLoginErr" style="display:none;padding:8px 10px;border-radius:8px;background:var(--red-50);color:var(--red-500);font-size:12px;margin-bottom:10px"></div>
-        <div class="field">
-          <label>员工工号 / 手机号</label>
-          <input id="sLoginAcc" class="input" value="YG0012" placeholder="YG0012 或 YG0008">
-        </div>
-        <div class="field">
-          <label>登录密码</label>
-          <input id="sLoginPwd" class="input" type="password" value="Kunlun@2026">
-        </div>
-        <button id="sLoginSubmit" class="btn primary lg block" style="margin-top:6px">登录员工工作台</button>
-        <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--line-soft);font-size:11.5px;color:var(--muted)">
-          <div style="margin-bottom:6px">快捷切换实库员工账号：</div>
-          <div style="display:flex;gap:6px">
-            <button type="button" class="btn sm" style="flex:1" onclick="document.getElementById('sLoginAcc').value='YG0012'">店员小林 (YG0012)</button>
-            <button type="button" class="btn sm" style="flex:1" onclick="document.getElementById('sLoginAcc').value='YG0008'">送水员王师傅 (YG0008)</button>
-          </div>
-        </div>`;
-      screen.appendChild(gate);
-
-      document.getElementById('sLoginSubmit').onclick = async () => {
-        const acc = document.getElementById('sLoginAcc').value.trim();
-        const pwd = document.getElementById('sLoginPwd').value;
-        const errEl = document.getElementById('sLoginErr');
-        errEl.style.display = 'none';
-        try {
-          const s = await Live.staffLogin(acc, pwd, false);
-          sessionStorage.setItem('kunlun_staff_session', JSON.stringify(s));
-          gate.remove();
-          if (scrollEl) scrollEl.style.display = 'block';
-          if (bottomNav) bottomNav.style.display = 'grid';
-          await syncStaffMiniApp();
-          hookStaffActions();
-          window.GQ?.toast(`员工登录成功：${s.displayName} (${s.role})`);
-        } catch (e) {
-          errEl.textContent = e.message;
-          errEl.style.display = 'block';
-        }
-      };
+  async function enterPage(kind) {
+    const me = await Live.req('/api/auth/me');
+    if ((kind === 'admin' && (me.subjectType !== 'STAFF' || me.role !== 'ADMIN')) ||
+        (kind === 'staff' && me.subjectType !== 'STAFF') || (kind === 'member' && me.subjectType !== 'MEMBER'))
+      throw new Error('当前账号不能登录此入口，请使用对应账号');
+    Live.session = { ...Live.session, ...me };
+    if (kind === 'admin') { await Live.syncAdminAll(); hookAdminActions(); }
+    else if (kind === 'staff') { await syncStaffMiniApp(); hookStaffActions(); }
+    else { await syncMemberMiniApp(); hookMemberActions(); }
+    document.getElementById('kunlunLoginGate')?.remove();
+    document.documentElement.classList.remove('auth-pending');
+    if (!document.getElementById('changePasswordButton')) {
+      const button = document.createElement('button'); button.id = 'changePasswordButton';
+      button.className = 'btn sm'; button.textContent = '修改密码'; button.onclick = () => Live.changePassword();
+      (document.querySelector('.topbar .user')?.parentElement || document.querySelector('.showcase-actions') || document.body).append(button);
     }
+    // Old prototype login affordances now use the real account flow.
+    window.openWxAuth = () => Live.logout();
   }
-
-  /* -----------------------------------------------------------------------
-     页面初始化：检查登录会话，未登录则显示登录界面
-     ----------------------------------------------------------------------- */
+  function showLoginGate(kind) {
+    document.documentElement.classList.add('auth-pending');
+    Live.clearSession();
+    document.getElementById('kunlunLoginGate')?.remove();
+    const gate = document.createElement('div'); gate.id = 'kunlunLoginGate'; gate.className = `login-gate login-${kind}`;
+    const label = kind === 'admin' ? '管理后台' : kind === 'staff' ? '员工工作台' : '会员中心';
+    gate.innerHTML = `<div class="login-brand"><div class="gq-logo">${window.GQ?.logoSvg || '麒'}</div><h1>绿麒麟水站</h1><p>鲜活每一滴，好水到你家</p></div>
+      <form class="login-card"><h2>${label}</h2><p class="login-subtitle">使用用户名和密码登录</p>
+      <label for="loginUsername">用户名</label><input id="loginUsername" name="username" class="input" autocomplete="username" required maxlength="32" placeholder="请输入用户名">
+      <label for="loginPassword">密码</label><div class="password-field"><input id="loginPassword" name="password" class="input" type="password" autocomplete="current-password" required maxlength="128" placeholder="请输入密码"><button type="button" id="togglePassword" aria-label="显示密码">显示</button></div>
+      <p role="alert" class="account-error"></p><button class="btn primary login-submit" type="submit">登录</button><p class="login-help">${kind === 'admin' ? '仅限水站管理员' : '首次使用或忘记密码，请联系水站设置账号'}</p></form>`;
+    (kind === 'admin' ? document.body : document.querySelector('.phone-screen') || document.body).append(gate);
+    gate.querySelector('#togglePassword').onclick = e => {
+      const input = gate.querySelector('#loginPassword'); const show = input.type === 'password';
+      input.type = show ? 'text' : 'password'; e.target.textContent = show ? '隐藏' : '显示'; e.target.setAttribute('aria-label', show ? '隐藏密码' : '显示密码');
+    };
+    gate.querySelector('form').onsubmit = async e => {
+      e.preventDefault(); const btn = gate.querySelector('[type=submit]'); if (btn.disabled) return;
+      const error = gate.querySelector('[role=alert]'); error.textContent = ''; btn.disabled = true; btn.textContent = '正在登录…';
+      try {
+        const account = gate.querySelector('#loginUsername').value.trim(), password = gate.querySelector('#loginPassword').value;
+        const session = kind === 'member' ? await Live.memberLogin(account, password) : await Live.staffLogin(account, password, kind === 'admin');
+        await enterPage(kind);
+        sessionStorage.setItem(`kunlun_${kind}_session`, JSON.stringify(session));
+      } catch (err) { Live.clearSession(); error.textContent = err.message || '登录失败，请重试'; }
+      finally { btn.disabled = false; btn.textContent = '登录'; }
+    };
+  }
   document.addEventListener('DOMContentLoaded', async () => {
-    if (document.getElementById('adminApp')) {
-      const saved = sessionStorage.getItem('kunlun_admin_session');
-      if (saved) {
-        try {
-          const s = JSON.parse(saved);
-          Live.token = s.accessToken;
-          Live.session = s;
-          await Live.syncAdminAll();
-          hookAdminActions();
-          return;
-        } catch {
-          sessionStorage.removeItem('kunlun_admin_session');
-        }
-      }
-      showAdminLoginGate();
-    } else if (document.getElementById('staffScroll')) {
-      const saved = sessionStorage.getItem('kunlun_staff_session');
-      if (saved) {
-        try {
-          const s = JSON.parse(saved);
-          Live.token = s.accessToken;
-          Live.session = s;
-          await syncStaffMiniApp();
-          hookStaffActions();
-          return;
-        } catch {
-          sessionStorage.removeItem('kunlun_staff_session');
-        }
-      }
-      showStaffLoginGate();
-    } else if (document.getElementById('memberScroll')) {
-      const saved = sessionStorage.getItem('kunlun_member_session');
-      if (saved) {
-        try {
-          const s = JSON.parse(saved);
-          Live.token = s.accessToken;
-          Live.session = s;
-          await syncMemberMiniApp();
-          hookMemberActions();
-          return;
-        } catch {
-          sessionStorage.removeItem('kunlun_member_session');
-        }
-      }
-      showMemberLoginGate();
+    const kind = pageKind(), saved = sessionStorage.getItem(`kunlun_${kind}_session`);
+    if (saved) {
+      try {
+        Live.session = JSON.parse(saved); Live.token = Live.session.accessToken;
+        await enterPage(kind); return;
+      } catch { Live.clearSession(); }
     }
+    showLoginGate(kind);
   });
 
   function hookAdminActions() {
@@ -788,7 +580,7 @@
           <h4>基础资料 (k3s 实库)</h4>
           <div class="detail-row"><span>联系电话</span><b>${m.phone}</b></div>
           <div class="detail-row"><span>默认配送地址</span><b>${m.defaultAddress || '门店自提'}</b></div>
-          <div class="detail-row"><span>会员卡号</span><b>${m.memberNo}</b></div>`;
+          <div class="detail-row"><span>会员卡号</span><b>${m.memberNo}</b></div><button class="btn sm" onclick="KunlunLive.setMemberCredentials('${m.id}')">设置登录账号</button>`;
         detailCards[1].innerHTML = `
           <h4>四类水票与押金明细</h4>
           <div class="detail-row"><span>自提桶票 / 配送桶票</span><b>${m.bucketPickupTickets} 桶 / ${m.bucketDeliveryTickets} 桶（预占 ${m.reservedBucketDeliveryTickets + m.reservedBucketPickupTickets}）</b></div>
@@ -998,7 +790,10 @@
         const res = await fetch(`${Live.baseUrl}/api/exports/members`, { headers });
         if (!res.ok) {
           const err = await res.json().catch(() => ({ message: '导出失败' }));
-          throw new Error(err.message || err.error);
+          if (res.status === 401 && this.token && !path.includes('/login')) {
+          this.clearSession(); location.reload();
+        }
+        throw new Error(err.message || err.error);
         }
         const csv = await res.text();
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -1058,7 +853,7 @@
       row.id = 'mLogoutRow';
       row.className = 'profile-row';
       row.style.color = 'var(--red-500)';
-      row.innerHTML = `<svg class="icon"><use href="#i-logout"/></svg><span>退出登录 / 切换手机号</span><small>当前 ${p.phone} ›</small>`;
+      row.innerHTML = `<svg class="icon"><use href="#i-logout"/></svg><span>退出登录 / 切换账号</span><small>当前 ${p.phone} ›</small>`;
       row.onclick = () => Live.logoutMember();
       profList.appendChild(row);
     }

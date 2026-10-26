@@ -41,7 +41,7 @@ public sealed record RegisterContainerMovementRequest(
     int EmptyInM,
     string? OrderNo = null);
 
-public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunAuthRepository authRepo)
+public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunAuthRepository authRepo, IConfiguration config)
 {
     public Guid TenantId => authRepo.DefaultTenantId;
 
@@ -183,6 +183,19 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
             await cmd.ExecuteNonQueryAsync(ct);
         }
 
+        if (!config.GetValue<bool>("Kunlun:SeedDemoData"))
+        {
+            await using var empty = new NpgsqlCommand("""
+                INSERT INTO plugin_kunlun_waterstation.container_configs
+                  (tenant_id, container_type, unit_deposit, total_qty, in_station_qty, in_transit_qty, member_held_qty, inspecting_qty, abnormal_qty)
+                VALUES (@tid, 'BUCKET', 50, 0, 0, 0, 0, 0, 0), (@tid, 'BAG', 30, 0, 0, 0, 0, 0, 0)
+                ON CONFLICT (tenant_id, container_type) DO NOTHING
+                """, conn, tx);
+            empty.Parameters.AddWithValue("tid", TenantId);
+            await empty.ExecuteNonQueryAsync(ct);
+            await tx.CommitAsync(ct);
+            return;
+        }
         // Seed container configs (18.9L 周转桶 ¥50/个, 7.5L 袋装容器 ¥30/个)
         await using (var cfgCmd = new NpgsqlCommand("""
             INSERT INTO plugin_kunlun_waterstation.container_configs
