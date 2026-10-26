@@ -485,7 +485,7 @@ public static class OrderEndpoints
             await using var conn = await db.OpenConnectionAsync(ct);
             await using var cmd = new NpgsqlCommand("""
                 SELECT container_type, unit_deposit, total_qty, in_station_qty, in_transit_qty,
-                       member_held_qty, inspecting_qty, abnormal_qty, warn_threshold
+                       member_held_qty, inspecting_qty, abnormal_qty, warn_threshold, damaged_qty, scrapped_qty
                 FROM plugin_kunlun_waterstation.container_configs
                 WHERE tenant_id = @tid
                 ORDER BY container_type
@@ -503,7 +503,9 @@ public static class OrderEndpoints
                 var inspecting = r.GetInt32(6);
                 var abnormal = r.GetInt32(7);
                 var threshold = r.GetInt32(8);
-                var sumParts = inStation + inTransit + memberHeld + inspecting + abnormal;
+                var damaged = r.GetInt32(9);
+                var scrapped = r.GetInt32(10);
+                var sumParts = (long)inStation + inTransit + memberHeld + inspecting + abnormal + damaged;
 
                 list.Add(new
                 {
@@ -516,6 +518,8 @@ public static class OrderEndpoints
                     inspectingQty = inspecting,
                     abnormalQty = abnormal,
                     warnThreshold = threshold,
+                    damagedQty = damaged,
+                    scrappedQty = scrapped,
                     identityValid = total == sumParts,
                     lowStockWarning = inStation < threshold
                 });
@@ -711,13 +715,13 @@ public static class OrderEndpoints
             UPDATE plugin_kunlun_waterstation.container_configs
             SET in_station_qty = in_station_qty - @delta,
                 member_held_qty = member_held_qty + @delta
-            WHERE tenant_id = @tid AND container_type = @ctype
+            WHERE tenant_id = @tid AND container_type = @ctype AND in_station_qty - @delta >= 0 AND member_held_qty + @delta >= 0
             """, conn, tx))
         {
             cCmd.Parameters.AddWithValue("delta", deltaHeld);
             cCmd.Parameters.AddWithValue("tid", orderRepo.TenantId);
             cCmd.Parameters.AddWithValue("ctype", containerType);
-            await cCmd.ExecuteNonQueryAsync(ct);
+            if (await cCmd.ExecuteNonQueryAsync(ct) == 0) throw new BusinessRuleException("容器可用库存不足或持有台账需核对");
         }
 
         // 更新订单状态为 COMPLETED

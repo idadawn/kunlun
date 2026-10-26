@@ -103,6 +103,7 @@ using (var scope = app.Services.CreateScope())
     var ordRepo = scope.ServiceProvider.GetRequiredService<KunlunOrderRepository>();
     await ordRepo.EnsureOrderSchemaAsync();
     await TicketBatches.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>(), repo.DefaultTenantId);
+    await ContainerInventory.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>(), repo.DefaultTenantId);
 }
 
 app.MapGet("/healthz", async (NpgsqlDataSource ds) =>
@@ -228,6 +229,7 @@ app.MapPatch("/api/staff/{staffId:guid}/status", async (
 }).RequireAuthorization();
 
 app.MapFinanceEndpoints();
+app.MapContainerInventory();
 app.MapMembershipEndpoints();
 app.MapWaterProducts();
 app.MapOrderEndpoints();

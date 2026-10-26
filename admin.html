@@ -11,6 +11,7 @@
 <script src="/assets/admin-ui.js"></script>
 <script src="/assets/live-api.js"></script>
 <script src="/assets/membership.js"></script>
+<script src="/assets/inventory.js"></script>
 <script src="/assets/plan-picker.js"></script>
 <script src="/assets/price-poster.js"></script>
 <style>
@@ -350,10 +351,10 @@ td b{color:var(--ink)}
               <div class="asset-line"><span>15L 周转桶</span><span>会员持有 <b>986</b> / 总量 <b>1,200</b></span></div>
               <div class="progress"><i style="width:82%"></i></div>
               <div class="asset-meta"><span>站内可用 86</span><span>配送在途 18</span><span>待检 108 · 异常 2</span></div>
-              <div class="asset-line" style="margin-top:18px"><span>5L 配套水袋/周转筐</span><span>会员持有 <b>298</b> / 总量 <b>500</b></span></div>
+              <div class="asset-line" style="margin-top:18px"><span>5L 周转水袋</span><span>会员持有 <b>298</b> / 总量 <b>500</b></span></div>
               <div class="progress"><i style="width:59.6%;background:var(--grad-aqua)"></i></div>
               <div class="asset-meta"><span>站内可用 162</span><span>配送在途 6</span><span>待检 34 · 异常 0</span></div>
-              <div class="identity-formula"><span>恒等式校验</span><b>总量 = 站内可用 + 配送在途 + 会员持有 + 待检 + 异常</b></div>
+              <div class="identity-formula"><span>恒等式校验</span><b>现存总量 = 可用 + 在途 + 会员持有 + 待检 + 异常 + 破损</b></div>
             </div>
           </div>
         </div>
@@ -465,24 +466,20 @@ td b{color:var(--ink)}
       <!-- 5. 桶袋台账 -->
       <section id="page-assets" class="section">
         <div class="page-head">
-          <div><h2>桶袋台账</h2><p>按“满桶领出 N / 空桶收回 M”双字段记录流转，会员持有变化 = N − M</p></div>
+          <div><h2>桶袋台账</h2><p>管理周转桶、水袋的库存、领还、破损和报废</p></div>
           <div class="head-actions"><button class="btn" onclick="exportCSV()"><svg class="icon"><use href="#i-export"/></svg>导出台账</button><button class="btn primary" onclick="openModal('container')"><svg class="icon"><use href="#i-plus"/></svg>独立登记领还</button></div>
         </div>
-        <div class="stats-grid">
-          <div class="stat-card"><div class="stat-top"><span>15L 周转桶 · 站内可用</span><span class="stat-icon"><svg class="icon"><use href="#i-box"/></svg></span></div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
-          <div class="stat-card"><div class="stat-top"><span>15L 周转桶 · 会员持有</span><span class="stat-icon blue"><svg class="icon"><use href="#i-users"/></svg></span></div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
-          <div class="stat-card"><div class="stat-top"><span>5L 袋装容器 · 站内可用</span><span class="stat-icon orange"><svg class="icon"><use href="#i-box"/></svg></span></div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
-          <div class="stat-card"><div class="stat-top"><span>5L 袋装容器 · 会员持有</span><span class="stat-icon gold"><svg class="icon"><use href="#i-users"/></svg></span></div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
-        </div>
-        <div class="table-card">
+        <div id="inventorySummary"><p>正在加载库存…</p></div>
+        <div id="inventoryHistory"></div>
+        <div class="table-card" id="containerMovementPanel">
           <div class="table-toolbar">
             <div><b>容器领还流水</b><small>满桶出库（领出 N）与空桶回库（收回 M）独立留痕</small></div>
-            <select class="select"><option>全部容器</option><option>15L 周转桶</option><option>5L 袋装容器</option></select>
+            <select class="select"><option>全部容器</option><option>15L 周转桶</option><option>5L 周转水袋</option></select>
           </div>
           <div style="overflow-x:auto">
             <table>
-              <thead><tr><th>流水单号 / 时间</th><th>会员</th><th>关联水单</th><th>容器类型</th><th>满桶领出 (N)</th><th>空桶收回 (M)</th><th>持有变化 (N−M)</th><th>操作人</th></tr></thead>
-              <tbody><tr><td colspan="9">正在加载…</td></tr></tbody>
+              <thead><tr><th>流水单号 / 时间</th><th>会员</th><th>关联单号</th><th>容器类型</th><th>满桶领出 (N)</th><th>空桶收回 (M)</th><th>持有变化 (N−M)</th><th>操作人</th></tr></thead>
+              <tbody id="containerMovementBody"><tr><td colspan="9">正在加载…</td></tr></tbody>
             </table>
           </div>
         </div>

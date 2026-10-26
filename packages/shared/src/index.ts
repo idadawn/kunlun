@@ -27,6 +27,7 @@ export const KUNLUN_PERMISSIONS = {
   OrderFulfill: 'kunlun.waterstation:order:fulfill',
   PickupVerify: 'kunlun.waterstation:pickup:verify',
   ContainerRegister: 'kunlun.waterstation:container:register',
+  ContainerInventoryManage: 'kunlun.waterstation:container:inventory_manage',
   PlanManage: 'kunlun.waterstation:plan:manage',
   ReportExport: 'kunlun.waterstation:report:export',
   StaffManage: 'kunlun.waterstation:staff:manage',
@@ -116,6 +117,8 @@ export interface ContainerSummaryItem {
   memberHeldQty: number;
   inspectingQty: number;
   abnormalQty: number;
+  damagedQty: number;
+  scrappedQty: number;
   warnThreshold: number;
   identityValid: boolean;
   lowStockWarning: boolean;

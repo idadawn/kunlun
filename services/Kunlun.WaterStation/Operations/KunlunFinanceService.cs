@@ -200,7 +200,7 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
             await using var empty = new NpgsqlCommand("""
                 INSERT INTO plugin_kunlun_waterstation.container_configs
                   (tenant_id, container_type, unit_deposit, total_qty, in_station_qty, in_transit_qty, member_held_qty, inspecting_qty, abnormal_qty)
-                VALUES (@tid, 'BUCKET', 50, 0, 0, 0, 0, 0, 0), (@tid, 'BAG', 30, 0, 0, 0, 0, 0, 0)
+                VALUES (@tid, 'BUCKET', 50, 0, 0, 0, 0, 0, 0), (@tid, 'BAG', 5, 0, 0, 0, 0, 0, 0)
                 ON CONFLICT (tenant_id, container_type) DO NOTHING
                 """, conn, tx);
             empty.Parameters.AddWithValue("tid", TenantId);
@@ -208,13 +208,13 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
             await tx.CommitAsync(ct);
             return;
         }
-        // Seed container configs (18.9L 周转桶 ¥50/个, 7.5L 袋装容器 ¥30/个)
+        // Current standards: reusable bucket ¥50/item, reusable 5L bag ¥5/item.
         await using (var cfgCmd = new NpgsqlCommand("""
             INSERT INTO plugin_kunlun_waterstation.container_configs
                 (tenant_id, container_type, unit_deposit, total_qty, in_station_qty, in_transit_qty, member_held_qty, inspecting_qty, abnormal_qty, warn_threshold)
             VALUES
                 (@tid, 'BUCKET', 50.00, 200, 88, 0, 2, 108, 2, 100),
-                (@tid, 'BAG', 30.00, 200, 164, 0, 2, 34, 0, 80)
+                (@tid, 'BAG', 5.00, 200, 164, 0, 2, 34, 0, 80)
             ON CONFLICT (tenant_id, container_type) DO NOTHING
             """, conn, tx))
         {
@@ -222,7 +222,7 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
             await cfgCmd.ExecuteNonQueryAsync(ct);
         }
 
-        // Seed initial deposit lots for 陈静 (2 桶 @ ¥50 + 1 袋 @ ¥30) & 周明 (1 袋 @ ¥30)
+        // Historical example receipts retain the previous ¥30 bag price; never rewrite prior payments.
         var chenId = Guid.Parse("20000000-0000-0000-0000-000000008621");
         var zhouId = Guid.Parse("20000000-0000-0000-0000-000000008620");
         await using (var lotCmd = new NpgsqlCommand("""

@@ -113,3 +113,12 @@ kunlun/
 三端使用 `/admin`、`/staff`、`/member` 路径。`config/web-routes.json` 定义合法页面；`assets/app-router.js` 处理浏览器 History 导航及旧链接兼容；`scripts/vite-routes.ts` 为开发和 preview 提供正确页面入口及未知页面 404。`sync-frontends.mjs` 将同一路由清单生成到 `public/<端>/<页面>/index.html`，这些生成目录不入 Git，生产构建包含实际文件。部署可使用 `deploy/nginx.conf` 的 `try_files` 配置；不能只更改地址栏而依赖开发服务器 fallback。
 
 内部 HTML 模板文件保留作为维护源，公开访问和资源引用使用干净路径与 `/assets/` 绝对地址。优惠券套餐选择由 `assets/plan-picker.js` 统一处理，只有启用套餐可确认；保存优惠券时后端另行锁定/校验套餐状态。
+
+
+## 6. 周转容器库存维护
+
+`container_configs` 新增 `damaged_qty`（破损待处理）及 `scrapped_qty`（累计报废）。现存总量约束包含破损但不包含累计报废，所有位置数量均受非负约束。`container_inventory_operations` 记录库存维护单、请求摘要、业务类型、来源、数量/盘点差额、前后快照和操作人。
+
+`POST /api/containers/inventory` 支持 RECEIVE / DAMAGE / REPAIR / SCRAP / COUNT；`GET /api/containers/inventory-operations` 查询最近流水；`/api/exports/inventory-operations` 导出完整库存维护记录。库存管理权限为 `container:inventory_manage`，默认授予 ADMIN。操作先锁幂等标识；涉及会员破损归还时先锁会员，再锁容器配置，与既有履约锁序一致。盘点提交携带原账面数量用于并发冲突检查。
+
+水袋标准一次性调整为 5 元/个，保留旧押金批次。历史演示收款中的 30 元是旧收款证据，不代表当前标准，也不随标准更新重新计价。
