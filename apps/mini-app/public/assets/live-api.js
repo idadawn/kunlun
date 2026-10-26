@@ -16,6 +16,7 @@
     session: null,
     members: [],
     plans: [],
+    products: [],
     orders: [],
     containers: [],
     finance: null,
@@ -83,7 +84,7 @@
        --------------------------------------------------------------------- */
     async syncAdminAll() {
       const generation = this.syncGeneration = (this.syncGeneration || 0) + 1;
-      const [members, plans, orders, containers, finance, recharges, deposits, containerLedgers, overview] =
+      const [members, plans, orders, containers, finance, recharges, deposits, containerLedgers, overview, products] =
         await Promise.all([
           this.req('/api/members'+(this.memberQuery?'?q='+encodeURIComponent(this.memberQuery):'')),
           this.req('/api/plans'),
@@ -94,10 +95,12 @@
           this.session.permissions.includes('kunlun.waterstation:report:export') ? this.req('/api/ledgers/deposits') : Promise.resolve([]),
           this.session.permissions.includes('kunlun.waterstation:report:export') ? this.req('/api/ledgers/containers') : Promise.resolve([]),
           this.session.permissions.includes('kunlun.waterstation:report:export') ? this.req('/api/reports/overview') : Promise.resolve(null),
+          this.req('/api/products'),
         ]);
       if(generation !== this.syncGeneration)return;
       this.members = members;
       this.plans = plans;
+      this.products = products;
       this.orders = orders;
       this.containers = containers;
       this.finance = finance;
@@ -242,7 +245,7 @@
                 .slice(0, 4)
                 .map((o) => {
                   const isPickup = o.fulfillMode === 'PICKUP';
-                  const wLabel = o.waterType === 'BUCKET_18_9L' ? '18.9L 桶装' : '7.5L 袋装';
+                  const wLabel = escapeHtml(o.productSnapshot?.waterLabel || (o.waterType === 'BUCKET_18_9L' ? '桶装水' : '袋装水'));
                   const stText =
                     o.status === 'COMPLETED'
                       ? '<span class="tag gray">已完成</span>'
@@ -263,10 +266,10 @@
         const bPct = Math.min(100, Math.round((bucketCfg.memberHeldQty / Math.max(1, bucketCfg.totalQty)) * 100));
         const gPct = Math.min(100, Math.round((bagCfg.memberHeldQty / Math.max(1, bagCfg.totalQty)) * 100));
         assetContent.innerHTML = `
-          <div class="asset-line"><span>18.9L 周转桶</span><span>会员持有 <b>${bucketCfg.memberHeldQty}</b> / 总量 <b>${bucketCfg.totalQty}</b></span></div>
+          <div class="asset-line"><span>15L 周转桶</span><span>会员持有 <b>${bucketCfg.memberHeldQty}</b> / 总量 <b>${bucketCfg.totalQty}</b></span></div>
           <div class="progress"><i style="width:${Math.max(4, bPct)}%"></i></div>
           <div class="asset-meta"><span>站内可用 ${bucketCfg.inStationQty}</span><span>配送在途 ${bucketCfg.inTransitQty}</span><span>待检 ${bucketCfg.inspectingQty} · 异常 ${bucketCfg.abnormalQty}</span></div>
-          <div class="asset-line" style="margin-top:18px"><span>7.5L 配套水袋/周转筐</span><span>会员持有 <b>${bagCfg.memberHeldQty}</b> / 总量 <b>${bagCfg.totalQty}</b></span></div>
+          <div class="asset-line" style="margin-top:18px"><span>5L 配套水袋/周转筐</span><span>会员持有 <b>${bagCfg.memberHeldQty}</b> / 总量 <b>${bagCfg.totalQty}</b></span></div>
           <div class="progress"><i style="width:${Math.max(4, gPct)}%;background:var(--grad-aqua)"></i></div>
           <div class="asset-meta"><span>站内可用 ${bagCfg.inStationQty}</span><span>配送在途 ${bagCfg.inTransitQty}</span><span>待检 ${bagCfg.inspectingQty} · 异常 ${bagCfg.abnormalQty}</span></div>
           <div class="identity-formula"><span>五维恒等式校验 (${bucketCfg.identityValid && bagCfg.identityValid ? 'PASS' : 'WARN'})</span><b>总量 = 站内可用 + 配送在途 + 会员持有 + 待检 + 异常</b></div>`;
@@ -331,7 +334,7 @@
           orderTable.innerHTML = this.orders
             .map((o) => {
               const isPickup = o.fulfillMode === 'PICKUP';
-              const waterLabel = o.waterType === 'BUCKET_18_9L' ? '18.9L 桶装水' : '7.5L 袋装水';
+              const waterLabel = o.productSnapshot?.waterLabel || (o.waterType === 'BUCKET_18_9L' ? '桶装水' : '袋装水');
               const unit = o.waterType === 'BUCKET_18_9L' ? '桶' : '袋';
               const statusMap = {
                 PENDING: isPickup ? { text: '待自提', cls: 'aqua dot' } : { text: '待接单', cls: 'orange dot' },
@@ -419,7 +422,7 @@
                 <td><span class="order-no">${c.ledgerNo}</span><br><small style="color:var(--muted)">${new Date(c.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</small></td>
                 <td><b>${escapeHtml(c.memberName)}</b></td>
                 <td>${c.orderNo}</td>
-                <td>${c.containerType === 'BUCKET' ? '18.9L 周转桶' : '7.5L 袋装容器'}</td>
+                <td>${c.containerType === 'BUCKET' ? '15L 周转桶' : '5L 袋装容器'}</td>
                 <td><b>${c.fullOutQty}</b></td>
                 <td><b>${c.emptyInQty}</b></td>
                 <td>${deltaTag} (持有 ${c.heldAfter})</td>
@@ -468,7 +471,7 @@
               <td><span class="order-no">${d.docNo}</span><br><small style="color:var(--muted)">${new Date(d.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</small></td>
               <td><b>${escapeHtml(d.memberName)}</b></td>
               <td><span class="tag ${d.flowType === 'COLLECT' ? 'green' : 'orange'}">${d.flowType === 'COLLECT' ? '交押金' : '退押金'}</span></td>
-              <td>${d.containerType === 'BUCKET' ? '18.9L 周转桶' : '7.5L 袋装容器'} × ${d.qty}</td>
+              <td>${d.containerType === 'BUCKET' ? '15L 周转桶' : '5L 袋装容器'} × ${d.qty}</td>
               <td>¥ ${Number(d.unitPrice).toFixed(2)}</td>
               <td><b>${d.flowType === 'COLLECT' ? '+' : '-'}¥ ${Number(d.amount).toFixed(2)}</b></td>
               <td>${d.remainingQty} 个</td>
@@ -714,11 +717,13 @@
      ----------------------------------------------------------------------- */
   async function syncMemberMiniApp() {
     if (!Live.session) return;
-    const [p, orders] = await Promise.all([
+    const [p, orders, products] = await Promise.all([
       Live.req(`/api/members/${Live.session.subjectId}/profile`),
       Live.req(`/api/orders?memberId=${Live.session.subjectId}`),
+      Live.req('/api/products'),
     ]);
     Live.selectedMember = p;
+    Live.products = products;
     Live.orders = orders;
 
     const vipBadge = document.querySelector('.member-hero .vip-badge');
@@ -769,9 +774,10 @@
       originalMemberOrder(mode);
       const p = Live.selectedMember, pickup = mode === '自提';
       const choices = document.getElementById('mWaterSel');
-      choices.options[0].textContent = `18.9L 桶装水（可用 ${pickup ? p.bucketPickupTickets : p.bucketDeliveryTickets} 桶）`;
-      choices.options[1].textContent = `7.5L 袋装水（可用 ${pickup ? p.bagPickupTickets : p.bagDeliveryTickets} 袋）`;
+      choices.options[0].textContent = `15L 桶装水（可用 ${pickup ? p.bucketPickupTickets : p.bucketDeliveryTickets} 桶）`;
+      choices.options[1].textContent = `5L 袋装水（可用 ${pickup ? p.bagPickupTickets : p.bagDeliveryTickets} 袋）`;
       if (!pickup) document.querySelector('#mSheetBody .field input').value = p.defaultAddress || '';
+      window.updateMOrderSummary();
     };
     window.openWxAuth = () => Live.logoutMember();
     window.submitMemberOrder = async function () {

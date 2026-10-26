@@ -206,13 +206,13 @@
               <div class="num" style="font-size:30px;font-weight:700;margin:4px 0">¥ 130.00</div>
               <div style="display:flex;justify-content:space-between;font-size:11.5px;opacity:.88"><span>周转桶押金 ¥100（2个）</span><span>袋容器押金 ¥30（1个）</span></div>
             </div>
-            <div class="h5-section-head"><h3>18.9L 周转桶</h3><span class="tag green">押金已覆盖</span></div>
+            <div class="h5-section-head"><h3>15L 周转桶</h3><span class="tag green">押金已覆盖</span></div>
             <div class="h5-card">
               <div class="detail-row"><span>已交押金（原单价 ¥50/个）</span><b>2 个 / ¥100.00</b></div>
               <div class="detail-row"><span>当前实际持有</span><b>2 个</b></div>
               <div class="detail-row"><span>当前可退押金（已交 − 持有）</span><b style="color:var(--brand-600)">0 个 / ¥0.00</b></div>
             </div>
-            <div class="h5-section-head"><h3>7.5L 袋装配套容器</h3><span class="tag green">押金已覆盖</span></div>
+            <div class="h5-section-head"><h3>5L 袋装配套容器</h3><span class="tag green">押金已覆盖</span></div>
             <div class="h5-card">
               <div class="detail-row"><span>已交押金（原单价 ¥30/个）</span><b>1 个 / ¥30.00</b></div>
               <div class="detail-row"><span>当前实际持有</span><b>1 个</b></div>
@@ -277,16 +277,16 @@ function memberNav(page){
 }
 function closeMSheet(){$('#mSheetMask').classList.remove('open')}
 function openMemberOrder(mode='配送'){
-  mMode=mode; mQty=2;
+  mMode=mode; mQty=1;
   $('#mSheetTitle').textContent=mode==='配送'?'预约送水到家':'预约到店自提';
   $('#mSheetBody').innerHTML=`
     <div class="field"><label>选择水品（绿麒麟·小分子团弱碱活性水）</label>
       <select class="select" id="mWaterSel" onchange="updateMOrderSummary()">
-        <option value="桶">18.9L 桶装水（${mode}桶票可用 ${mode==='配送'?8:10} 桶）</option>
-        <option value="袋">7.5L 袋装水（自提袋票可用 6 袋）</option>
+        <option value="桶">15L 桶装水（${mode}桶票可用 ${mode==='配送'?8:10} 桶）</option>
+        <option value="袋">5L 袋装水（自提袋票可用 6 袋）</option>
       </select>
     </div>
-    <div class="qty-row"><span>用水数量</span><div class="qty-control"><button onclick="stepMQty(-1)">−</button><input id="mOrdQty" value="2" readonly><button onclick="stepMQty(1)">+</button></div></div>
+    <div class="qty-row"><span>用水数量</span><div class="qty-control"><button onclick="stepMQty(-1)">−</button><input id="mOrdQty" value="1" readonly><button onclick="stepMQty(1)">+</button></div></div>
     ${mode==='配送'?`<div class="field"><label>配送地址（下单后保存为本单快照）</label><input class="input" value="幸福里小区 3 栋 2 单元 501 室"></div>
     <div class="field"><label>期望送达时段</label><select class="select"><option>尽快送达（约 45 分钟内）</option><option>今天 14:00–16:00</option><option>今天 16:00–18:00</option></select></div>`:
     `<div class="field"><label>自提门店</label><input class="input" value="绿麒麟水站（营业时间 08:00–20:00）" readonly></div>`}
@@ -298,13 +298,18 @@ function openMemberOrder(mode='配送'){
   $('#mSheetMask').classList.add('open');
 }
 function stepMQty(d){
-  mQty=Math.max(1,Math.min(8,mQty+d));
+  mQty=Math.max(minimumOrderQty(),mQty+d);
   $('#mOrdQty').value=mQty;
   updateMOrderSummary();
 }
+function minimumOrderQty(){
+  const type=$('#mWaterSel').value==='袋'?'BAG_7_5L':'BUCKET_18_9L';
+  return mMode==='配送'?(KunlunLive.products.find(p=>p.waterType===type)?.deliveryMinimum||1):1;
+}
 function updateMOrderSummary(){
+  const minimum=minimumOrderQty();mQty=Math.max(minimum,mQty);$('#mOrdQty').value=mQty;
   const w=$('#mWaterSel').value;
-  $('#mResText').textContent=`${mMode}${w}票 ${mQty} ${w}`;
+  $('#mResText').textContent=`${mMode}${w}票 ${mQty} ${w}${mMode==='配送'?`（免费配送，${minimum}${w}起送）`:''}`;
 }
 function showPickupQr(no,code){
   $('#mSheetTitle').textContent='到店自提 · 取水凭证';

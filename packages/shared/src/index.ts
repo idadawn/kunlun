@@ -7,6 +7,7 @@ export const KUNLUN_BRAND = {
   slogan: '鲜活每一滴，好水到你家',
 } as const;
 
+// Stable legacy account keys; physical capacity is supplied by /api/products.
 export type WaterType = 'BUCKET_18_9L' | 'BAG_7_5L';
 export type FulfillMode = 'DELIVERY' | 'PICKUP';
 export type ContainerType = 'BUCKET' | 'BAG';
@@ -65,6 +66,10 @@ export interface MemberProfile {
   reservedBagPickupTickets: number;
   reservedBagDeliveryTickets: number;
   createdAt?: string;
+}
+
+export interface WaterProduct {
+  waterType: WaterType; name: string; capacityLiters: number; packaging: string; retailPrice: number | null; deliveryMinimum: number; deliveryFee: number;
 }
 
 export interface RechargePlan {

@@ -4,6 +4,7 @@
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const money = value => Number(value).toFixed(2);
   const can = action => live().session?.permissions.includes(`kunlun.waterstation:${action}`);
+  const productFor = water => live().products.find(p=>p.waterType===water);
   const unit = water => water === 'BAG_7_5L' ? '袋' : '桶';
   const mode = value => value === 'PICKUP' ? '自提' : '配送';
   const payments = '<option value="CASH">现金</option><option value="WECHAT">微信收款码</option><option value="ALIPAY">支付宝收款码</option><option value="BANK">银行转账</option>';
@@ -67,7 +68,7 @@
   async function editPlan(plan) {
     const d=dialog(plan?'修改充值套餐':'新建充值套餐',
       field('套餐名称','planName',input('planName',plan?.name,'text','required maxlength="80"'))+
-      field('水品','planWater',select('planWater',option('BUCKET_18_9L','18.9L 桶装水')+option('BAG_7_5L','7.5L 袋装水')))+
+      field('水品','planWater',select('planWater',option('BUCKET_18_9L','15L 桶装水')+option('BAG_7_5L','5L 袋装水')))+
       field('领取方式','planMode',select('planMode',option('PICKUP','自提')+option('DELIVERY','配送')))+
       field('充值金额（元）','planPrice',input('planPrice',plan?.price||100,'number','required min="0.01" max="99999999" step="0.01"'))+
       field('固定到账数量（全部为付费票）','planQty',input('planQty',plan?.buyQty||16,'number','required min="1" max="100000" step="1"'))+
@@ -112,7 +113,7 @@
       },'确认已退款并登记');
   }
   function batchCards(batches,allowRefund=false) {
-    return batches.length?batches.map(b=>`<article class="membership-card"><div class="membership-card-head"><b>${esc(b.name)}</b><span class="tag ${b.status==='REFUNDED'?'gray':'green'}">${b.status==='REFUNDED'?'已退款':mode(b.fulfillMode)}</span></div><small>${esc(b.rechargeNo||'历史余额')} · ${b.waterType==='BAG_7_5L'?'7.5L 袋装':'18.9L 桶装'}</small><p>剩余付费 ${b.source==='LEGACY'?'待核对':b.remainingBuy} · 剩余赠票 ${b.source==='LEGACY'?'待核对':b.remainingGift} · 预占 ${b.reservedBuy+b.reservedGift}</p>${b.source==='LEGACY'?`<p class="membership-note">历史余量 ${b.remainingBuy+b.remainingGift} 张；可继续使用，原价及购赠来源待核对。</p>`:`<p>原实付 ¥${money(b.paidAmount)} / 固定 ${b.fixedQty}${unit(b.waterType)}${b.status==='REFUNDED'?` · 已退 ¥${money(b.refundedAmount)}`:''}</p>`}${allowRefund&&b.source==='PURCHASE'&&b.status==='ACTIVE'&&b.remainingBuy+b.remainingGift>0?`<button class="btn sm" data-refund="${b.id}" ${b.reservedBuy+b.reservedGift?'disabled':''}>${b.reservedBuy+b.reservedGift?'订单占用中':`退清剩余权益 · ¥${money(b.refundableAmount)}`}</button>`:''}</article>`).join(''):'<p class="membership-note">暂无充值水票</p>';
+    return batches.length?batches.map(b=>`<article class="membership-card"><div class="membership-card-head"><b>${esc(b.name)}</b><span class="tag ${b.status==='REFUNDED'?'gray':'green'}">${b.status==='REFUNDED'?'已退款':mode(b.fulfillMode)}</span></div><small>${esc(b.rechargeNo||'历史余额')} · ${esc(b.waterLabel||(b.waterType==='BAG_7_5L'?'袋装水':'桶装水'))}</small><p>剩余付费 ${b.source==='LEGACY'?'待核对':b.remainingBuy} · 剩余赠票 ${b.source==='LEGACY'?'待核对':b.remainingGift} · 预占 ${b.reservedBuy+b.reservedGift}</p>${b.source==='LEGACY'?`<p class="membership-note">历史余量 ${b.remainingBuy+b.remainingGift} 张；可继续使用，原价及购赠来源待核对。</p>`:`<p>原实付 ¥${money(b.paidAmount)} / 固定 ${b.fixedQty}${unit(b.waterType)}${b.status==='REFUNDED'?` · 已退 ¥${money(b.refundedAmount)}`:''}</p>`}${allowRefund&&b.source==='PURCHASE'&&b.status==='ACTIVE'&&b.remainingBuy+b.remainingGift>0?`<button class="btn sm" data-refund="${b.id}" ${b.reservedBuy+b.reservedGift?'disabled':''}>${b.reservedBuy+b.reservedGift?'订单占用中':`退清剩余权益 · ¥${money(b.refundableAmount)}`}</button>`:''}</article>`).join(''):'<p class="membership-note">暂无充值水票</p>';
   }
   function couponCards(coupons) {
     return coupons.length?coupons.map(c=>{const expired=new Date(c.snapshot.expiresAt)<=new Date();const pending=new Date(c.snapshot.startsAt)>new Date();return `<article class="membership-card"><b>${esc(c.snapshot.name)}</b><span class="tag ${c.status==='USED'||expired?'gray':'gold'}">${c.status==='USED'?'已使用':expired?'已过期':pending?'未生效':'可使用'}</span><p>额外赠 ${c.snapshot.giftQty} 张水票</p><small>有效期至 ${esc(new Date(c.snapshot.expiresAt).toLocaleString('zh-CN'))}</small></article>`;}).join(''):'<p class="membership-note">暂无优惠券</p>';
@@ -129,6 +130,7 @@
     const root=document.getElementById('settingsContent');if(!root)return;
     const [plans,templates]=await Promise.all([live().req('/api/plans'),live().req('/api/coupon-templates')]);
     root.innerHTML=`<div id="membershipSettings"><div class="membership-heading"><h3>固定数量充值套餐</h3><button class="btn primary sm" data-new-plan>新增套餐</button></div><div class="setting-grid">${plans.map(p=>`<article class="setting-card"><span class="tag ${p.status==='ACTIVE'?'green':'gray'}">${p.status==='ACTIVE'?'启用':'停用'}</span><div class="plan-price">¥ ${money(p.price)}</div><h3>${esc(p.name)}</h3><p>${mode(p.fulfillMode)} · 固定 ${p.buyQty}${unit(p.waterType)}</p><button class="btn sm" data-edit-plan="${p.id}">编辑套餐</button></article>`).join('')}</div><div class="membership-heading"><h3>充值赠水优惠券</h3><div class="membership-actions"><button class="btn sm" data-issue>向会员发券</button><button class="btn primary sm" data-new-coupon>新建优惠券</button></div></div><div class="setting-grid">${templates.length?templates.map(c=>`<article class="setting-card"><span class="tag ${c.status==='ACTIVE'?'gold':'gray'}">${c.status==='ACTIVE'?'启用':'停用'}</span><h3>${esc(c.name)}</h3><p>${esc(plans.find(p=>p.id===c.planId)?.name||'原套餐')} · 赠 ${c.giftQty} 张</p><p>每人限 ${c.perMemberLimit} 次</p><small>截止 ${esc(new Date(c.expiresAt).toLocaleDateString('zh-CN'))}</small><p><button class="btn sm" data-edit-coupon="${c.id}">编辑优惠券</button></p></article>`).join(''):'<p class="membership-note">暂无优惠券，创建后可发放给会员。</p>'}</div></div>`;
+    const specs=document.createElement('div');specs.className='setting-grid';specs.innerHTML=live().products.map(p=>`<article class="setting-card"><h3>${esc(p.name)}</h3><p>${esc(p.packaging)}</p><p>${p.retailPrice==null?'':`零售价 ¥${money(p.retailPrice)} / ${unit(p.waterType)} · `}免费配送，${p.deliveryMinimum}${unit(p.waterType)}起送</p></article>`).join('');root.querySelector('#membershipSettings').prepend(specs);
     root.querySelector('[data-new-plan]').onclick=run(()=>editPlan());root.querySelector('[data-new-coupon]').onclick=run(()=>editCoupon());root.querySelector('[data-issue]').onclick=run(()=>issueCoupon());
     root.querySelectorAll('[data-edit-plan]').forEach(b=>b.onclick=run(()=>editPlan(plans.find(p=>p.id===b.dataset.editPlan))));
     root.querySelectorAll('[data-edit-coupon]').forEach(b=>b.onclick=run(()=>editCoupon(templates.find(c=>c.id===b.dataset.editCoupon))));
@@ -137,7 +139,7 @@
     const state={PENDING:o.fulfillMode==='PICKUP'?'待自提':'待接单',DISPATCHED:'配送中',COMPLETED:'已完成',CANCELLED:'已取消'}[o.status];
     const active=['PENDING','DISPATCHED'].includes(o.status);
     const name=kind==='staff'?(live().members.find(m=>m.id===o.memberId)?.name||o.addressSnapshot?.contactName||'会员'):mode(o.fulfillMode);
-    return `<div class="h5-order" data-order-card="${o.id}"><div class="h5-order-top"><div><b>${esc(name)}</b><small>${esc(o.orderNo)}</small></div><span class="tag ${active?'orange':'gray'}">${state}</span></div><div class="h5-product"><div><b>${o.waterType==='BAG_7_5L'?'7.5L 袋装':'18.9L 桶装'} × ${o.orderQty}</b><small>${esc(o.addressSnapshot?.address||'到店自提')}</small></div></div><div class="h5-order-foot"><small>${active?'预占 '+o.reservedQty+' 张':'实取 '+(o.actualQty||0)+' 张'}</small>${active?(kind==='member'?`${o.pickupCode?`<button class="btn sm" data-code="${o.id}">取水码 ${esc(o.pickupCode)}</button>`:''}<button class="btn sm" data-cancel="${o.id}">取消订单</button>`:`${o.status==='PENDING'&&o.fulfillMode==='DELIVERY'?`<button class="btn sm" data-accept="${o.id}">接单</button>`:''}<button class="btn primary sm" data-fulfill="${o.id}">${o.fulfillMode==='PICKUP'?'核销自提':'确认交付'}</button>`):''}</div></div>`;
+    return `<div class="h5-order" data-order-card="${o.id}"><div class="h5-order-top"><div><b>${esc(name)}</b><small>${esc(o.orderNo)}</small></div><span class="tag ${active?'orange':'gray'}">${state}</span></div><div class="h5-product"><div><b>${esc(o.productSnapshot?.waterLabel||(o.waterType==='BAG_7_5L'?'袋装水':'桶装水'))} × ${o.orderQty}</b><small>${esc(o.addressSnapshot?.address||'到店自提')}</small></div></div><div class="h5-order-foot"><small>${active?'预占 '+o.reservedQty+' 张':'实取 '+(o.actualQty||0)+' 张'}</small>${active?(kind==='member'?`${o.pickupCode?`<button class="btn sm" data-code="${o.id}">取水码 ${esc(o.pickupCode)}</button>`:''}<button class="btn sm" data-cancel="${o.id}">取消订单</button>`:`${o.status==='PENDING'&&o.fulfillMode==='DELIVERY'?`<button class="btn sm" data-accept="${o.id}">接单</button>`:''}<button class="btn primary sm" data-fulfill="${o.id}">${o.fulfillMode==='PICKUP'?'核销自提':'确认交付'}</button>`):''}</div></div>`;
   }
   function renderOrders(kind) {
     const root=document.querySelector(`#${kind}-orders .h5-body`);if(!root)return;
@@ -173,12 +175,14 @@
   async function staffOrder() {
     const key=crypto.randomUUID();
     const d=dialog('代会员开水单',field('会员','orderMember',select('orderMember',live().members.map(m=>option(m.id,`${m.name} · ${m.memberNo}`)).join('')))+
-      field('水品','orderWater',select('orderWater',option('BUCKET_18_9L','18.9L 桶装')+option('BAG_7_5L','7.5L 袋装')))+
+      field('水品','orderWater',select('orderWater',option('BUCKET_18_9L','15L 桶装')+option('BAG_7_5L','5L 袋装')))+
       field('领取方式','orderMode',select('orderMode',option('PICKUP','自提')+option('DELIVERY','配送')))+
-      field('数量','orderQty',input('orderQty',1,'number','min="1" step="1" required'))+
+      field('数量','orderQty',input('orderQty',1,'number','min="1" step="1" required'))+'<p id="orderDeliveryRule" class="membership-note"></p>'+
       field('配送地址','orderAddress',input('orderAddress',live().selectedMember?.defaultAddress||'')),async form=>{
         const v=data(form);const o=await live().req('/api/orders',{method:'POST',body:JSON.stringify({memberId:v.orderMember,waterType:v.orderWater,fulfillMode:v.orderMode,orderQty:Number(v.orderQty),addressOverride:v.orderAddress,idempotencyKey:key})});await refresh();window.GQ?.toast(`水单已创建${o.pickupCode?'，取水码 '+o.pickupCode:''}`);
       },'提交并预占水票');
+    const updateRules=()=>{const p=productFor(d.querySelector('#orderWater').value);const delivery=d.querySelector('#orderMode').value==='DELIVERY';const minimum=delivery?p.deliveryMinimum:1;const qty=d.querySelector('#orderQty');qty.min=minimum;if(Number(qty.value)<minimum)qty.value=minimum;d.querySelector('#orderDeliveryRule').textContent=delivery?`免费配送，${minimum}${unit(p.waterType)}起送`:'门店自提';};
+    d.querySelector('#orderWater').onchange=updateRules;d.querySelector('#orderMode').onchange=updateRules;updateRules();
     if(live().selectedMember)d.querySelector('#orderMember').value=live().selectedMember.id;
     d.querySelector('#orderMember').onchange=()=>{d.querySelector('#orderAddress').value=live().members.find(m=>m.id===d.querySelector('#orderMember').value)?.defaultAddress||'';};
   }
@@ -201,7 +205,7 @@
     if(!can('deposit:collect')&&!can('deposit:refund_approve')&&!can('deposit:refund_apply'))throw new Error('当前账号没有押金办理权限');
     const key=crypto.randomUUID();
     const d=dialog('押金收退登记',field('会员','depositMember',select('depositMember',memberOptions()))+
-      field('容器','depositContainer',select('depositContainer',option('BUCKET','18.9L 周转桶')+option('BAG','7.5L 配套容器')))+
+      field('容器','depositContainer',select('depositContainer',option('BUCKET','15L 周转桶')+option('BAG','5L 配套容器')))+
       field('业务类型','depositAction',select('depositAction',(can('deposit:collect')?option('collect','收取押金'):'')+(can('deposit:refund_approve')||can('deposit:refund_apply')?option('refund','退还押金'):'')))+
       field('数量','depositQuantity',input('depositQuantity',1,'number','min="1" step="1" required'))+
       field('实际收付方式','depositPayment',select('depositPayment',payments))+'<div id="depositPreview" class="membership-summary"></div>',async form=>{
@@ -216,7 +220,7 @@
     if(!can('container:register')&&!can('order:fulfill'))throw new Error('当前账号没有容器登记权限');
     const key=crypto.randomUUID();
     const d=dialog('容器领还登记',field('会员','moveMember',select('moveMember',memberOptions()))+
-      field('容器类型','moveContainer',select('moveContainer',option('BUCKET','18.9L 周转桶')+option('BAG','7.5L 配套容器')))+
+      field('容器类型','moveContainer',select('moveContainer',option('BUCKET','15L 周转桶')+option('BAG','5L 配套容器')))+
       field('满桶领出','moveOut',input('moveOut',0,'number','min="0" step="1" required'))+
       field('空桶收回','moveIn',input('moveIn',1,'number','min="0" step="1" required'))+
       '<p class="membership-note">按实际交接登记，同时更新会员持有和水站库存；押金另行结算。</p>',async form=>{
@@ -225,12 +229,12 @@
   }
   async function depositSettings() {
     const configs=await live().req('/api/containers/summary');const root=document.getElementById('settingsContent');
-    root.innerHTML='<div class="setting-grid">'+configs.map(c=>`<div class="setting-card"><h3>${c.containerType==='BUCKET'?'18.9L 周转桶':'7.5L 配套容器'}</h3><div class="setting-row"><span>押金单价</span><b>¥${money(c.unitDeposit)}</b></div><div class="setting-row"><span>站内 / 总量</span><b>${c.inStationQty} / ${c.totalQty}</b></div><div class="setting-row"><span>低库存预警</span><b>${c.warnThreshold} 个</b></div><button class="btn sm" data-deposit-setting="${c.containerType}">修改押金单价</button></div>`).join('')+'</div>';
+    root.innerHTML='<div class="setting-grid">'+configs.map(c=>`<div class="setting-card"><h3>${c.containerType==='BUCKET'?'15L 周转桶':'5L 配套容器'}</h3><div class="setting-row"><span>押金单价</span><b>¥${money(c.unitDeposit)}</b></div><div class="setting-row"><span>站内 / 总量</span><b>${c.inStationQty} / ${c.totalQty}</b></div><div class="setting-row"><span>低库存预警</span><b>${c.warnThreshold} 个</b></div><button class="btn sm" data-deposit-setting="${c.containerType}">修改押金单价</button></div>`).join('')+'</div>';
     root.querySelectorAll('[data-deposit-setting]').forEach(b=>b.onclick=()=>{const c=configs.find(c=>c.containerType===b.dataset.depositSetting);dialog('修改押金单价',field('新收押金单价（元/个）','unitDeposit',input('unitDeposit',c.unitDeposit,'number','required min="0.01" step="0.01"'))+'<p class="membership-note">只影响新收押金；历史押金仍按原收款单价退款。</p>',async form=>{await live().req(`/api/containers/${c.containerType}/unit-deposit?newUnitDeposit=${encodeURIComponent(data(form).unitDeposit)}`,{method:'PUT'});await refresh();await depositSettings();});});
   }
   function showRecharge(no) {
     const r=live().recharges.find(x=>x.rechargeNo===no);if(!r)throw new Error('未找到充值记录，请刷新');
-    dialog('充值记录详情',`<div class="membership-summary"><b>${esc(r.memberName)} · ${esc(r.memberNo)}</b><p>${esc(r.rechargeNo)}</p><p>${esc(r.planName)}</p><p>实收 ¥${money(r.paidAmount)} · 付费 ${r.buyQty} + 赠票 ${r.giftQty}</p><p>${esc(mode(r.planSnapshot.fulfillMode))} · ${r.planSnapshot.waterType==='BAG_7_5L'?'7.5L 袋装':'18.9L 桶装'}</p><small>${esc(new Date(r.createdAt).toLocaleString('zh-CN'))} · ${esc(r.operatorName)}</small></div>`);
+    dialog('充值记录详情',`<div class="membership-summary"><b>${esc(r.memberName)} · ${esc(r.memberNo)}</b><p>${esc(r.rechargeNo)}</p><p>${esc(r.planName)}</p><p>实收 ¥${money(r.paidAmount)} · 付费 ${r.buyQty} + 赠票 ${r.giftQty}</p><p>${esc(mode(r.planSnapshot.fulfillMode))} · ${esc(r.planSnapshot.waterLabel||(r.planSnapshot.waterType==='BAG_7_5L'?'袋装水':'桶装水'))}</p><small>${esc(new Date(r.createdAt).toLocaleString('zh-CN'))} · ${esc(r.operatorName)}</small></div>`);
   }
   function showOrder(id) {
     const o=live().orders.find(o=>o.id===id);if(!o)throw new Error('未找到水单，请刷新');

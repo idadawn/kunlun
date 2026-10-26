@@ -160,13 +160,7 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
         }
 
         // Fixed quantities are all paid tickets; promotional gifts belong to coupons.
-        var plans = new[]
-        {
-            (Id: Guid.Parse("30000000-0000-0000-0000-000000000101"), Name: "自提 100 元 · 16 桶", Water: "BUCKET_18_9L", Mode: "PICKUP", Price: 100m, Buy: 16, Gift: 0),
-            (Id: Guid.Parse("30000000-0000-0000-0000-000000000102"), Name: "自提 500 元 · 95 桶", Water: "BUCKET_18_9L", Mode: "PICKUP", Price: 500m, Buy: 95, Gift: 0),
-            (Id: Guid.Parse("30000000-0000-0000-0000-000000000103"), Name: "配送 100 元 · 13 桶", Water: "BUCKET_18_9L", Mode: "DELIVERY", Price: 100m, Buy: 13, Gift: 0),
-            (Id: Guid.Parse("30000000-0000-0000-0000-000000000104"), Name: "配送 500 元 · 70 桶", Water: "BUCKET_18_9L", Mode: "DELIVERY", Price: 500m, Buy: 70, Gift: 0)
-        };
+        var plans = WaterProducts.PostedPlans;
         await using (var upgrade = new NpgsqlCommand("""
             CREATE TABLE IF NOT EXISTS plugin_kunlun_waterstation.finance_migrations (tenant_id UUID NOT NULL,name TEXT NOT NULL,PRIMARY KEY(tenant_id,name));
             WITH first_run AS (INSERT INTO plugin_kunlun_waterstation.finance_migrations VALUES(@tid,'fixed-packages-v1') ON CONFLICT DO NOTHING RETURNING 1)
@@ -188,16 +182,18 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
                 VALUES (@id, @tid, @name, @water, @mode, @price, @buy, @gift, 'ACTIVE')
                 ON CONFLICT DO NOTHING
                 """, conn, tx);
-            cmd.Parameters.AddWithValue("id", p.Id);
+            cmd.Parameters.AddWithValue("id", WaterProducts.PlanId(p.Id));
             cmd.Parameters.AddWithValue("tid", TenantId);
             cmd.Parameters.AddWithValue("name", p.Name);
             cmd.Parameters.AddWithValue("water", p.Water);
             cmd.Parameters.AddWithValue("mode", p.Mode);
             cmd.Parameters.AddWithValue("price", p.Price);
-            cmd.Parameters.AddWithValue("buy", p.Buy);
-            cmd.Parameters.AddWithValue("gift", p.Gift);
+            cmd.Parameters.AddWithValue("buy", p.Qty);
+            cmd.Parameters.AddWithValue("gift", 0);
             await cmd.ExecuteNonQueryAsync(ct);
         }
+
+        await WaterProducts.ApplyPostedPrices(conn, tx, TenantId, ct);
 
         if (!config.GetValue<bool>("Kunlun:SeedDemoData"))
         {

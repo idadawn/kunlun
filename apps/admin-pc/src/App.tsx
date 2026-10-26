@@ -211,7 +211,7 @@ export function App() {
                     <tbody>
                       {containers.map((c) => (
                         <tr key={c.containerType}>
-                          <td><strong>{c.containerType === 'BUCKET' ? '18.9L PC水桶' : '7.5L 一次性/周转袋'}</strong></td>
+                          <td><strong>{c.containerType === 'BUCKET' ? '15L PC水桶' : '5L 一次性/周转袋'}</strong></td>
                           <td>¥{c.unitDeposit.toFixed(2)}</td>
                           <td>{c.totalQty}</td>
                           <td>

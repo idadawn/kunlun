@@ -105,6 +105,11 @@ public static class OrderEndpoints
                 }
             }
 
+            var product = await WaterProducts.Read(conn, tx, orderRepo.TenantId, req.WaterType, ct);
+            if (req.FulfillMode == "DELIVERY" && req.OrderQty < product.DeliveryMinimum)
+                throw new BusinessRuleException($"{product.Name}免费配送，{product.DeliveryMinimum}{(req.WaterType == "BAG_7_5L" ? "袋" : "桶")}起送");
+            var productSnapshot = new { waterLabel = product.Name, capacityLiters = product.CapacityLiters, deliveryMinimum = product.DeliveryMinimum, deliveryFee = product.DeliveryFee };
+
             // 锁定会员并校验水票可用余额 (AC-04: 严禁透支为负数)
             string memberName, memberPhone, defaultAddress;
             int currentAvail, currentReserved;
@@ -176,11 +181,11 @@ public static class OrderEndpoints
                 INSERT INTO plugin_kunlun_waterstation.water_orders
                     (id, tenant_id, order_no, idempotency_key, member_id, water_type, fulfill_mode,
                      order_qty, reserved_qty, pickup_code, address_snapshot, appointment_slot,
-                     status, created_by_type, created_by_name)
+                     status, created_by_type, created_by_name, product_snapshot)
                 VALUES
                     (@id, @tid, @no, @key, @mid, @wtype, @fmode,
                      @oqty, @rqty, @pcode, @snap::jsonb, @slot,
-                     'PENDING', @ctype, @cname)
+                     'PENDING', @ctype, @cname, @product::jsonb)
                 """, conn, tx))
             {
                 insCmd.Parameters.AddWithValue("id", orderId);
@@ -197,6 +202,7 @@ public static class OrderEndpoints
                 insCmd.Parameters.AddWithValue("slot", (object?)req.AppointmentSlot ?? DBNull.Value);
                 insCmd.Parameters.AddWithValue("ctype", subjectType);
                 insCmd.Parameters.AddWithValue("cname", actorName);
+                insCmd.Parameters.AddWithValue("product", JsonSerializer.Serialize(productSnapshot));
                 await insCmd.ExecuteNonQueryAsync(ct);
             }
 
@@ -267,7 +273,7 @@ public static class OrderEndpoints
             await using var cmd = new NpgsqlCommand("""
                 SELECT id, order_no, member_id, water_type, fulfill_mode, order_qty, reserved_qty,
                        actual_qty, full_out_qty, empty_in_qty, pickup_code, address_snapshot,
-                       status, diff_reason, cancel_reason, created_at
+                       status, diff_reason, cancel_reason, created_at, product_snapshot
                 FROM plugin_kunlun_waterstation.water_orders
                 WHERE tenant_id = @tid
                   AND (@mid IS NULL OR member_id = @mid)
@@ -302,7 +308,8 @@ public static class OrderEndpoints
                     status = r.GetString(12),
                     diffReason = r.IsDBNull(13) ? null : r.GetString(13),
                     cancelReason = r.IsDBNull(14) ? null : r.GetString(14),
-                    createdAt = r.GetDateTime(15)
+                    createdAt = r.GetDateTime(15),
+                    productSnapshot = r.IsDBNull(16) ? (JsonElement?)null : JsonSerializer.Deserialize<JsonElement>(r.GetString(16))
                 });
             }
             return Results.Ok(list);
