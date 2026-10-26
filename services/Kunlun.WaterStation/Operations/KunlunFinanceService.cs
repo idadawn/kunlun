@@ -188,8 +188,8 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
             INSERT INTO plugin_kunlun_waterstation.container_configs
                 (tenant_id, container_type, unit_deposit, total_qty, in_station_qty, in_transit_qty, member_held_qty, inspecting_qty, abnormal_qty, warn_threshold)
             VALUES
-                (@tid, 'BUCKET', 50.00, 1200, 86, 18, 986, 108, 2, 100),
-                (@tid, 'BAG', 30.00, 500, 162, 6, 298, 34, 0, 80)
+                (@tid, 'BUCKET', 50.00, 200, 88, 0, 2, 108, 2, 100),
+                (@tid, 'BAG', 30.00, 200, 164, 0, 2, 34, 0, 80)
             ON CONFLICT (tenant_id, container_type) DO NOTHING
             """, conn, tx))
         {
@@ -197,19 +197,22 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
             await cfgCmd.ExecuteNonQueryAsync(ct);
         }
 
-        // Seed initial deposit lots for 陈静 (2 桶 @ ¥50 + 1 袋 @ ¥30)
+        // Seed initial deposit lots for 陈静 (2 桶 @ ¥50 + 1 袋 @ ¥30) & 周明 (1 袋 @ ¥30)
         var chenId = Guid.Parse("20000000-0000-0000-0000-000000008621");
+        var zhouId = Guid.Parse("20000000-0000-0000-0000-000000008620");
         await using (var lotCmd = new NpgsqlCommand("""
             INSERT INTO plugin_kunlun_waterstation.deposit_lots
                 (id, tenant_id, deposit_no, idempotency_key, member_id, container_type, unit_price, paid_qty, refunded_qty, remaining_qty, total_amount, pay_method, operator_name)
             VALUES
-                ('40000000-0000-0000-0000-000000000001', @tid, 'YJ202609120001', 'seed-chen-bucket', @mid, 'BUCKET', 50.00, 2, 0, 2, 100.00, 'CASH', '林站长'),
-                ('40000000-0000-0000-0000-000000000002', @tid, 'YJ202609120002', 'seed-chen-bag', @mid, 'BAG', 30.00, 1, 0, 1, 30.00, 'CASH', '林站长')
+                ('40000000-0000-0000-0000-000000000001', @tid, 'YJ202609120001', 'seed-chen-bucket', @mid,  'BUCKET', 50.00, 2, 0, 2, 100.00, 'CASH',   '林站长'),
+                ('40000000-0000-0000-0000-000000000002', @tid, 'YJ202609120002', 'seed-chen-bag',    @mid,  'BAG',    30.00, 1, 0, 1,  30.00, 'CASH',   '林站长'),
+                ('40000000-0000-0000-0000-000000000003', @tid, 'YJ202609150001', 'seed-zhou-bag',    @zmid, 'BAG',    30.00, 1, 0, 1,  30.00, 'WECHAT', '林站长')
             ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
             """, conn, tx))
         {
             lotCmd.Parameters.AddWithValue("tid", TenantId);
             lotCmd.Parameters.AddWithValue("mid", chenId);
+            lotCmd.Parameters.AddWithValue("zmid", zhouId);
             await lotCmd.ExecuteNonQueryAsync(ct);
         }
 

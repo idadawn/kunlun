@@ -45,7 +45,7 @@ public static class KunlunPermissions
     ];
 }
 
-public sealed record StaffLoginRequest(string Account, string Password);
+public sealed record StaffLoginRequest(string Account, string Password, bool RequireAdmin = false);
 public sealed record WeChatPhoneLoginRequest(string Phone, string? WxOpenId = null, string? Name = null);
 public sealed record UpdateStaffStatusRequest(string Status);
 

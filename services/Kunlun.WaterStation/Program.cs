@@ -156,6 +156,9 @@ app.MapPost("/api/auth/staff/login", async (
     if (status != "ACTIVE")
         return Results.Json(new { error = "该员工账号已停用，禁止登录" }, statusCode: StatusCodes.Status403Forbidden);
 
+    if (req.RequireAdmin && role != "ADMIN")
+        return Results.Json(new { error = "后台管理系统仅限管理员（ADMIN）登录，店员与送水员请使用员工端微信小程序" }, statusCode: StatusCodes.Status403Forbidden);
+
     var token = repo.IssueJwt("STAFF", id, name, staffNo, phone, role, perms, tokenVer);
 
     await using var auditCmd = new NpgsqlCommand("""
