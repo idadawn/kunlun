@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using Kunlun.WaterStation.Auth;
+using Kunlun.WaterStation.Operations;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Npgsql;
@@ -35,6 +36,7 @@ var connStr = builder.Configuration.GetConnectionString("Kunlun")
 var dataSource = NpgsqlDataSource.Create(connStr);
 builder.Services.AddSingleton(dataSource);
 builder.Services.AddSingleton<KunlunAuthRepository>();
+builder.Services.AddSingleton<KunlunFinanceRepository>();
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
 var signingKey = Encoding.UTF8.GetBytes(
@@ -93,6 +95,8 @@ using (var scope = app.Services.CreateScope())
 {
     var repo = scope.ServiceProvider.GetRequiredService<KunlunAuthRepository>();
     await repo.EnsureSchemaAndSeedAsync();
+    var finRepo = scope.ServiceProvider.GetRequiredService<KunlunFinanceRepository>();
+    await finRepo.EnsureFinanceSchemaAndSeedAsync();
 }
 
 app.MapGet("/healthz", async (NpgsqlDataSource ds) =>
@@ -375,6 +379,7 @@ app.MapPatch("/api/staff/{staffId:guid}/status", async (
     return Results.Ok(new { staffNo = r.GetString(0), status = r.GetString(1), tokenVersion = r.GetInt32(2) });
 }).RequireAuthorization();
 
+app.MapFinanceEndpoints();
 app.Run();
 
 public partial class Program;

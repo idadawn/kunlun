@@ -7,8 +7,11 @@ using Xunit;
 
 namespace Kunlun.WaterStation.Tests;
 
+[CollectionDefinition("KunlunIntegration")]
+public sealed class KunlunIntegrationCollection : ICollectionFixture<WebApplicationFactory<Program>>;
+
+[Collection("KunlunIntegration")]
 public sealed class AuthIntegrationTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
 {
     private readonly HttpClient _client = factory.CreateClient();
 

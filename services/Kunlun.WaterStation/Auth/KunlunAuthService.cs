@@ -94,6 +94,7 @@ public sealed class KunlunAuthRepository(NpgsqlDataSource dataSource, IConfigura
         await using var tx = await conn.BeginTransactionAsync(ct);
 
         const string ddl = """
+            SELECT pg_advisory_xact_lock(88482026);
             CREATE SCHEMA IF NOT EXISTS plugin_kunlun_waterstation;
             SET search_path TO plugin_kunlun_waterstation, public;
 
