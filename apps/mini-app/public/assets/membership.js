@@ -191,7 +191,7 @@
     const [products,configs]=await Promise.all([live().req('/api/products'),live().req('/api/containers/summary')]);
     live().products=products;live().containers=configs;
     const root=document.getElementById('productsContent');
-    root.innerHTML=`<div class="product-config-grid">${products.map(p=>{const type=p.waterType==='BUCKET_18_9L'?'BUCKET':'BAG',deposit=configs.find(c=>c.containerType===type);return `<article class="setting-card product-config-card"><div class="product-config-heading"><h3>${esc(p.name)}</h3><button class="btn sm" data-edit-product="${p.waterType}">编辑水品</button></div><div class="setting-row"><span>规格</span><b>${p.capacityLiters} 升 / ${unit(p.waterType)}</b></div><div class="setting-row"><span>包装</span><b>${esc(p.packaging)}</b></div><div class="setting-row"><span>零售价</span><b>${p.retailPrice==null?'未设置':`¥${money(p.retailPrice)} / ${unit(p.waterType)}`}</b></div><div class="setting-row"><span>配送要求</span><b>${p.deliveryMinimum}${unit(p.waterType)}起送 · ${p.deliveryFee===0?'免费':`配送费 ¥${money(p.deliveryFee)}`}</b></div><div class="product-deposit-summary"><div><small>${type==='BUCKET'?'周转桶押金':'配套容器押金'}</small><strong>${deposit?`¥${money(deposit.unitDeposit)} <span>/ 个</span>`:'未设置'}</strong></div><button class="btn sm" data-edit-deposit="${type}" ${deposit?'':'disabled'}>修改押金</button></div><p class="product-deposit-note">押金单价修改仅影响新收押金，历史押金按原收款单价退款。</p></article>`;}).join('')}</div>`;
+    root.innerHTML=`<div class="product-config-grid">${products.map(p=>{const type=p.waterType==='BUCKET_18_9L'?'BUCKET':'BAG',deposit=configs.find(c=>c.containerType===type);return `<article class="setting-card product-config-card"><div class="product-config-heading"><h3>${esc(p.name)}</h3><button class="btn sm" data-edit-product="${p.waterType}">编辑水品</button></div><div class="setting-row"><span>规格</span><b>${p.capacityLiters} 升 / ${unit(p.waterType)}</b></div><div class="setting-row"><span>包装</span><b>${esc(p.packaging)}</b></div><div class="setting-row"><span>零售价</span><b>${p.retailPrice==null?'未设置':`¥${money(p.retailPrice)} / ${unit(p.waterType)}`}</b></div><div class="setting-row"><span>配送要求</span><b>${p.deliveryMinimum}${unit(p.waterType)}起送 · ${p.deliveryFee===0?'免费':`配送费 ¥${money(p.deliveryFee)}`}</b></div><div class="product-deposit-summary"><div><small>${type==='BUCKET'?'周转桶押金':'水袋押金'}</small><strong>${deposit?`¥${money(deposit.unitDeposit)} <span>/ 个</span>`:'未设置'}</strong></div><button class="btn sm" data-edit-deposit="${type}" ${deposit?'':'disabled'}>修改押金</button></div><p class="product-deposit-note">押金单价修改仅影响新收押金，历史押金按原收款单价退款。</p></article>`;}).join('')}</div>`;
     root.querySelectorAll('[data-edit-product]').forEach(b=>b.onclick=()=>editProduct(products.find(p=>p.waterType===b.dataset.editProduct)));
     root.querySelectorAll('[data-edit-deposit]').forEach(b=>b.onclick=()=>editDeposit(configs.find(c=>c.containerType===b.dataset.editDeposit)));
   }
@@ -212,6 +212,7 @@
     else if(page==='page-plans')await renderPlans();
     else if(page==='page-coupons')await renderCoupons();
     else if(page==='page-staff-accounts')await staffAccounts();
+    else if(page==='page-assets')await window.KunlunInventory.render();
   }
   function orderCard(o, kind) {
     const state={PENDING:o.fulfillMode==='PICKUP'?'待自提':'待接单',DISPATCHED:'配送中',COMPLETED:'已完成',CANCELLED:'已取消'}[o.status];
@@ -283,7 +284,7 @@
     if(!can('deposit:collect')&&!can('deposit:refund_approve')&&!can('deposit:refund_apply'))throw new Error('当前账号没有押金办理权限');
     const key=crypto.randomUUID();
     const d=dialog('押金收退登记',field('会员','depositMember',select('depositMember',memberOptions()))+
-      field('容器','depositContainer',select('depositContainer',option('BUCKET','15L 周转桶')+option('BAG','5L 配套容器')))+
+      field('容器','depositContainer',select('depositContainer',option('BUCKET','15L 周转桶')+option('BAG','5L 周转水袋')))+
       field('业务类型','depositAction',select('depositAction',(can('deposit:collect')?option('collect','收取押金'):'')+(can('deposit:refund_approve')||can('deposit:refund_apply')?option('refund','退还押金'):'')))+
       field('数量','depositQuantity',input('depositQuantity',1,'number','min="1" step="1" required'))+
       field('实际收付方式','depositPayment',select('depositPayment',payments))+'<div id="depositPreview" class="membership-summary"></div>',async form=>{
@@ -298,7 +299,7 @@
     if(!can('container:register')&&!can('order:fulfill'))throw new Error('当前账号没有容器登记权限');
     const key=crypto.randomUUID();
     const d=dialog('容器领还登记',field('会员','moveMember',select('moveMember',memberOptions()))+
-      field('容器类型','moveContainer',select('moveContainer',option('BUCKET','15L 周转桶')+option('BAG','5L 配套容器')))+
+      field('容器类型','moveContainer',select('moveContainer',option('BUCKET','15L 周转桶')+option('BAG','5L 周转水袋')))+
       field('满桶领出','moveOut',input('moveOut',0,'number','min="0" step="1" required'))+
       field('空桶收回','moveIn',input('moveIn',1,'number','min="0" step="1" required'))+
       '<p class="membership-note">按实际交接登记，同时更新会员持有和水站库存；押金另行结算。</p>',async form=>{
@@ -341,15 +342,15 @@
     document.querySelectorAll('#orderTable tr').forEach((row,i)=>{const o=live().orders[i];if(!o)return;const modeFilter=orderSelects[0]?.value;const state=document.querySelector('#page-orders .tabs .tab.active')?.firstChild?.textContent.trim();row.classList.toggle('hide',(state&&state!=='全部水单'&&row.dataset.status!==state)||!row.textContent.toLowerCase().includes(text('page-orders'))||(modeFilter!=='全部领取方式'&&mode(o.fulfillMode)!==modeFilter)||!withinDate(o.createdAt,orderSelects[1]?.value));});
     const finance=window._currentFinanceTab==='押金记录'?live().deposits:live().recharges;
     document.querySelectorAll('#financeBody tr').forEach((row,i)=>{const r=finance[i];if(!r)return;row.classList.toggle('hide',!row.textContent.toLowerCase().includes(text('page-finance'))||!withinDate(r.createdAt,document.querySelector('#page-finance .filter-card select')?.value));});
-    const containerFilter=document.querySelector('#page-assets .table-toolbar select')?.selectedIndex;
-    document.querySelectorAll('#page-assets table tbody tr').forEach((row,i)=>{const r=live().containerLedgers[i];if(r)row.classList.toggle('hide',containerFilter>0&&r.containerType!==(containerFilter===1?'BUCKET':'BAG'));});
+    const containerFilter=document.querySelector('#containerMovementPanel .table-toolbar select')?.selectedIndex;
+    document.querySelectorAll('#containerMovementBody tr').forEach((row,i)=>{const r=live().containerLedgers[i];if(r)row.classList.toggle('hide',containerFilter>0&&r.containerType!==(containerFilter===1?'BUCKET':'BAG'));});
     const membersSelect=document.querySelectorAll('#page-members .filter-card select');
     document.querySelectorAll('#memberTable tr').forEach((row,i)=>{const m=live().members[i];if(!m)return;const water=membersSelect[0]?.selectedIndex,state=membersSelect[1]?.selectedIndex;row.classList.toggle('hide',(water===1&&m.bucketPickupTickets+m.bucketDeliveryTickets===0)||(water===2&&m.bagPickupTickets+m.bagDeliveryTickets===0)||(state===1&&m.status!=='ACTIVE')||(state===2&&m.status==='ACTIVE'));});
   }
   function mount(kind) {
     if(kind==='admin') {
       document.querySelectorAll('#page-orders .filter-card select,#page-finance .filter-card select').forEach(s=>{if(s.options[0].textContent==='今天')s.insertAdjacentHTML('afterbegin','<option selected>全部时间</option>');});
-      document.querySelectorAll('.filter-card select,#page-assets .table-toolbar select').forEach(s=>s.onchange=applyListFilters);
+      document.querySelectorAll('.filter-card select,#containerMovementPanel .table-toolbar select').forEach(s=>s.onchange=applyListFilters);
       document.querySelectorAll('#page-orders .field-search input,#page-finance .field-search input').forEach(i=>i.oninput=applyListFilters);
       const originalFinance=window.financeTab;window.financeTab=(btn,type)=>{originalFinance(btn,type);applyListFilters();};
       const originalOrderFilter=window.filterOrders;window.filterOrders=(btn,state)=>{originalOrderFilter(btn,state);applyListFilters();};

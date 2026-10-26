@@ -167,7 +167,7 @@
         totalQty: 200, inStationQty: 88, inTransitQty: 0, memberHeldQty: 2, inspectingQty: 108, abnormalQty: 2, warnThreshold: 100, unitDeposit: 50,
       };
       const bagCfg = this.containers.find((c) => c.containerType === 'BAG') || {
-        totalQty: 200, inStationQty: 164, inTransitQty: 0, memberHeldQty: 2, inspectingQty: 34, abnormalQty: 0, warnThreshold: 80, unitDeposit: 30,
+        totalQty: 200, inStationQty: 164, inTransitQty: 0, memberHeldQty: 2, inspectingQty: 34, abnormalQty: 0, warnThreshold: 80, unitDeposit: 5, damagedQty: 0, scrappedQty: 0,
       };
 
       const pendingDeliv = this.overview?.pendingDelivery ?? this.orders.filter((o) => o.status === 'PENDING' && o.fulfillMode === 'DELIVERY').length;
@@ -268,11 +268,11 @@
         assetContent.innerHTML = `
           <div class="asset-line"><span>15L 周转桶</span><span>会员持有 <b>${bucketCfg.memberHeldQty}</b> / 总量 <b>${bucketCfg.totalQty}</b></span></div>
           <div class="progress"><i style="width:${Math.max(4, bPct)}%"></i></div>
-          <div class="asset-meta"><span>站内可用 ${bucketCfg.inStationQty}</span><span>配送在途 ${bucketCfg.inTransitQty}</span><span>待检 ${bucketCfg.inspectingQty} · 异常 ${bucketCfg.abnormalQty}</span></div>
-          <div class="asset-line" style="margin-top:18px"><span>5L 配套水袋/周转筐</span><span>会员持有 <b>${bagCfg.memberHeldQty}</b> / 总量 <b>${bagCfg.totalQty}</b></span></div>
+          <div class="asset-meta"><span>站内可用 ${bucketCfg.inStationQty}</span><span>配送在途 ${bucketCfg.inTransitQty}</span><span>待检 ${bucketCfg.inspectingQty} · 破损 ${bucketCfg.damagedQty||0} · 异常 ${bucketCfg.abnormalQty}</span></div>
+          <div class="asset-line" style="margin-top:18px"><span>5L 周转水袋</span><span>会员持有 <b>${bagCfg.memberHeldQty}</b> / 总量 <b>${bagCfg.totalQty}</b></span></div>
           <div class="progress"><i style="width:${Math.max(4, gPct)}%;background:var(--grad-aqua)"></i></div>
-          <div class="asset-meta"><span>站内可用 ${bagCfg.inStationQty}</span><span>配送在途 ${bagCfg.inTransitQty}</span><span>待检 ${bagCfg.inspectingQty} · 异常 ${bagCfg.abnormalQty}</span></div>
-          <div class="identity-formula"><span>五维恒等式校验 (${bucketCfg.identityValid && bagCfg.identityValid ? 'PASS' : 'WARN'})</span><b>总量 = 站内可用 + 配送在途 + 会员持有 + 待检 + 异常</b></div>`;
+          <div class="asset-meta"><span>站内可用 ${bagCfg.inStationQty}</span><span>配送在途 ${bagCfg.inTransitQty}</span><span>待检 ${bagCfg.inspectingQty} · 破损 ${bagCfg.damagedQty||0} · 异常 ${bagCfg.abnormalQty}</span></div>
+          <div class="identity-formula"><span>库存平衡校验 (${bucketCfg.identityValid && bagCfg.identityValid ? 'PASS' : 'WARN'})</span><b>现存总量 = 可用 + 在途 + 会员持有 + 待检 + 异常 + 破损</b></div>`;
       }
 
       // 5. 会员管理页：汇总条 + 表格 + 页脚计数（  members）
@@ -403,9 +403,9 @@
         assetStats[2].querySelector('.stat-foot').textContent = `待检 ${bagCfg.inspectingQty} · 配送在途 ${bagCfg.inTransitQty}`;
 
         assetStats[3].querySelector('.stat-value').innerHTML = `${bagCfg.memberHeldQty}<small>个</small>`;
-        assetStats[3].querySelector('.stat-foot').textContent = `会员持有水袋容器汇总`;
+        assetStats[3].querySelector('.stat-foot').textContent = `会员持有周转水袋汇总`;
       }
-      const assetTbody = document.querySelector('#page-assets table tbody');
+      const assetTbody = document.getElementById('containerMovementBody');
       if (assetTbody) {
         if (this.containerLedgers.length === 0) {
           assetTbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">暂无容器流转流水，可通过「水单交付」或右上角「独立登记领还」产生真实记录</td></tr>`;
@@ -422,7 +422,7 @@
                 <td><span class="order-no">${c.ledgerNo}</span><br><small style="color:var(--muted)">${new Date(c.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</small></td>
                 <td><b>${escapeHtml(c.memberName)}</b></td>
                 <td>${c.orderNo}</td>
-                <td>${c.containerType === 'BUCKET' ? '15L 周转桶' : '5L 袋装容器'}</td>
+                <td>${c.containerType === 'BUCKET' ? '15L 周转桶' : '5L 周转水袋'}</td>
                 <td><b>${c.fullOutQty}</b></td>
                 <td><b>${c.emptyInQty}</b></td>
                 <td>${deltaTag} (持有 ${c.heldAfter})</td>
@@ -471,7 +471,7 @@
               <td><span class="order-no">${d.docNo}</span><br><small style="color:var(--muted)">${new Date(d.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</small></td>
               <td><b>${escapeHtml(d.memberName)}</b></td>
               <td><span class="tag ${d.flowType === 'COLLECT' ? 'green' : 'orange'}">${d.flowType === 'COLLECT' ? '交押金' : '退押金'}</span></td>
-              <td>${d.containerType === 'BUCKET' ? '15L 周转桶' : '5L 袋装容器'} × ${d.qty}</td>
+              <td>${d.containerType === 'BUCKET' ? '15L 周转桶' : '5L 周转水袋'} × ${d.qty}</td>
               <td>¥ ${Number(d.unitPrice).toFixed(2)}</td>
               <td><b>${d.flowType === 'COLLECT' ? '+' : '-'}¥ ${Number(d.amount).toFixed(2)}</b></td>
               <td>${d.remainingQty} 个</td>

@@ -234,6 +234,14 @@ public static class ReportEndpoints
                     }
                     break;
                 }
+                case "inventory-operations":
+                {
+                    sb.AppendLine("库存单号,容器,业务,来源,数量或盘点差额,总量变化,调整后现存总量,调整后破损,累计报废,原因,操作人,时间");
+                    await using var cmd = TicketBatches.Command(conn, null, "SELECT operation_no,container_type,action,source_state,quantity,delta_total,after_state->>'totalQty',after_state->>'damagedQty',after_state->>'scrappedQty',reason,operator_name,created_at FROM plugin_kunlun_waterstation.container_inventory_operations WHERE tenant_id=@tid ORDER BY created_at DESC,id DESC", ("tid", tenantId));
+                    await using var r = await cmd.ExecuteReaderAsync(ct);
+                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{r.GetString(1)},{r.GetString(2)},{r.GetString(3)},{r.GetInt32(4)},{r.GetInt32(5)},{r.GetString(6)},{r.GetString(7)},{r.GetString(8)},{Csv(r.GetString(9))},{Csv(r.GetString(10))},{r.GetDateTime(11):O}");
+                    break;
+                }
                 case "container-ledgers":
                 {
                     sb.AppendLine("流水号,会员ID,容器类型,满桶领出,空桶收回,持有变化,持有余额,操作人,时间");
@@ -372,6 +380,7 @@ public static class ReportEndpoints
     private static string Csv(string? val)
     {
         if (string.IsNullOrEmpty(val)) return "";
+        if ("=+-@\t\r".Contains(val[0])) val = "'" + val;
         if (val.Contains(',') || val.Contains('"') || val.Contains('\n'))
         {
             return $"\"{val.Replace("\"", "\"\"")}\"";

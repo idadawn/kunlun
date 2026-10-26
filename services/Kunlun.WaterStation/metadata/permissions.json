@@ -59,6 +59,11 @@
       "code": "kunlun.waterstation:recharge:refund",
       "title": "原价退清充值剩余权益",
       "risk": "high"
+    },
+    {
+      "code": "kunlun.waterstation:container:inventory_manage",
+      "title": "桶袋入库、破损、修复、报废与盘点",
+      "risk": "high"
     }
   ]
 }
