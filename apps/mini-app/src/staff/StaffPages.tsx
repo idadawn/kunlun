@@ -24,7 +24,7 @@ function StaffOrder({ order }: { order: WaterOrder }) {
 
 export function StaffHome({ go }: StaffPageProps) {
   const { user } = useAuth();
-  const { orders, members, loaded, error, refresh } = useStaffData();
+  const { orders, memberTotal, loaded, error, refresh } = useStaffData();
   const ops = useStaffOperations();
   const active = orders.filter(isActiveOrder);
   const quick: Array<[string, IconName, string, () => void]> = [
@@ -48,7 +48,7 @@ export function StaffHome({ go }: StaffPageProps) {
         <div className="work-numbers">
           <div className="work-number"><b>{loaded ? active.length : '—'}</b><small>待履约水单</small></div>
           <div className="work-number"><b>{loaded ? orders.filter(o => o.status === 'COMPLETED').length : '—'}</b><small>当前列表已完成</small></div>
-          <div className="work-number"><b>{loaded ? members.length : '—'}</b><small>当前查询会员</small></div>
+          <div className="work-number"><b>{loaded ? memberTotal : '—'}</b><small>当前查询会员</small></div>
         </div>
       </div>
       <div className="h5-section-head"><h3>快捷办理</h3><span>先选会员 · 独立记账</span></div>
@@ -95,13 +95,14 @@ export function StaffOrders() {
 }
 
 export function StaffMembers() {
-  const { members, query, setQuery, loaded, error, refresh } = useStaffData();
+  const { members, memberTotal, loadMoreMembers, query, setQuery, loaded, error, refresh } = useStaffData();
   const ops = useStaffOperations();
+  const run = useRun();
   return <>
     <div className="mobile-top"><h2>会员查询与办理</h2><button type="button" className="btn primary sm" onClick={ops.newMember}><Icon name="plus" size="sm" />新建</button></div>
     <div className="h5-body">
       <label className="field-search" style={{ marginBottom: 12 }}><Icon name="search" /><input placeholder="输入姓名、手机号或会员编号" aria-label="搜索会员" value={query} onChange={e => setQuery(e.target.value)} /></label>
-      <div className="h5-section-head"><h3>{query.trim() ? '搜索结果' : '常用会员'}</h3><span>点击快速办理业务</span></div>
+      <div className="h5-section-head"><h3>{query.trim() ? '搜索结果' : '常用会员'}</h3><span>{loaded ? `共 ${memberTotal} 位 · ` : ''}点击快速办理业务</span></div>
       {!loaded ? <Loading error={error} onRetry={() => refresh().catch(() => undefined)} /> : members.length === 0 ? <p className="membership-note">未找到会员，可点击右上角新建</p> : members.map(m => (
         <div key={m.id} className="h5-card" role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => ops.detail(m)} onKeyDown={e => e.key === 'Enter' && ops.detail(m)}>
           <div className="member-cell">
@@ -117,6 +118,9 @@ export function StaffMembers() {
           </div>
         </div>
       ))}
+      {loaded && members.length < memberTotal && (
+        <button type="button" className="btn block" onClick={run(loadMoreMembers)}>加载更多（已显示 {members.length} / {memberTotal} 位）</button>
+      )}
     </div>
   </>;
 }

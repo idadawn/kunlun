@@ -254,11 +254,17 @@ public static class OrderEndpoints
             });
         }).RequireAuthorization();
 
-        // 2. 查询订单列表 (AC-15: 会员仅看本人订单)
+        // 2. 查询订单列表 (AC-15: 会员仅看本人订单)，可按单号/联系人/地址、状态、领取方式、下单时间筛选并分页
         api.MapGet("/orders", async (
             Guid? memberId,
             string? status,
             string? pickupCode,
+            string? q,
+            string? mode,
+            DateTimeOffset? from,
+            DateTimeOffset? to,
+            int? page,
+            int? pageSize,
             ClaimsPrincipal user,
             NpgsqlDataSource db,
             KunlunOrderRepository orderRepo,
@@ -278,49 +284,54 @@ public static class OrderEndpoints
             }
 
             await using var conn = await db.OpenConnectionAsync(ct);
-            await using var cmd = new NpgsqlCommand("""
-                SELECT id, order_no, member_id, water_type, fulfill_mode, order_qty, reserved_qty,
-                       actual_qty, full_out_qty, empty_in_qty, pickup_code, address_snapshot,
-                       status, diff_reason, cancel_reason, created_at, product_snapshot
-                FROM plugin_kunlun_waterstation.water_orders
-                WHERE tenant_id = @tid
-                  AND (@mid IS NULL OR member_id = @mid)
-                  AND (@st IS NULL OR status = @st)
-                  AND (@pcode IS NULL OR pickup_code = @pcode)
-                ORDER BY created_at DESC
-                LIMIT 50
-                """, conn);
-            cmd.Parameters.AddWithValue("tid", orderRepo.TenantId);
-            cmd.Parameters.Add(new NpgsqlParameter("mid", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = (object?)filterMemberId ?? DBNull.Value });
-            cmd.Parameters.Add(new NpgsqlParameter("st", NpgsqlTypes.NpgsqlDbType.Varchar) { Value = (object?)status ?? DBNull.Value });
-            cmd.Parameters.Add(new NpgsqlParameter("pcode", NpgsqlTypes.NpgsqlDbType.Varchar) { Value = (object?)pickupCode ?? DBNull.Value });
-
-            var list = new List<object>();
-            await using var r = await cmd.ExecuteReaderAsync(ct);
-            while (await r.ReadAsync(ct))
+            return await Paging.From(page, pageSize, legacyLimit: 50).Query(conn, """
+                o.id, o.order_no, o.member_id, o.water_type, o.fulfill_mode, o.order_qty, o.reserved_qty,
+                o.actual_qty, o.full_out_qty, o.empty_in_qty, o.pickup_code, o.address_snapshot,
+                o.status, o.diff_reason, o.cancel_reason, o.created_at, o.product_snapshot
+                """, """
+                plugin_kunlun_waterstation.water_orders o
+                WHERE o.tenant_id = @tid
+                  AND (@mid IS NULL OR o.member_id = @mid)
+                  AND (@st IS NULL OR o.status = @st)
+                  AND (@pcode IS NULL OR o.pickup_code = @pcode)
+                  AND (@mode IS NULL OR o.fulfill_mode = @mode)
+                  AND (@from IS NULL OR o.created_at >= @from)
+                  AND (@to IS NULL OR o.created_at < @to)
+                  AND (@q IS NULL OR o.order_no ILIKE @q OR o.pickup_code ILIKE @q
+                       OR o.address_snapshot->>'contactName' ILIKE @q OR o.address_snapshot->>'contactPhone' ILIKE @q
+                       OR o.address_snapshot->>'address' ILIKE @q
+                       OR EXISTS (SELECT 1 FROM plugin_kunlun_waterstation.members m
+                                  WHERE m.tenant_id = o.tenant_id AND m.id = o.member_id AND (m.name ILIKE @q OR m.phone ILIKE @q)))
+                """, "o.created_at DESC, o.id", p =>
             {
-                list.Add(new
-                {
-                    id = r.GetGuid(0),
-                    orderNo = r.GetString(1),
-                    memberId = r.GetGuid(2),
-                    waterType = r.GetString(3),
-                    fulfillMode = r.GetString(4),
-                    orderQty = r.GetInt32(5),
-                    reservedQty = r.GetInt32(6),
-                    actualQty = r.IsDBNull(7) ? (int?)null : r.GetInt32(7),
-                    fullOutQty = r.IsDBNull(8) ? (int?)null : r.GetInt32(8),
-                    emptyInQty = r.IsDBNull(9) ? (int?)null : r.GetInt32(9),
-                    pickupCode = r.IsDBNull(10) ? null : r.GetString(10),
-                    addressSnapshot = JsonDocument.Parse(r.GetString(11)).RootElement.Clone(),
-                    status = r.GetString(12),
-                    diffReason = r.IsDBNull(13) ? null : r.GetString(13),
-                    cancelReason = r.IsDBNull(14) ? null : r.GetString(14),
-                    createdAt = r.GetDateTime(15),
-                    productSnapshot = r.IsDBNull(16) ? (JsonElement?)null : JsonSerializer.Deserialize<JsonElement>(r.GetString(16))
-                });
-            }
-            return Results.Ok(list);
+                p.AddWithValue("tid", orderRepo.TenantId);
+                p.Add(new NpgsqlParameter("mid", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = (object?)filterMemberId ?? DBNull.Value });
+                p.Add(Paging.Text("st", status));
+                p.Add(Paging.Text("pcode", pickupCode));
+                p.Add(Paging.Text("mode", mode));
+                p.Add(Paging.Time("from", from));
+                p.Add(Paging.Time("to", to));
+                p.Add(Paging.Like("q", q));
+            }, r => new
+            {
+                id = r.GetGuid(0),
+                orderNo = r.GetString(1),
+                memberId = r.GetGuid(2),
+                waterType = r.GetString(3),
+                fulfillMode = r.GetString(4),
+                orderQty = r.GetInt32(5),
+                reservedQty = r.GetInt32(6),
+                actualQty = r.IsDBNull(7) ? (int?)null : r.GetInt32(7),
+                fullOutQty = r.IsDBNull(8) ? (int?)null : r.GetInt32(8),
+                emptyInQty = r.IsDBNull(9) ? (int?)null : r.GetInt32(9),
+                pickupCode = r.IsDBNull(10) ? null : r.GetString(10),
+                addressSnapshot = JsonDocument.Parse(r.GetString(11)).RootElement.Clone(),
+                status = r.GetString(12),
+                diffReason = r.IsDBNull(13) ? null : r.GetString(13),
+                cancelReason = r.IsDBNull(14) ? null : r.GetString(14),
+                createdAt = r.GetDateTime(15),
+                productSnapshot = r.IsDBNull(16) ? (JsonElement?)null : JsonSerializer.Deserialize<JsonElement>(r.GetString(16))
+            }, ct);
         }).RequireAuthorization();
 
         // 3. 取消订单并原路释放预占水票 (AC-06)

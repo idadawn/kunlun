@@ -4,7 +4,7 @@ import {
   type CirculationBusinessType, type CirculationRow, type ContainerDamageRow, type ContainerHoldingRow, type ContainerType, type Paged,
 } from '@kunlun/shared';
 import { Field, FormDialog, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
-import { EmptyRow, useExport, useOperations } from '../common';
+import { EmptyRow, Pager, useExport, useOperations } from '../common';
 import { useAdminData } from '../data';
 import { CONTAINER_NAMES, ReasonField } from './Inventory';
 
@@ -13,7 +13,6 @@ type Member = Pick<ContainerHoldingRow, 'id' | 'name' | 'memberNo' | 'heldBags' 
 type Ledger = ({ tab: 'holdings' } & Paged<ContainerHoldingRow>) | ({ tab: 'movements' } & Paged<CirculationRow>) | ({ tab: 'damages' } & Paged<ContainerDamageRow>);
 const TABS: Array<[Tab, string]> = [['holdings', '会员持有'], ['movements', '周转流水'], ['damages', '破损报废']];
 const BUSINESS: Record<CirculationBusinessType, string> = { TURNOVER: '领还周转', DAMAGE_RETURN: '破损归还', SCRAP: '报废扣押金' };
-const PAGE_SIZE = 20;
 const time = (value: string) => new Date(value).toLocaleString('zh-CN', { hour12: false });
 
 export function Assets() {
@@ -132,13 +131,7 @@ export function Assets() {
     </div>
     <div className="table-card">
       <div className="inventory-table-scroll"><table>{table}</table></div>
-      <footer className="container-pager">
-        <span>共 {total} 条 · 第 {page} / {Math.max(1, Math.ceil(total / PAGE_SIZE))} 页</span>
-        <div>
-          <button type="button" className="btn sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>上一页</button>
-          <button type="button" className="btn sm" disabled={page * PAGE_SIZE >= total} onClick={() => setPage(p => p + 1)}>下一页</button>
-        </div>
-      </footer>
+      <div className="table-footer"><span>共 {total} 条</span><Pager page={page} total={total} onChange={setPage} /></div>
     </div>
   </>;
 }

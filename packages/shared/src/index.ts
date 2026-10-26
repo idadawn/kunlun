@@ -4,6 +4,7 @@ export * from './types';
 export * from './api';
 export * from './routes';
 export * from './format';
+export * from './paging';
 export * from './plans';
 export * from './price-poster';
 

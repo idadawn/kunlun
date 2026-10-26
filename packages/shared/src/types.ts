@@ -273,6 +273,43 @@ export interface ContainerLedgerRow {
   createdAt: string;
 }
 
+export interface PageQuery {
+  page?: number;
+  pageSize?: number;
+}
+
+/** Business-time window: `from` inclusive, `to` exclusive, ISO 8601. */
+export interface TimeRange {
+  from?: string;
+  to?: string;
+}
+
+export interface MemberQuery extends PageQuery {
+  /** Matches member number, name or phone. */
+  q?: string;
+  status?: ActiveStatus;
+  /** Members who still hold tickets of this kind. */
+  water?: ContainerType;
+}
+
+export interface OrderQuery extends PageQuery, TimeRange {
+  memberId?: string;
+  status?: OrderStatus;
+  pickupCode?: string;
+  mode?: FulfillMode;
+  /** Matches order number, pickup code, contact snapshot, address, or the member's name / phone. */
+  q?: string;
+}
+
+export interface LedgerQuery extends PageQuery, TimeRange {
+  /** Matches document number, member, plan or operator. */
+  q?: string;
+}
+
+export interface ContainerLedgerQuery extends PageQuery {
+  containerType?: ContainerType;
+}
+
 export interface TicketBatch {
   id: string;
   source: 'PURCHASE' | 'LEGACY' | string;
@@ -393,6 +430,7 @@ export interface InventoryOperation {
   createdAt: string;
 }
 
+/** One server-side page; `page` and `pageSize` echo the values the server applied (pageSize is capped at 100). */
 export interface Paged<T> {
   rows: T[];
   total: number;

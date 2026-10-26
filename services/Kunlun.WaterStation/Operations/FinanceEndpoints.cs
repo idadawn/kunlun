@@ -53,9 +53,13 @@ public static class FinanceEndpoints
             return Results.Ok(new { id, memberNo, name, phone });
         }).RequireAuthorization();
 
-        // 1b. 查询会员列表与搜索 (支持按卡号/姓名/手机号检索)
+        // 1b. 查询会员列表与搜索 (按卡号/姓名/手机号检索，可按状态、持有水票类型筛选并分页)
         app.MapGet("/api/members", async (
             string? q,
+            string? status,
+            string? water,
+            int? page,
+            int? pageSize,
             ClaimsPrincipal user,
             NpgsqlDataSource ds,
             KunlunFinanceRepository finRepo,
@@ -65,51 +69,47 @@ public static class FinanceEndpoints
                 return Results.Json(new { error = "无查询会员权限 (kunlun.waterstation:member:read)" }, statusCode: StatusCodes.Status403Forbidden);
 
             await using var conn = await ds.OpenConnectionAsync(ct);
-            await using var cmd = new NpgsqlCommand("""
-                SELECT id, member_no, name, phone, COALESCE(default_address, ''),
-                       bucket_delivery_tickets, bucket_pickup_tickets, bag_pickup_tickets, bag_delivery_tickets,
-                       deposit_amount, held_buckets, held_bags, status,
-                       reserved_bucket_delivery_tickets, reserved_bucket_pickup_tickets,
-                       reserved_bag_pickup_tickets, reserved_bag_delivery_tickets, created_at
-                FROM plugin_kunlun_waterstation.members
+            return await Paging.From(page, pageSize, legacyLimit: 50).Query(conn, """
+                id, member_no, name, phone, COALESCE(default_address, ''),
+                bucket_delivery_tickets, bucket_pickup_tickets, bag_pickup_tickets, bag_delivery_tickets,
+                deposit_amount, held_buckets, held_bags, status,
+                reserved_bucket_delivery_tickets, reserved_bucket_pickup_tickets,
+                reserved_bag_pickup_tickets, reserved_bag_delivery_tickets, created_at
+                """, """
+                plugin_kunlun_waterstation.members
                 WHERE tenant_id = @tid
                   AND (@q IS NULL OR member_no ILIKE @q OR name ILIKE @q OR phone ILIKE @q)
-                ORDER BY created_at DESC
-                LIMIT 50
-                """, conn);
-            cmd.Parameters.AddWithValue("tid", finRepo.TenantId);
-            cmd.Parameters.Add(new NpgsqlParameter("q", NpgsqlTypes.NpgsqlDbType.Varchar)
+                  AND (@status IS NULL OR status = @status)
+                  AND (@water IS NULL
+                       OR (@water = 'BUCKET' AND bucket_pickup_tickets + bucket_delivery_tickets > 0)
+                       OR (@water = 'BAG' AND bag_pickup_tickets + bag_delivery_tickets > 0))
+                """, "created_at DESC, id", p =>
             {
-                Value = string.IsNullOrWhiteSpace(q) ? DBNull.Value : $"%{q.Trim()}%"
-            });
-
-            var list = new List<object>();
-            await using var r = await cmd.ExecuteReaderAsync(ct);
-            while (await r.ReadAsync(ct))
+                p.AddWithValue("tid", finRepo.TenantId);
+                p.Add(Paging.Like("q", q));
+                p.Add(Paging.Text("status", status));
+                p.Add(Paging.Text("water", water));
+            }, r => new
             {
-                list.Add(new
-                {
-                    id = r.GetGuid(0),
-                    memberNo = r.GetString(1),
-                    name = r.GetString(2),
-                    phone = r.GetString(3),
-                    defaultAddress = r.GetString(4),
-                    bucketDeliveryTickets = r.GetInt32(5),
-                    bucketPickupTickets = r.GetInt32(6),
-                    bagPickupTickets = r.GetInt32(7),
-                    bagDeliveryTickets = r.GetInt32(8),
-                    depositAmount = r.GetDecimal(9),
-                    heldBuckets = r.GetInt32(10),
-                    heldBags = r.GetInt32(11),
-                    status = r.GetString(12),
-                    reservedBucketDeliveryTickets = r.GetInt32(13),
-                    reservedBucketPickupTickets = r.GetInt32(14),
-                    reservedBagPickupTickets = r.GetInt32(15),
-                    reservedBagDeliveryTickets = r.GetInt32(16),
-                    createdAt = r.GetDateTime(17)
-                });
-            }
-            return Results.Ok(list);
+                id = r.GetGuid(0),
+                memberNo = r.GetString(1),
+                name = r.GetString(2),
+                phone = r.GetString(3),
+                defaultAddress = r.GetString(4),
+                bucketDeliveryTickets = r.GetInt32(5),
+                bucketPickupTickets = r.GetInt32(6),
+                bagPickupTickets = r.GetInt32(7),
+                bagDeliveryTickets = r.GetInt32(8),
+                depositAmount = r.GetDecimal(9),
+                heldBuckets = r.GetInt32(10),
+                heldBags = r.GetInt32(11),
+                status = r.GetString(12),
+                reservedBucketDeliveryTickets = r.GetInt32(13),
+                reservedBucketPickupTickets = r.GetInt32(14),
+                reservedBagPickupTickets = r.GetInt32(15),
+                reservedBagDeliveryTickets = r.GetInt32(16),
+                createdAt = r.GetDateTime(17)
+            }, ct);
         }).RequireAuthorization();
 
         // 2. 查询优惠方案列表

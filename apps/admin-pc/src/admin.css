@@ -126,8 +126,11 @@ td b{color:var(--ink)}
 .link:hover{text-decoration:underline}
 .table-footer{display:flex;align-items:center;justify-content:space-between;padding:13px 20px;color:var(--muted);font-size:12px;border-top:1px solid var(--line)}
 .pagination{display:flex;gap:5px}
-.page-btn{width:28px;height:28px;border:1px solid var(--line);background:#fff;border-radius:7px;color:var(--muted);font-size:12px}
+.page-btn{min-width:28px;height:28px;padding:0 6px;border:1px solid var(--line);background:#fff;border-radius:7px;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
 .page-btn.active{background:var(--brand-500);border-color:var(--brand-500);color:#fff}
+.page-btn:not(.active):not(:disabled):hover{border-color:var(--brand-500);color:var(--brand-600)}
+.page-btn:disabled{opacity:.45;cursor:not-allowed}
+.page-gap{min-width:20px;line-height:28px;text-align:center}
 
 .tabs{display:flex;gap:24px;border-bottom:1px solid var(--line);margin-bottom:16px}
 .tab{border:0;background:none;padding:0 2px 12px;color:var(--muted);position:relative;font-size:13.5px}

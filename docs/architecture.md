@@ -133,6 +133,11 @@ kunlun/
 - 门店点单：员工端 `/staff/order` 与管理端「门店点单」弹窗共用 `CounterOrder`（查找或新建顾客 + `OrderMenu`）。顾客在店选「到店取水」时，提交即依次创建水单、收取需补押金、按「满桶领出 N / 换回空桶 M」交付；配送则生成待送水单。原「代开水单」表单已移除。
 - 押金按 `calcDepositGap` 计算：需补个数 = max(0, 当前持有 + N − M − 押金覆盖)，押金覆盖 = 已交未退 − 待报废占用，与交付时服务端校验一致。下单时默认按「有多少空桶换多少」估算并提示；配送交付弹窗按实际换回数量计算，不足时可选收款方式先收押金再交付，交付时服务端仍会拦截押金不足。
 
+## 5.3 列表分页与筛选
+
+`GET /api/members`、`GET /api/orders` 与 `GET /api/ledgers/recharges|deposits|containers` 接受 `page`、`pageSize`（1–100，默认 20）。传入任一参数时返回 `{ rows, total, page, pageSize }`（与 `/api/containers/holdings|circulation|damages` 相同），`page`/`pageSize` 为服务端实际采用的值；都不传时仍返回旧的数组（会员、水单最新 50 条，流水最新 30 条），兼容会员选择器等调用方。筛选在服务端完成：会员 `q`（编号/姓名/手机号）、`status`、`water`（持有该类水票）；水单 `q`（单号、取水码、地址快照联系人/手机号/地址、会员姓名/手机号）、`status`、`mode`、`memberId`、`pickupCode`；充值与押金流水 `q`；水单与这两类流水另有 `from`（含）/`to`（不含）时间区间；容器流水 `containerType`。`q` 中的 `%`、`_` 按字面匹配。管理端会员管理、水单管理、充值与押金、桶袋台账的表格和员工端会员查询均按页加载，`KunlunApi` 的 `membersPage`、`ordersPage` 及三个流水方法始终带 `page`。
+
+
 ## 6. 袋桶库存、周转与报废扣押
 
 `ContainerInventory` 只接收 `RECEIVE` / `SCRAP`；库存操作保留 before/after 快照，现存总量恒等于可用、在途、会员持有、待检、异常和破损之和，累计报废独立累计。

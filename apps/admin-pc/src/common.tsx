@@ -1,9 +1,9 @@
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useState } from 'react';
-import { pathFor, stationDay, type DateFilter, type ExportDataset, type MemberProfile, type WaterOrder, type WaterProduct } from '@kunlun/shared';
+import { pageCount, pageWindow, pathFor, stationDay, type DateFilter, type ExportDataset, type MemberProfile, type Paged, type WaterOrder, type WaterProduct } from '@kunlun/shared';
 import {
   CounterOrder, DepositDialog, Dialog, FulfillDialog, IssueCouponDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog, RechargeDialog,
-  saveBlob, useApi, useDialogs, useRun, useToast,
+  saveBlob, useApi, useDialogs, useLoader, useRun, useToast,
 } from '@kunlun/ui';
 import { useAdminData, useSelectedMemberId } from './data';
 
@@ -73,8 +73,50 @@ export function DateFilterSelect({ value, onChange, label }: { value: DateFilter
   );
 }
 
-export const textMatch = (query: string, ...values: Array<string | number | null | undefined>) =>
-  !query.trim() || values.join(' ').toLowerCase().includes(query.trim().toLowerCase());
+/** `value` once it has stopped changing for `delay` ms, so search boxes do not query on every keystroke. */
+export function useDebounced<T>(value: T, delay = 250) {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSettled(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [value, delay]);
+  return settled;
+}
+
+export const PAGE_SIZE = 20;
+export const emptyPage = <T,>(): Paged<T> => ({ rows: [], total: 0, page: 1, pageSize: PAGE_SIZE });
+
+/**
+ * One server-side page of a table: back to page 1 whenever `filters` change, reloaded after every console
+ * refresh, and moved to the last page when the current one empties (its last rows left the filter).
+ */
+export function usePagedTable<T>(load: (page: number) => Promise<Paged<T>>, filters: unknown[]) {
+  const { version } = useAdminData();
+  const key = JSON.stringify(filters);
+  const [current, setCurrent] = useState({ key, page: 1 });
+  const page = current.key === key ? current.page : 1;
+  const setPage = useCallback((next: number) => setCurrent({ key, page: next }), [key]);
+  const table = useLoader(() => load(page), [key, page, version]);
+  const { data } = table;
+  useEffect(() => {
+    if (data && data.page === page && page > 1 && data.rows.length === 0) setPage(pageCount(data.total, data.pageSize));
+  }, [data, page, setPage]);
+  return { ...table, page, setPage, total: data?.total ?? 0 };
+}
+
+export function Pager({ page, total, pageSize = PAGE_SIZE, onChange }: { page: number; total: number; pageSize?: number; onChange: (page: number) => void }) {
+  const pages = pageCount(total, pageSize);
+  if (pages <= 1) return <div className="pagination" />;
+  return (
+    <nav className="pagination" aria-label="分页">
+      <button type="button" className="page-btn" aria-label="上一页" disabled={page <= 1} onClick={() => onChange(page - 1)}>‹</button>
+      {pageWindow(page, pages).map((p, i) => p === null ? <span key={`gap-${i}`} className="page-gap">…</span> : (
+        <button key={p} type="button" className={`page-btn${p === page ? ' active' : ''}`} aria-current={p === page ? 'page' : undefined} onClick={() => onChange(p)}>{p}</button>
+      ))}
+      <button type="button" className="page-btn" aria-label="下一页" disabled={page >= pages} onClick={() => onChange(page + 1)}>›</button>
+    </nav>
+  );
+}
 
 export function EmptyRow({ colSpan, children }: { colSpan: number; children: string }) {
   return <tr><td colSpan={colSpan} style={{ textAlign: 'center', color: 'var(--muted)', padding: 26 }}>{children}</td></tr>;
