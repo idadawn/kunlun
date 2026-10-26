@@ -79,6 +79,7 @@ export function Orders() {
                   <td style={{ whiteSpace: 'normal', minWidth: 200 }}>
                     <span className={`tag ${pickup ? 'aqua' : 'green'}`}>{pickup ? '自提' : '配送'}</span>{' '}
                     {pickup ? <>绿麒麟水站到店{o.pickupCode && <> (取水码: <b>{o.pickupCode}</b>)</>}</> : o.addressSnapshot?.address || '未设置配送地址'}
+                    {o.remark && <><br /><small style={{ color: 'var(--orange-500)' }}>备注：{o.remark}</small></>}
                   </td>
                   <td>{waterLabel(o)} × <b>{o.orderQty}</b></td>
                   <td>{o.status === 'COMPLETED' ? `已核销 ${o.actualQty ?? o.orderQty}` : o.status === 'CANCELLED' ? '已释放预占' : `预占 ${o.reservedQty} ${unitOf(o.waterType)}`}</td>
@@ -109,6 +110,7 @@ function OrderDetailDialog({ order: o, onClose }: { order: WaterOrder; onClose: 
         <p>收货联系人：{s?.contactName || '—'} {s?.contactPhone}</p>
         {o.fulfillMode === 'DELIVERY' && <p>收货地址：{s?.address || '未设置配送地址'}</p>}
         {o.pickupCode && <p>取水码：{o.pickupCode}</p>}
+        {o.remark && <p>备注：{o.remark}</p>}
         <p>实际交付 {o.actualQty ?? '—'} · 满桶领出 {o.fullOutQty ?? '—'} · 空桶收回 {o.emptyInQty ?? '—'}</p>
         {(o.diffReason || o.cancelReason) && <p>{o.diffReason || o.cancelReason}</p>}
         <small>{new Date(o.createdAt).toLocaleString('zh-CN')}</small>

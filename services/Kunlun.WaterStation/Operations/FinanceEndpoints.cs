@@ -25,6 +25,7 @@ public static class FinanceEndpoints
             var phone = req.Phone?.Trim() ?? "";
             if (string.IsNullOrEmpty(name) || phone.Length != 11 || !phone.StartsWith('1'))
                 return Results.BadRequest(new { error = "请填写有效姓名与 11 位手机号" });
+            var remark = Remarks.Normalize(req.Remark, Remarks.MemberMaxLength);
 
             var id = Guid.NewGuid();
             var memberNo = $"No.{Random.Shared.Next(100000, 999999)}";
@@ -32,8 +33,8 @@ public static class FinanceEndpoints
             await using var tx = await conn.BeginTransactionAsync(ct);
             await using (var cmd = new NpgsqlCommand("""
                 INSERT INTO plugin_kunlun_waterstation.members
-                    (id, tenant_id, member_no, name, phone, status, source)
-                VALUES (@id, @tid, @no, @name, @phone, 'ACTIVE', 'STAFF_CREATED')
+                    (id, tenant_id, member_no, name, phone, status, source, remark)
+                VALUES (@id, @tid, @no, @name, @phone, 'ACTIVE', 'STAFF_CREATED', @remark)
                 ON CONFLICT (tenant_id, phone) DO NOTHING
                 """, conn, tx))
             {
@@ -42,6 +43,7 @@ public static class FinanceEndpoints
                 cmd.Parameters.AddWithValue("no", memberNo);
                 cmd.Parameters.AddWithValue("name", name);
                 cmd.Parameters.AddWithValue("phone", phone);
+                cmd.Parameters.AddWithValue("remark", (object?)remark ?? DBNull.Value);
                 if (await cmd.ExecuteNonQueryAsync(ct) == 0)
                     return Results.Conflict(new { error = "该手机号已存在会员档案" });
             }
@@ -50,7 +52,7 @@ public static class FinanceEndpoints
                 await MemberAddresses.AddInitial(conn, tx, finRepo.TenantId, id, name, phone, req.DefaultAddress, req.DoorNo, ct);
             await tx.CommitAsync(ct);
 
-            return Results.Ok(new { id, memberNo, name, phone });
+            return Results.Ok(new { id, memberNo, name, phone, remark });
         }).RequireAuthorization();
 
         // 1b. 查询会员列表与搜索 (支持按卡号/姓名/手机号检索)
@@ -70,7 +72,7 @@ public static class FinanceEndpoints
                        bucket_delivery_tickets, bucket_pickup_tickets, bag_pickup_tickets, bag_delivery_tickets,
                        deposit_amount, held_buckets, held_bags, status,
                        reserved_bucket_delivery_tickets, reserved_bucket_pickup_tickets,
-                       reserved_bag_pickup_tickets, reserved_bag_delivery_tickets, created_at
+                       reserved_bag_pickup_tickets, reserved_bag_delivery_tickets, created_at, remark
                 FROM plugin_kunlun_waterstation.members
                 WHERE tenant_id = @tid
                   AND (@q IS NULL OR member_no ILIKE @q OR name ILIKE @q OR phone ILIKE @q)
@@ -106,7 +108,8 @@ public static class FinanceEndpoints
                     reservedBucketPickupTickets = r.GetInt32(14),
                     reservedBagPickupTickets = r.GetInt32(15),
                     reservedBagDeliveryTickets = r.GetInt32(16),
-                    createdAt = r.GetDateTime(17)
+                    createdAt = r.GetDateTime(17),
+                    remark = r.IsDBNull(18) ? null : r.GetString(18)
                 });
             }
             return Results.Ok(list);

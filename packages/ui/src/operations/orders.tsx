@@ -82,6 +82,7 @@ export function FulfillDialog({ order, onClose, onDone }: { order?: WaterOrder; 
   return (
     <FormDialog title={pickup ? '自提核销' : '确认配送交付'} submitLabel="确认交付并扣票" onClose={onClose} onSubmit={submit}>
       {order && <p>{order.orderNo} · 下单 {order.orderQty}{unitOf(order.waterType)}{!pickup && order.addressSnapshot?.address ? ` · ${order.addressSnapshot.address}` : ''}</p>}
+      {order?.remark && <p className="membership-note">备注：{order.remark}</p>}
       {pickup && <Field label="会员出示的六位取水码" htmlFor="pickupCode"><input id="pickupCode" className="input" required pattern="[0-9]{6}" inputMode="numeric" maxLength={6} value={code} onChange={e => setCode(e.target.value)} /></Field>}
       <Field label="实际交付数量" htmlFor="fulfillQty"><input id="fulfillQty" className="input" type="number" min={1} step={1} required value={actual} onChange={e => setActual(Number(e.target.value))} /></Field>
       <Field label="满桶领出" htmlFor="fullOut"><input id="fullOut" className="input" type="number" min={0} step={1} required value={fullOut} onChange={e => setFullOut(Number(e.target.value))} /></Field>

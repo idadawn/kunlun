@@ -153,6 +153,7 @@ public sealed class KunlunAuthRepository(NpgsqlDataSource dataSource, IConfigura
             ALTER TABLE members ADD COLUMN IF NOT EXISTS username VARCHAR(32);
             ALTER TABLE members ADD COLUMN IF NOT EXISTS password_hash TEXT;
             ALTER TABLE members ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 1;
+            ALTER TABLE members ADD COLUMN IF NOT EXISTS remark VARCHAR(500);
             CREATE UNIQUE INDEX IF NOT EXISTS member_username ON members (tenant_id, lower(username));
 
             CREATE TABLE IF NOT EXISTS auth_audit_logs (

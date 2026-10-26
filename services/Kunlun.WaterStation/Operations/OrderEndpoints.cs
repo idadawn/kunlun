@@ -67,6 +67,7 @@ public static class OrderEndpoints
             if (req.WaterType is not ("BUCKET_18_9L" or "BAG_7_5L") || req.FulfillMode is not ("PICKUP" or "DELIVERY"))
                 throw new BusinessRuleException("水品或领取方式无效");
             (string availCol, string reservedCol, _) = KunlunOrderRepository.ResolveTicketColumns(req.WaterType, req.FulfillMode);
+            var remark = Remarks.Normalize(req.Remark, Remarks.OrderMaxLength);
 
             await using var conn = await db.OpenConnectionAsync(ct);
             await using var tx = await conn.BeginTransactionAsync(ct);
@@ -74,7 +75,7 @@ public static class OrderEndpoints
             await TicketBatches.LockRequest(conn, tx, orderRepo.TenantId, "order", req.IdempotencyKey, ct);
             // AC-05: 幂等键检查
             await using (var idemCmd = new NpgsqlCommand("""
-                SELECT id, order_no, water_type, fulfill_mode, order_qty, reserved_qty, pickup_code, status, address_snapshot, member_id
+                SELECT id, order_no, water_type, fulfill_mode, order_qty, reserved_qty, pickup_code, status, address_snapshot, member_id, remark
                 FROM plugin_kunlun_waterstation.water_orders
                 WHERE tenant_id = @tid AND idempotency_key = @key
                 """, conn, tx))
@@ -97,6 +98,7 @@ public static class OrderEndpoints
                         pickupCode = r.IsDBNull(6) ? null : r.GetString(6),
                         status = r.GetString(7),
                         addressSnapshot = JsonDocument.Parse(r.GetString(8)).RootElement.Clone(),
+                        remark = r.IsDBNull(10) ? null : r.GetString(10),
                         idempotentReplay = true
                     };
                     await r.CloseAsync();
@@ -189,11 +191,11 @@ public static class OrderEndpoints
                 INSERT INTO plugin_kunlun_waterstation.water_orders
                     (id, tenant_id, order_no, idempotency_key, member_id, water_type, fulfill_mode,
                      order_qty, reserved_qty, pickup_code, address_snapshot, appointment_slot,
-                     status, created_by_type, created_by_name, product_snapshot)
+                     status, created_by_type, created_by_name, product_snapshot, remark)
                 VALUES
                     (@id, @tid, @no, @key, @mid, @wtype, @fmode,
                      @oqty, @rqty, @pcode, @snap::jsonb, @slot,
-                     'PENDING', @ctype, @cname, @product::jsonb)
+                     'PENDING', @ctype, @cname, @product::jsonb, @remark)
                 """, conn, tx))
             {
                 insCmd.Parameters.AddWithValue("id", orderId);
@@ -211,6 +213,7 @@ public static class OrderEndpoints
                 insCmd.Parameters.AddWithValue("ctype", subjectType);
                 insCmd.Parameters.AddWithValue("cname", actorName);
                 insCmd.Parameters.AddWithValue("product", JsonSerializer.Serialize(productSnapshot));
+                insCmd.Parameters.AddWithValue("remark", (object?)remark ?? DBNull.Value);
                 await insCmd.ExecuteNonQueryAsync(ct);
             }
 
@@ -250,6 +253,7 @@ public static class OrderEndpoints
                 pickupCode,
                 status = "PENDING",
                 addressSnapshot = JsonDocument.Parse(addressSnapshotJson).RootElement.Clone(),
+                remark,
                 idempotentReplay = false
             });
         }).RequireAuthorization();
@@ -281,7 +285,7 @@ public static class OrderEndpoints
             await using var cmd = new NpgsqlCommand("""
                 SELECT id, order_no, member_id, water_type, fulfill_mode, order_qty, reserved_qty,
                        actual_qty, full_out_qty, empty_in_qty, pickup_code, address_snapshot,
-                       status, diff_reason, cancel_reason, created_at, product_snapshot
+                       status, diff_reason, cancel_reason, created_at, product_snapshot, remark
                 FROM plugin_kunlun_waterstation.water_orders
                 WHERE tenant_id = @tid
                   AND (@mid IS NULL OR member_id = @mid)
@@ -317,7 +321,8 @@ public static class OrderEndpoints
                     diffReason = r.IsDBNull(13) ? null : r.GetString(13),
                     cancelReason = r.IsDBNull(14) ? null : r.GetString(14),
                     createdAt = r.GetDateTime(15),
-                    productSnapshot = r.IsDBNull(16) ? (JsonElement?)null : JsonSerializer.Deserialize<JsonElement>(r.GetString(16))
+                    productSnapshot = r.IsDBNull(16) ? (JsonElement?)null : JsonSerializer.Deserialize<JsonElement>(r.GetString(16)),
+                    remark = r.IsDBNull(17) ? null : r.GetString(17)
                 });
             }
             return Results.Ok(list);
