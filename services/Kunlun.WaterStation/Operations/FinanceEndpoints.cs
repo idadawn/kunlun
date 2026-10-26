@@ -27,9 +27,10 @@ public static class FinanceEndpoints
                 return Results.BadRequest(new { error = "请填写有效姓名与 11 位手机号" });
 
             var id = Guid.NewGuid();
-            var memberNo = $"No.{Random.Shared.Next(100000, 999999)}";
             await using var conn = await ds.OpenConnectionAsync(ct);
             await using var tx = await conn.BeginTransactionAsync(ct);
+            // 手机号冲突时事务回滚，卡号随之退回计数器。
+            var memberNo = await BusinessNumbers.MemberNo(conn, tx, finRepo.TenantId, ct);
             await using (var cmd = new NpgsqlCommand("""
                 INSERT INTO plugin_kunlun_waterstation.members
                     (id, tenant_id, member_no, name, phone, status, source)
@@ -215,7 +216,7 @@ public static class FinanceEndpoints
 
             var totalAmt = unitPrice * req.Quantity;
             var lotId = Guid.NewGuid();
-            var depositNo = $"YJ{DateTime.UtcNow:yyyyMMdd}{Random.Shared.Next(1000, 9999)}";
+            var depositNo = await BusinessNumbers.DepositNo(conn, tx, ct);
             var operatorName = user.FindFirstValue("display_name") ?? "员工";
 
             await using (var insLot = new NpgsqlCommand("""
@@ -404,7 +405,7 @@ public static class FinanceEndpoints
                 breakdown.Add(new { lotNo = lot.No, takeQty = take, originalUnitPrice = lot.UnitPrice, subAmount = subAmt });
             }
 
-            var refundNo = $"TK{DateTime.UtcNow:yyyyMMdd}{Random.Shared.Next(1000, 9999)}";
+            var refundNo = await BusinessNumbers.DepositRefundNo(conn, tx, ct);
             var operatorName = user.FindFirstValue("display_name") ?? "员工";
 
             await using (var insRef = new NpgsqlCommand("""
