@@ -19,3 +19,8 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Generated clean-route HTML entries (created by sync:frontends)
+apps/*/public/admin/
+apps/*/public/staff/
+apps/*/public/member/

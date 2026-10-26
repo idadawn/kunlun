@@ -1,15 +1,18 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-app-area="admin">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>管理后台 | 绿麒麟·水站会员管理系统</title>
-<link rel="stylesheet" href="assets/brand.css">
-<script src="assets/brand.js"></script>
-<script src="assets/admin-ui.js"></script>
-<script src="assets/live-api.js"></script>
-<script src="assets/membership.js"></script>
-<script src="assets/price-poster.js"></script>
+<link rel="stylesheet" href="/assets/brand.css">
+<script src="/assets/route-config.js"></script>
+<script src="/assets/app-router.js"></script>
+<script src="/assets/brand.js"></script>
+<script src="/assets/admin-ui.js"></script>
+<script src="/assets/live-api.js"></script>
+<script src="/assets/membership.js"></script>
+<script src="/assets/plan-picker.js"></script>
+<script src="/assets/price-poster.js"></script>
 <style>
 .admin-app{display:grid;grid-template-columns:var(--sidebar-width,236px) minmax(0,1fr);height:100vh;min-height:700px;transition:grid-template-columns .18s ease}
 .sidebar{background:#ffffff;color:var(--text);display:flex;flex-direction:column;padding:22px 14px 16px;border-right:1px solid var(--line)}
@@ -561,7 +564,6 @@ $$('[data-page]').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.p
 function showPage(page){
   if(page==='settings')page='plans';
   if(!pageNames[page])page='dashboard';
-  history.replaceState(null,'','#'+page);
   $$('.section').forEach(s=>s.classList.toggle('active',s.id===`page-${page}`));
   $$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
   $('#breadcrumb').textContent=pageNames[page];

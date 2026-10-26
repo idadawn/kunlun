@@ -106,3 +106,10 @@ kunlun/
 管理端沿用根目录 `admin.html`，员工端与会员端沿用 `staff.html`、`member.html`；`assets/live-api.js` 负责登录与原有数据绑定，`assets/membership.js` 接通套餐、发券、充值、批次退款和订单履约。当前交付为浏览器 H5 页面，并非已打包发布的原生微信小程序。
 
 接口：`POST/PUT /api/plans`，`POST /api/recharges`（可选 `couponId`），`GET /api/members/{id}/ticket-batches`，`POST /api/ticket-batches/{id}/refund`，`GET/POST/PUT /api/coupon-templates`，`POST /api/coupon-templates/{id}/issue`，`GET /api/members/{id}/coupons`。退款需 `recharge:refund` 权限，仅默认授予管理员；会员查询强制本人范围。充值汇总分别返回累计收款、累计退款及水费净收。
+
+
+## 5. Web 路由与部署入口
+
+三端使用 `/admin`、`/staff`、`/member` 路径。`config/web-routes.json` 定义合法页面；`assets/app-router.js` 处理浏览器 History 导航及旧链接兼容；`scripts/vite-routes.ts` 为开发和 preview 提供正确页面入口及未知页面 404。`sync-frontends.mjs` 将同一路由清单生成到 `public/<端>/<页面>/index.html`，这些生成目录不入 Git，生产构建包含实际文件。部署可使用 `deploy/nginx.conf` 的 `try_files` 配置；不能只更改地址栏而依赖开发服务器 fallback。
+
+内部 HTML 模板文件保留作为维护源，公开访问和资源引用使用干净路径与 `/assets/` 绝对地址。优惠券套餐选择由 `assets/plan-picker.js` 统一处理，只有启用套餐可确认；保存优惠券时后端另行锁定/校验套餐状态。

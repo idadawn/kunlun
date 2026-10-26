@@ -6,9 +6,9 @@
 
 ## 业务入口
 
-- [管理后台 (`admin.html`)](./admin.html)：管理员登录后办理会员、订单、账务与设置。
-- [员工工作台 (`staff.html`)](./staff.html)：独立员工登录入口，适配移动设备。
-- [会员中心 (`member.html`)](./member.html)：会员登录后查看本人权益与预约用水。
+- 管理后台 `/admin`：管理员登录后办理会员、订单、账务与设置。
+- 员工工作台 `/staff`：独立员工登录入口，适配移动设备。
+- 会员中心 `/member`：会员登录后查看本人权益与预约用水。
 
 入口之间不展示角色切换导航；根入口跳转管理后台。页面沿用设计 HTML 的内容布局，移除样机外壳、演示目录和模拟成功操作。
 
@@ -37,7 +37,7 @@ pnpm sync:frontends
 pnpm --filter @kunlun/admin-pc dev
 ```
 
-管理端 `/admin.html`、员工端 `/staff.html`、会员端 `/member.html` 共用 `/api` 代理。部署时将 `/api` 反向代理到后端。根目录 HTML 和 `assets/` 是当前页面唯一维护源，`pnpm build` 自动同步副本并检查 TypeScript。
+管理端 `/admin`、员工端 `/staff`、会员端 `/member` 共用 `/api` 代理，功能页采用 `/admin/coupons`、`/member/orders` 等路径。开发及构建预览均支持直接访问和刷新；部署配置见 `deploy/nginx.conf`，将 `/api` 反向代理到后端。根目录 HTML 和 `assets/` 是当前页面唯一维护源，`pnpm build` 自动同步副本并检查 TypeScript。
 
 后端验收必须显式设置 `KUNLUN_TEST_DATABASE_URL`（数据库名包含 `test`，账号需有创建测试库权限），再运行 `dotnet test Kunlun.slnx`。测试自行创建、销毁独立数据库，不使用业务库。
 
@@ -52,3 +52,6 @@ pnpm --filter @kunlun/admin-pc dev
 
 
 管理端功能入口已拆分为水品资料、充值套餐、优惠券、押金标准和员工账号。充值套餐页可根据当前启用配置生成高清价目表 PNG；运行 `pnpm test:poster` 检查导出数据与门店价目表一致。
+
+
+`config/web-routes.json` 是三端路由清单；构建会生成各路径的静态入口，页面资源使用绝对路径。旧 `.html#页面` 链接会转到新地址，导航支持前进后退。`pnpm test:web` 验证开发、构建预览和静态入口。优惠券和充值表单共用分类套餐弹窗，只可选择启用套餐，服务端对优惠券关联套餐再次校验。

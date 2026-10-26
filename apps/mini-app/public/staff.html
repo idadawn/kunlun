@@ -1,13 +1,16 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-app-area="staff">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>员工端小程序 | 绿麒麟·水站会员管理系统</title>
-<link rel="stylesheet" href="assets/brand.css">
-<script src="assets/brand.js"></script>
-<script src="assets/live-api.js"></script>
-<script src="assets/membership.js"></script>
+<link rel="stylesheet" href="/assets/brand.css">
+<script src="/assets/route-config.js"></script>
+<script src="/assets/app-router.js"></script>
+<script src="/assets/brand.js"></script>
+<script src="/assets/live-api.js"></script>
+<script src="/assets/membership.js"></script>
+<script src="/assets/plan-picker.js"></script>
 <style>
 .h5-scroll{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:76px}
 .h5-page{display:none}.h5-page.active{display:block}
@@ -159,7 +162,7 @@
               </div>
             </div>
 
-            <div class="h5-section-head"><h3>待办水单</h3><a href="javascript:staffNav('orders')">全部 6 单 ›</a></div>
+            <div class="h5-section-head"><h3>待办水单</h3><a href="/staff/orders" data-route-page="orders">全部 6 单 ›</a></div>
 
 
 
