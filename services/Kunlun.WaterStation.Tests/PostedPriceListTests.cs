@@ -81,4 +81,22 @@ public sealed class PostedPriceListTests(TestHost host)
         }
         finally {await c.PutAsJsonAsync($"/api/plans/{id}",current);}
     }
+    [Fact]
+    public async Task Product_Maintenance_Requires_Admin_And_Validates_Data()
+    {
+        using var c=await Client();
+        var original=new SaveWaterProduct("5L 袋装水",5,"食品级铝箔袋（10斤装）",5,5);
+        try
+        {
+            Assert.Equal(HttpStatusCode.BadRequest,(await c.PutAsJsonAsync("/api/products/BAG_7_5L",original with{DeliveryMinimum=0})).StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest,(await c.PutAsJsonAsync("/api/products/BAG_7_5L",original with{RetailPrice=-1})).StatusCode);
+            var saved=await Ok(await c.PutAsJsonAsync("/api/products/BAG_7_5L",original with{Name="水品资料验收",RetailPrice=6}));
+            Assert.Equal("水品资料验收",saved.GetProperty("name").GetString());Assert.Equal(6,saved.GetProperty("retailPrice").GetDecimal());
+            using var clerk=host.CreateClient();var auth=(await (await clerk.PostAsJsonAsync("/api/auth/staff/login",new StaffLoginRequest("YG0012",TestHost.Password))).Content.ReadFromJsonAsync<AuthTokenResponse>())!;
+            clerk.DefaultRequestHeaders.Authorization=new AuthenticationHeaderValue("Bearer",auth.AccessToken);
+            Assert.Equal(HttpStatusCode.Forbidden,(await clerk.PutAsJsonAsync("/api/products/BAG_7_5L",original)).StatusCode);
+        }
+        finally {await c.PutAsJsonAsync("/api/products/BAG_7_5L",original);}
+    }
+
 }

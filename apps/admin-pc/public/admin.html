@@ -8,6 +8,7 @@
 <script src="assets/brand.js"></script>
 <script src="assets/live-api.js"></script>
 <script src="assets/membership.js"></script>
+<script src="assets/price-poster.js"></script>
 <style>
 .admin-app{display:grid;grid-template-columns:236px 1fr;height:100vh;min-height:700px}
 .sidebar{background:#ffffff;color:var(--text);display:flex;flex-direction:column;padding:22px 14px 16px;border-right:1px solid var(--line)}
@@ -236,9 +237,14 @@ td b{color:var(--ink)}
     <button class="nav-item" data-page="members"><svg class="icon"><use href="#i-users"/></svg>会员管理</button>
     <button class="nav-item" data-page="orders"><svg class="icon"><use href="#i-order"/></svg>水单管理<span class="nav-badge" id="orderBadge">6</span></button>
     <button class="nav-item" data-page="finance"><svg class="icon"><use href="#i-wallet"/></svg>充值与押金</button>
-    <div class="nav-label">资产与设置</div>
+    <div class="nav-label">商品与营销</div>
+    <button class="nav-item" data-page="products"><svg class="icon"><use href="#i-drop"/></svg>水品资料</button>
+    <button class="nav-item" data-page="plans"><svg class="icon"><use href="#i-wallet"/></svg>充值套餐</button>
+    <button class="nav-item" data-page="coupons"><svg class="icon"><use href="#i-deposit"/></svg>优惠券</button>
+    <div class="nav-label">资产与权限</div>
     <button class="nav-item" data-page="assets"><svg class="icon"><use href="#i-box"/></svg>桶袋台账</button>
-    <button class="nav-item" data-page="settings"><svg class="icon"><use href="#i-setting"/></svg>业务设置</button>
+    <button class="nav-item" data-page="deposit-settings"><svg class="icon"><use href="#i-setting"/></svg>押金标准</button>
+    <button class="nav-item" data-page="staff-accounts"><svg class="icon"><use href="#i-shield"/></svg>员工账号</button>
     <div class="sidebar-bottom">
       <div class="station">
         <div class="station-avatar"><svg class="icon"><use href="#i-store"/></svg></div>
@@ -476,20 +482,11 @@ td b{color:var(--ink)}
         </div>
       </section>
 
-      <!-- 6. 业务设置 -->
-      <section id="page-settings" class="section">
-        <div class="page-head">
-          <div><h2>业务设置</h2><p>管理充值套餐、优惠券、押金单价和员工账号</p></div>
-          <button class="btn primary" onclick="openModal('plan')"><svg class="icon"><use href="#i-plus"/></svg>新建优惠方案</button>
-        </div>
-        <div class="tabs">
-          <button class="tab active" onclick="settingsTab(this,'plans')">优惠方案</button>
-          <button class="tab" onclick="settingsTab(this,'deposit')">押金与容器</button>
-          <button class="tab" onclick="settingsTab(this,'staff')">员工与权限</button>
-
-        </div>
-        <div id="settingsContent"><p>正在加载…</p></div>
-      </section>
+      <section id="page-products" class="section"><div class="page-head"><div><h2>水品资料</h2><p>维护水品规格、包装、零售价和配送要求</p></div></div><div id="productsContent"><p>正在加载…</p></div></section>
+      <section id="page-plans" class="section"><div class="page-head"><div><h2>充值套餐</h2><p>按水品和领取方式管理固定数量套餐</p></div></div><div id="plansContent"><p>正在加载…</p></div></section>
+      <section id="page-coupons" class="section"><div class="page-head"><div><h2>优惠券</h2><p>配置充值赠水活动，向会员发放优惠券</p></div></div><div id="couponsContent"><p>正在加载…</p></div></section>
+      <section id="page-deposit-settings" class="section"><div class="page-head"><div><h2>押金标准</h2><p>维护容器押金单价，历史押金按原收款记录结算</p></div></div><div id="depositSettingsContent"><p>正在加载…</p></div></section>
+      <section id="page-staff-accounts" class="section"><div class="page-head"><div><h2>员工账号</h2><p>管理员工账号、角色及启用状态</p></div></div><div id="staffSettingsContent"><p>正在加载…</p></div></section>
     </div>
   </main>
 </div>
@@ -551,13 +548,16 @@ td b{color:var(--ink)}
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const ico=n=>GQ.icon(n), toast=m=>GQ.toast(m);
-const pageNames={dashboard:'经营总览',members:'会员管理',orders:'水单管理',finance:'充值与押金',assets:'桶袋台账',settings:'业务设置'};
+const pageNames={dashboard:'经营总览',members:'会员管理',orders:'水单管理',finance:'充值与押金',assets:'桶袋台账',products:'水品资料',plans:'充值套餐',coupons:'优惠券','deposit-settings':'押金标准','staff-accounts':'员工账号'};
 let orderQty=1, fulfillQty=1;
 document.addEventListener('DOMContentLoaded',()=>{
 $$('.gq-logo').forEach(e=>e.innerHTML=GQ.logoSvg);
 $$('[data-page]').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));
 });
 function showPage(page){
+  if(page==='settings')page='plans';
+  if(!pageNames[page])page='dashboard';
+  history.replaceState(null,'','#'+page);
   $$('.section').forEach(s=>s.classList.toggle('active',s.id===`page-${page}`));
   $$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
   $('#breadcrumb').textContent=pageNames[page];
@@ -597,7 +597,7 @@ function openNewMember(){
 function filterMembers(v){$$('#memberTable tr').forEach(r=>r.classList.toggle('hide',!r.textContent.toLowerCase().includes(v.toLowerCase())))}
 function globalSearch(e){if(e.key==='Enter'){showPage('members');$('#memberSearch').value=e.target.value;filterMembers(e.target.value);e.target.value=''}}
 function filterOrders(btn,s){$$('#page-orders .tab').forEach(t=>t.classList.remove('active'));btn.classList.add('active');$$('#orderTable tr').forEach(r=>r.classList.toggle('hide',s!=='全部'&&r.dataset.status!==s))}
-function settingsTab(btn,type){btn.parentElement.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));btn.classList.add('active');$('#settingsContent').innerHTML='<p>正在加载…</p>';}
+
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeDrawer();}});
 </script>
 </body>

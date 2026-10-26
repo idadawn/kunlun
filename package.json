@@ -8,7 +8,8 @@
     "build": "pnpm sync:frontends && turbo run build",
     "typecheck": "turbo run typecheck",
     "sync:frontends": "node scripts/sync-frontends.mjs",
-    "check:pages": "node scripts/check-production-pages.mjs"
+    "check:pages": "node scripts/check-production-pages.mjs",
+    "test:poster": "node --test scripts/price-poster.test.mjs"
   },
   "devDependencies": {
     "turbo": "^2.3.0",
