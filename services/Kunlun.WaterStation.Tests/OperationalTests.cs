@@ -21,7 +21,7 @@ public sealed class OperationalTests(TestHost host)
     {
         var text=await r.Content.ReadAsStringAsync();Assert.True(r.IsSuccessStatusCode,text);return JsonSerializer.Deserialize<JsonElement>(text);
     }
-    private static async Task<Guid> Member(HttpClient c)=> (await Ok(await c.PostAsJsonAsync("/api/members",new CreateMemberRequest("运营验收",$"131{Random.Shared.Next(10000000,99999999)}","测试地址",null)))).GetProperty("id").GetGuid();
+    private static async Task<Guid> Member(HttpClient c)=> (await Ok(await c.PostAsJsonAsync("/api/members",new CreateMemberRequest("运营验收",$"131{Random.Shared.Next(10000000,99999999)}","测试地址",null, "1-101")))).GetProperty("id").GetGuid();
     [Fact]
     public async Task Overview_Uses_Real_Transactions_And_Seven_Shanghai_Dates()
     {

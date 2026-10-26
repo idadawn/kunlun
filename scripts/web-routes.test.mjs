@@ -5,43 +5,82 @@ import {readFileSync} from 'node:fs';
 import {dirname,resolve,join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import net from 'node:net';
+import {WEB_ROUTES,resolveRoute,pathFor} from '../packages/shared/src/routes.ts';
+import {filterPlans} from '../packages/shared/src/plans.ts';
+import {pageCount,pageWindow} from '../packages/shared/src/paging.ts';
+import {dateFilterFrom} from '../packages/shared/src/format.ts';
+import {KunlunApi} from '../packages/shared/src/api.ts';
 const root=fileURLToPath(new URL('..',import.meta.url));
-const require=createRequire(import.meta.url);
-const router=require('../assets/app-router.js');
-const picker=require('../assets/plan-picker.js');
-const routes=JSON.parse(readFileSync(join(root,'config/web-routes.json'),'utf8'));
-test('clean URLs normalize legacy links, hashes and directory entries',()=>{
- assert.deepEqual(router.resolve('/admin.html','#plans'),{area:'admin',page:'plans',path:'/admin/plans'});
- assert.equal(router.resolve('/admin#plans'.split('#')[0],'#plans').path,'/admin/plans');
- assert.equal(router.resolve('/member.html','#records').path,'/member/records');
- assert.equal(router.resolve('/staff/orders/index.html').path,'/staff/orders');
- assert.equal(router.resolve('/admin/settings').path,'/admin/plans');
- assert.equal(router.resolve('/admin/deposit-settings').path,'/admin/products');
- assert.equal(router.resolve('/admin.html','#deposit-settings').path,'/admin/products');
- assert.equal(router.resolve('/','', 'member').path,'/member');
- assert.equal(router.resolve('/member/home/').path,'/member');
- assert.equal(router.resolve('/admin/not-a-page'),null);
- assert.equal(router.resolve('/admin/%xx'),null);
+const APPS={'admin-pc':['admin'],'mini-app':['member','staff']};
+const allPaths=area=>[`/${area}`,...WEB_ROUTES[area].pages.map(p=>`/${area}/${p}`),...Object.keys(WEB_ROUTES[area].aliases||{}).map(p=>`/${area}/${p}`)];
+
+test('clean URLs resolve pages and aliases; .html and hash links are not routes',()=>{
+ assert.deepEqual(resolveRoute('/admin/plans'),{area:'admin',page:'plans',path:'/admin/plans'});
+ assert.equal(resolveRoute('/admin/settings').path,'/admin/plans');
+ assert.equal(resolveRoute('/admin/deposit-settings').path,'/admin/products');
+ assert.equal(resolveRoute('/member/home/').path,'/member');
+ assert.deepEqual(resolveRoute('/member/addresses'),{area:'member',page:'addresses',path:'/member/addresses'});
+ for(const bad of ['/admin.html','/member.html','/index.html','/admin/index.html','/staff/orders/index.html','/admin/not-a-page','/admin/plans/extra','/admin/%xx','/'])assert.equal(resolveRoute(bad),null,bad);
+ for(const [area,route] of Object.entries(WEB_ROUTES))for(const page of route.pages){const path=pathFor(area,page);assert.ok(!path.includes('.html'));assert.equal(resolveRoute(path).page,page);}
 });
-test('every declared page has a canonical route and a built static entry',()=>{
- for(const [area,route] of Object.entries(routes))for(const page of route.pages){
-  const path=router.pathFor(area,page);assert.ok(!path.includes('.html')&&!path.includes('#'));
-  assert.equal(router.resolve(path).page,page);
-  for(const app of ['admin-pc','mini-app']){
-   const file=join(root,`apps/${app}/dist${path}/index.html`);
-   const html=readFileSync(file,'utf8');assert.ok(html.includes(`data-app-area="${area}"`));assert.ok(html.includes('src="/assets/app-router.js"'));assert.ok(!/(?:src|href)="assets\//.test(html));
-  }
+
+test('nginx serves exactly the declared routes from the right app',()=>{
+ const conf=readFileSync(join(root,'deploy/nginx.conf'),'utf8');
+ const blocks=[...conf.matchAll(/location ~ (\S+) \{\s*root \/srv\/kunlun\/([\w-]+);/g)].map(([,regex,app])=>({app,regex:new RegExp(regex)}));
+ assert.deepEqual(blocks.map(b=>b.app).sort(),Object.keys(APPS).sort());
+ for(const [app,areas] of Object.entries(APPS))for(const area of areas)for(const path of allPaths(area)){
+  assert.deepEqual(blocks.filter(b=>b.regex.test(path)).map(b=>b.app),[app],path);
  }
+ for(const bad of ['/admin.html','/member/index.html','/admin/nope','/staff/addresses','/static/admin/x.js'])assert.ok(!blocks.some(b=>b.regex.test(bad)),bad);
 });
+
 test('package classification and search never expose disabled packages',()=>{
- const plans=[{id:'a',name:'袋装自提100',waterType:'BAG_7_5L',fulfillMode:'PICKUP',price:100,buyQty:50,status:'ACTIVE'},{id:'b',name:'袋装自提499',waterType:'BAG_7_5L',fulfillMode:'PICKUP',price:499,buyQty:300,status:'ACTIVE'},{id:'c',name:'桶装配送100',waterType:'BUCKET_18_9L',fulfillMode:'DELIVERY',price:100,buyQty:13,status:'ACTIVE'},{id:'d',name:'停用袋装100',waterType:'BAG_7_5L',fulfillMode:'PICKUP',price:100,buyQty:100,status:'DISABLED'}];
- assert.equal(picker.filterPlans(plans).length,3);
- assert.deepEqual(picker.filterPlans(plans,'BAG_7_5L:PICKUP','499').map(p=>p.id),['b']);
- assert.deepEqual(picker.filterPlans(plans,'BUCKET_18_9L:DELIVERY').map(p=>p.id),['c']);
- assert.equal(picker.filterPlans(plans,'ALL','停用').length,0);
+ const plans=[{id:'a',name:'袋装自提100',waterType:'BAG_7_5L',fulfillMode:'PICKUP',price:100,buyQty:50,status:'ACTIVE'},{id:'b',name:'袋装自提499',waterType:'BAG_7_5L',fulfillMode:'PICKUP',price:499,buyQty:300,status:'ACTIVE'},{id:'c',name:'桶装配送100',waterType:'BUCKET_18_9L',fulfillMode:'DELIVERY',price:100,buyQty:13,status:'ACTIVE'},{id:'d',name:'停用袋装100',waterType:'BAG_7_5L',fulfillMode:'PICKUP',price:100,buyQty:50,status:'DISABLED'}];
+ assert.equal(filterPlans(plans).length,3);
+ assert.deepEqual(filterPlans(plans,'BAG_7_5L:PICKUP','499').map(p=>p.id),['b']);
+ assert.deepEqual(filterPlans(plans,'BUCKET_18_9L:DELIVERY').map(p=>p.id),['c']);
+ assert.equal(filterPlans(plans,'ALL','停用').length,0);
 });
+
+test('pager shows first, last and neighbouring pages; date filters start at station midnight',()=>{
+ assert.equal(pageCount(0,20),1);assert.equal(pageCount(40,20),2);assert.equal(pageCount(41,20),3);
+ assert.deepEqual(pageWindow(1,1),[1]);
+ assert.deepEqual(pageWindow(1,10),[1,2,null,10]);
+ assert.deepEqual(pageWindow(4,10),[1,2,3,4,5,null,10]);
+ assert.deepEqual(pageWindow(5,10),[1,null,4,5,6,null,10]);
+ assert.deepEqual(pageWindow(10,10),[1,null,9,10]);
+ const morning=new Date('2026-10-27T01:30:00Z'),justAfterMidnight=new Date('2026-10-26T16:30:00Z');
+ assert.equal(dateFilterFrom('ALL',morning),undefined);
+ assert.equal(dateFilterFrom('TODAY',morning),'2026-10-26T16:00:00.000Z');
+ assert.equal(dateFilterFrom('TODAY',justAfterMidnight),'2026-10-26T16:00:00.000Z');
+ assert.equal(dateFilterFrom('WEEK',morning),'2026-10-20T16:00:00.000Z');
+ assert.equal(dateFilterFrom('MONTH',morning),'2026-09-30T16:00:00.000Z');
+});
+
+test('paged client calls always send page and drop empty filters; legacy list calls stay unpaged',async()=>{
+ const urls=[],real=globalThis.fetch;
+ globalThis.fetch=async url=>{urls.push(url);return new Response('{}',{status:200});};
+ try{
+  const api=new KunlunApi();
+  await api.membersPage({q:' 陈 ',status:undefined,water:'BUCKET',pageSize:50});
+  await api.ordersPage({mode:'PICKUP',from:'2026-10-26T16:00:00.000Z',q:'',page:3});
+  await api.rechargeLedger();
+  await api.containerLedger({containerType:'BAG'});
+  await api.listMembers('  ');
+  await api.listOrders({memberId:'m1'});
+ }finally{globalThis.fetch=real;}
+ assert.deepEqual(urls,[
+  '/api/members?q=%E9%99%88&water=BUCKET&pageSize=50&page=1',
+  '/api/orders?mode=PICKUP&from=2026-10-26T16%3A00%3A00.000Z&page=3',
+  '/api/ledgers/recharges?page=1',
+  '/api/ledgers/containers?containerType=BAG&page=1',
+  '/api/members',
+  '/api/orders?memberId=m1',
+ ]);
+});
+
 async function freePort(){const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const port=s.address().port;await new Promise(r=>s.close(r));return port;}
-for(const app of ['admin-pc','mini-app'])for(const mode of ['dev','preview']){
+for(const [app,areas] of Object.entries(APPS))for(const mode of ['dev','preview']){
  test(`${app} ${mode}: direct navigation, refresh and assets use the correct app`,async()=>{
   const appRoot=join(root,'apps',app),r=createRequire(join(appRoot,'package.json')),pkg=r.resolve('vite/package.json');
   const entry=JSON.parse(readFileSync(pkg,'utf8')).exports['.'].import;
@@ -52,15 +91,19 @@ for(const app of ['admin-pc','mini-app'])for(const mode of ['dev','preview']){
   try{
    server=mode==='dev'?await vite.createServer(config):await vite.preview(config);if(mode==='dev')await server.listen();
    const base=`http://127.0.0.1:${port}`;
-   for(const [area,route] of Object.entries(routes))for(const page of route.pages){
-    const path=router.pathFor(area,page);const response=await fetch(base+path);assert.equal(response.status,200,path);
-    const html=await response.text();assert.ok(html.includes(`data-app-area="${area}"`),path);
+   let html='';
+   for(const area of areas)for(const path of allPaths(area)){
+    const response=await fetch(base+path);assert.equal(response.status,200,path);
+    html=await response.text();assert.ok(html.includes('<div id="root"></div>'),path);
    }
-   assert.equal((await fetch(base+'/admin/deposit-settings')).status,200);
-   const redirect=await fetch(base+'/admin.html',{redirect:'manual'});assert.equal(redirect.status,308);assert.equal(redirect.headers.get('location'),'/admin');
-   const home=await fetch(base+'/',{redirect:'manual'});assert.equal(home.headers.get('location'),app==='admin-pc'?'/admin':'/member');
-   assert.equal((await fetch(base+'/admin/no-such-page')).status,404);
-   for(const asset of ['brand.css','app-router.js','route-config.js','plan-picker.js'])assert.equal((await fetch(base+'/assets/'+asset)).status,200,asset);
+   for(const other of Object.keys(WEB_ROUTES).filter(a=>!areas.includes(a)))assert.equal((await fetch(base+'/'+other)).status,404,other);
+   for(const legacy of ['/admin.html','/staff.html','/member.html','/index.html',`/${areas[0]}/index.html`])assert.equal((await fetch(base+legacy,{redirect:'manual'})).status,404,legacy);
+   const home=await fetch(base+'/',{redirect:'manual'});assert.equal(home.status,308);assert.equal(home.headers.get('location'),'/'+areas[0]);
+   assert.equal((await fetch(base+`/${areas[0]}/no-such-page`)).status,404);
+   const script=html.match(/<script type="module"[^>]* src="([^"]+)"/)[1];
+   assert.ok(script.startsWith('/'),'entry script uses an absolute path');
+   if(mode==='preview')assert.match(script,/^\/static\/(admin|h5)\//);
+   assert.equal((await fetch(base+script)).status,200,script);
   }finally{if(server){if(mode==='dev')await server.close();else{server.httpServer.closeAllConnections?.();await new Promise(r=>server.httpServer.close(r));}}}
  });
 }

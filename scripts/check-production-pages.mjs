@@ -1,24 +1,19 @@
-import { readFileSync } from 'node:fs';
-import { Script } from 'node:vm';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
+// Production bundles are React builds: one entry document per app, hashed absolute assets, no prototype surfaces.
 const forbidden=/data-proto-bar|gq-dock|客户演示中心|返回演示目录|返回三端原型|phone-notch|class="status-bar"|手动备份任务已启动|已模拟摄像头/;
-for (const app of ['admin-pc','mini-app']) {
-  for (const page of ['index.html','admin.html','staff.html','member.html']) {
-    const path=`apps/${app}/dist/${page}`, html=readFileSync(path,'utf8');
-    assert.ok(!/(?:src|href)="assets\//.test(html),`${path} uses relative assets that break deep links`);
-    assert.ok(!forbidden.test(html),`${path} contains a prototype surface`);
-    if(html.includes('id="adminApp"')) {
-      for(const section of ['products','plans','coupons','staff-accounts']) {
-        assert.ok(html.includes(`data-page="${section}"`) && html.includes(`id="page-${section}"`),`${path} is missing a functional section`);
-      }
-      assert.ok(!html.includes('id="page-settings"'),`${path} still contains the mixed settings page`);
-    }
-    for (const [,script] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Script(script,{filename:path});
-  }
-  for (const file of ['brand.js','live-api.js','membership.js','price-poster.js','admin-ui.js','route-config.js','app-router.js','plan-picker.js','inventory.js']) {
-    const path=`apps/${app}/dist/assets/${file}`, code=readFileSync(path,'utf8');
-    assert.ok(!forbidden.test(code),`${path} contains a prototype handler`);
-    new Script(code,{filename:path});
+const files=dir=>readdirSync(dir,{recursive:true,withFileTypes:true}).filter(e=>e.isFile()).map(e=>join(e.parentPath,e.name));
+for (const [app,assets] of [['admin-pc','static/admin'],['mini-app','static/h5']]) {
+  const dist=`apps/${app}/dist`, all=files(dist);
+  assert.deepEqual(all.filter(f=>f.endsWith('.html')),[join(dist,'index.html')],`${dist} must contain only the React entry document`);
+  const html=readFileSync(join(dist,'index.html'),'utf8');
+  assert.ok(html.includes('<div id="root"></div>'),`${dist}/index.html is not a React entry`);
+  for (const [,src] of html.matchAll(/(?:src|href)="([^"]+)"/g)) assert.ok(src.startsWith(`/${assets}/`),`${dist}/index.html references ${src} outside /${assets}/`);
+  assert.ok(!/<script>(?!<\/script>)/.test(html),`${dist}/index.html contains inline script`);
+  for (const file of all.filter(f=>/\.(js|css)$/.test(f))) {
+    assert.ok(file.startsWith(join(dist,assets)),`${file} is outside ${assets}`);
+    assert.ok(!forbidden.test(readFileSync(file,'utf8')),`${file} contains a prototype surface`);
   }
 }
-console.log('Production page artifacts: no demo navigation, device mockups or simulated success handlers; all inline scripts parse.');
+console.log('Production builds: React entry documents only, hashed assets under /static, no demo surfaces.');

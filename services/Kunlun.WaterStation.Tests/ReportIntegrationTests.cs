@@ -40,7 +40,7 @@ public sealed class ReportIntegrationTests(TestHost factory)
         // 2) 新建测试会员并执行：充值 ¥200 + 收取 2 桶押金 (¥100) + 退还 1 桶押金 (¥50)
         var uniquePhone = $"133{Random.Shared.Next(10000000, 99999999)}";
         var memResp = await _client.PostAsJsonAsync("/api/members",
-            new CreateMemberRequest("姜维", uniquePhone, "绿麒麟大厦 18 楼", "M4报表对账测试"));
+            new CreateMemberRequest("姜维", uniquePhone, "绿麒麟大厦", "M4报表对账测试", "18 楼"));
         var memberId = (await memResp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
 
         var deliveryPlanId = Guid.Parse("30000000-0000-0000-0000-000000000103");

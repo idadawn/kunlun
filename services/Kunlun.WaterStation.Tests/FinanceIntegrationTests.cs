@@ -30,7 +30,7 @@ public sealed class FinanceIntegrationTests(TestHost factory)
         // 1) AC-01: 新建会员
         var uniquePhone = $"137{Random.Shared.Next(10000000, 99999999)}";
         var memResp = await _client.PostAsJsonAsync("/api/members",
-            new CreateMemberRequest("赵子龙", uniquePhone, "昆仑花园 1 栋 101", "M2测试会员"));
+            new CreateMemberRequest("赵子龙", uniquePhone, "昆仑花园 1 栋", "M2测试会员", "101"));
         Assert.Equal(HttpStatusCode.OK, memResp.StatusCode);
         var memJson = await memResp.Content.ReadFromJsonAsync<JsonElement>();
         var memberId = memJson.GetProperty("id").GetGuid();
@@ -69,7 +69,7 @@ public sealed class FinanceIntegrationTests(TestHost factory)
         // 新建测试会员
         var uniquePhone = $"136{Random.Shared.Next(10000000, 99999999)}";
         var memResp = await _client.PostAsJsonAsync("/api/members",
-            new CreateMemberRequest("孙尚香", uniquePhone, "翠竹苑 8 栋 202", null));
+            new CreateMemberRequest("孙尚香", uniquePhone, "翠竹苑 8 栋", null, "202"));
         var memberId = (await memResp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
 
         try

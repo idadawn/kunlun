@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createRequire} from 'node:module';
-const {buildModel}=createRequire(import.meta.url)('../assets/price-poster.js');
+import {buildPosterModel as buildModel} from '../packages/shared/src/price-poster.ts';
 const products=[{waterType:'BAG_7_5L',name:'5L 袋装水',capacityLiters:5,packaging:'食品级铝箔袋（10斤装）',retailPrice:5,deliveryMinimum:5,deliveryFee:0},{waterType:'BUCKET_18_9L',name:'15L 桶装水',capacityLiters:15,packaging:'桶装',retailPrice:null,deliveryMinimum:1,deliveryFee:0}];
 const plans=[['BAG_7_5L','PICKUP',100,50],['BAG_7_5L','PICKUP',499,300],['BUCKET_18_9L','PICKUP',100,16],['BUCKET_18_9L','PICKUP',499,95],['BAG_7_5L','DELIVERY',100,40],['BAG_7_5L','DELIVERY',499,220],['BUCKET_18_9L','DELIVERY',100,13],['BUCKET_18_9L','DELIVERY',499,70]].map(([waterType,fulfillMode,price,buyQty],i)=>({id:String(i),waterType,fulfillMode,price,buyQty,giftQty:0,status:'ACTIVE'}));
 const base={plans,products,generatedAt:'2026-10-25T16:01:00Z'};
