@@ -4,7 +4,7 @@ using Npgsql;
 
 namespace Kunlun.WaterStation.Operations;
 
-public sealed record CreateMemberRequest(string Name, string Phone, string? DefaultAddress, string? Remark);
+public sealed record CreateMemberRequest(string Name, string Phone, string? DefaultAddress, string? Remark, string? DoorNo = null);
 public sealed record SaveRechargePlanRequest(
     string Name,
     string WaterType,     // BUCKET_18_9L | BAG_7_5L

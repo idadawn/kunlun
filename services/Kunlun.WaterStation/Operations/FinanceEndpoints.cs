@@ -33,8 +33,8 @@ public static class FinanceEndpoints
             var memberNo = await BusinessNumbers.MemberNo(conn, tx, finRepo.TenantId, ct);
             await using (var cmd = new NpgsqlCommand("""
                 INSERT INTO plugin_kunlun_waterstation.members
-                    (id, tenant_id, member_no, name, phone, default_address, status, source)
-                VALUES (@id, @tid, @no, @name, @phone, @addr, 'ACTIVE', 'STAFF_CREATED')
+                    (id, tenant_id, member_no, name, phone, status, source)
+                VALUES (@id, @tid, @no, @name, @phone, 'ACTIVE', 'STAFF_CREATED')
                 ON CONFLICT (tenant_id, phone) DO NOTHING
                 """, conn, tx))
             {
@@ -43,10 +43,12 @@ public static class FinanceEndpoints
                 cmd.Parameters.AddWithValue("no", memberNo);
                 cmd.Parameters.AddWithValue("name", name);
                 cmd.Parameters.AddWithValue("phone", phone);
-                cmd.Parameters.AddWithValue("addr", (object?)req.DefaultAddress ?? DBNull.Value);
                 if (await cmd.ExecuteNonQueryAsync(ct) == 0)
                     return Results.Conflict(new { error = "该手机号已存在会员档案" });
             }
+            // 首个收货地址的联系人和手机号默认取会员本人。
+            if (!string.IsNullOrWhiteSpace(req.DefaultAddress))
+                await MemberAddresses.AddInitial(conn, tx, finRepo.TenantId, id, name, phone, req.DefaultAddress, req.DoorNo, ct);
             await tx.CommitAsync(ct);
 
             return Results.Ok(new { id, memberNo, name, phone });

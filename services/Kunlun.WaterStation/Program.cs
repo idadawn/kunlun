@@ -105,6 +105,7 @@ using (var scope = app.Services.CreateScope())
     await TicketBatches.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>(), repo.DefaultTenantId);
     await ContainerInventory.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>(), repo.DefaultTenantId);
     await ContainerCirculation.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>());
+    await MemberAddresses.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>(), repo.DefaultTenantId);
     await BusinessNumbers.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>());
 }
 
@@ -234,6 +235,7 @@ app.MapFinanceEndpoints();
 app.MapContainerInventory();
 app.MapContainerCirculation();
 app.MapMembershipEndpoints();
+app.MapMemberAddresses();
 app.MapWaterProducts();
 app.MapOrderEndpoints();
 app.MapReportEndpoints();

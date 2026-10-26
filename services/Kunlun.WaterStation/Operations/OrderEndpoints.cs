@@ -111,10 +111,10 @@ public static class OrderEndpoints
             var productSnapshot = new { waterLabel = product.Name, capacityLiters = product.CapacityLiters, deliveryMinimum = product.DeliveryMinimum, deliveryFee = product.DeliveryFee };
 
             // 锁定会员并校验水票可用余额 (AC-04: 严禁透支为负数)
-            string memberName, memberPhone, defaultAddress;
+            string memberName, memberPhone;
             int currentAvail, currentReserved;
             await using (var mCmd = new NpgsqlCommand($"""
-                SELECT name, phone, COALESCE(default_address, ''), {availCol}, {reservedCol}, status
+                SELECT name, phone, {availCol}, {reservedCol}, status
                 FROM plugin_kunlun_waterstation.members
                 WHERE tenant_id = @tid AND id = @mid
                 FOR UPDATE
@@ -127,13 +127,18 @@ public static class OrderEndpoints
                 {
                     return Results.NotFound(new { error = "MEMBER_NOT_FOUND", message = "会员不存在" });
                 }
-                if (r.GetString(5) != "ACTIVE") throw new BusinessRuleException("会员已停用");
+                if (r.GetString(4) != "ACTIVE") throw new BusinessRuleException("会员已停用");
                 memberName = r.GetString(0);
                 memberPhone = r.GetString(1);
-                defaultAddress = r.GetString(2);
-                currentAvail = r.GetInt32(3);
-                currentReserved = r.GetInt32(4);
+                currentAvail = r.GetInt32(2);
+                currentReserved = r.GetInt32(3);
             }
+
+            // 配送单使用会员地址簿中选定的地址（未指定时取默认地址）；自提单仅记录会员本人联系方式。
+            var address = req.FulfillMode == "DELIVERY"
+                ? await MemberAddresses.ForOrder(conn, tx, orderRepo.TenantId, req.MemberId, req.AddressId, ct)
+                    ?? throw new BusinessRuleException("请先为会员添加收货地址后再预约配送")
+                : null;
 
             if (currentAvail < req.OrderQty)
             {
@@ -171,9 +176,12 @@ public static class OrderEndpoints
 
             var addressSnapshotJson = JsonSerializer.Serialize(new
             {
-                contactName = memberName,
-                contactPhone = memberPhone,
-                address = string.IsNullOrWhiteSpace(req.AddressOverride) ? defaultAddress : req.AddressOverride.Trim(),
+                addressId = address?.Id,
+                contactName = address?.ContactName ?? memberName,
+                contactPhone = address?.ContactPhone ?? memberPhone,
+                location = address?.Location ?? "",
+                doorNo = address?.DoorNo ?? "",
+                address = address?.FullAddress ?? "",
                 snapshotAt = DateTimeOffset.UtcNow
             });
 

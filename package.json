@@ -5,9 +5,8 @@
   "description": "Kunlun (绿麒麟·水站会员管理系统) Monorepo",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "build": "pnpm sync:frontends && turbo run build",
+    "build": "turbo run build",
     "typecheck": "turbo run typecheck",
-    "sync:frontends": "node scripts/sync-frontends.mjs",
     "check:pages": "node scripts/check-production-pages.mjs",
     "test:poster": "node --test scripts/price-poster.test.mjs",
     "test:web": "node --test scripts/web-routes.test.mjs"
@@ -15,5 +14,8 @@
   "devDependencies": {
     "turbo": "^2.3.0",
     "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=22.18"
   }
 }

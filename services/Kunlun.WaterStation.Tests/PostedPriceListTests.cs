@@ -20,7 +20,7 @@ public sealed class PostedPriceListTests(TestHost host)
     }
     private static async Task<JsonElement> Ok(HttpResponseMessage r)
     {var body=await r.Content.ReadAsStringAsync();Assert.True(r.IsSuccessStatusCode,$"{r.StatusCode}: {body}");return JsonSerializer.Deserialize<JsonElement>(body);}
-    private static async Task<Guid> Member(HttpClient c)=>(await Ok(await c.PostAsJsonAsync("/api/members",new CreateMemberRequest("价目验收",$"130{Random.Shared.Next(10000000,99999999)}","验收地址",null)))).GetProperty("id").GetGuid();
+    private static async Task<Guid> Member(HttpClient c)=>(await Ok(await c.PostAsJsonAsync("/api/members",new CreateMemberRequest("价目验收",$"130{Random.Shared.Next(10000000,99999999)}","验收地址",null, "1-101")))).GetProperty("id").GetGuid();
 
     [Fact]
     public async Task All_Eight_Packages_Match_The_Posted_Price_List()

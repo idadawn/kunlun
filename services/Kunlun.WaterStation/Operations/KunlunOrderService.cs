@@ -9,7 +9,7 @@ public sealed record CreateWaterOrderRequest(
     string FulfillMode,    // DELIVERY | PICKUP
     int OrderQty,
     string IdempotencyKey,
-    string? AddressOverride = null,
+    Guid? AddressId = null,        // delivery address from the member address book; default address when omitted
     string? AppointmentSlot = null,
     string? Remark = null);
 

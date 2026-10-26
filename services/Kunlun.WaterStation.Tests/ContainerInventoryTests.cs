@@ -21,7 +21,7 @@ public sealed class ContainerInventoryTests(TestHost host)
     private static async Task<JsonElement> Summary(HttpClient c,string type)=>(await c.GetFromJsonAsync<JsonElement>("/api/containers/summary")).EnumerateArray().Single(x=>x.GetProperty("containerType").GetString()==type);
     private static int Qty(JsonElement s,string field)=>s.GetProperty(field).GetInt32();
     private static async Task<JsonElement> Apply(HttpClient c,InventoryRequest req)=>await Ok(await c.PostAsJsonAsync("/api/containers/inventory",req));
-    private static async Task<Guid> Member(HttpClient c)=>(await Ok(await c.PostAsJsonAsync("/api/members",new CreateMemberRequest("库存验收",$"129{Random.Shared.Next(10000000,99999999)}","库存测试地址",null)))).GetProperty("id").GetGuid();
+    private static async Task<Guid> Member(HttpClient c)=>(await Ok(await c.PostAsJsonAsync("/api/members",new CreateMemberRequest("库存验收",$"129{Random.Shared.Next(10000000,99999999)}","库存测试地址",null, "1-101")))).GetProperty("id").GetGuid();
     private static void Balanced(JsonElement s)=>Assert.Equal(Qty(s,"totalQty"),Qty(s,"inStationQty")+Qty(s,"inTransitQty")+Qty(s,"memberHeldQty")+Qty(s,"inspectingQty")+Qty(s,"abnormalQty")+Qty(s,"damagedQty"));
 
     [Fact]

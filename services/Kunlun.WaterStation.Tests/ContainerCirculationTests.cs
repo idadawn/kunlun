@@ -23,7 +23,7 @@ public sealed class ContainerCirculationTests(TestHost host)
     }
     private static int Q(JsonElement x,string field)=>x.GetProperty(field).GetInt32();
     private static decimal Money(JsonElement x,string field)=>x.GetProperty(field).GetDecimal();
-    private static async Task<JsonElement> Member(HttpClient c)=>await Ok(await c.PostAsJsonAsync("/api/members",new CreateMemberRequest("周转验收",$"129{Random.Shared.Next(10000000,99999999)}","验收地址",null)));
+    private static async Task<JsonElement> Member(HttpClient c)=>await Ok(await c.PostAsJsonAsync("/api/members",new CreateMemberRequest("周转验收",$"129{Random.Shared.Next(10000000,99999999)}","验收地址",null,"1-101")));
     private static async Task<JsonElement> Stock(HttpClient c,string type)=>(await c.GetFromJsonAsync<JsonElement>("/api/containers/summary")).EnumerateArray().Single(x=>x.GetProperty("containerType").GetString()==type);
     private static async Task<JsonElement> Profile(HttpClient c,Guid mid)=>await c.GetFromJsonAsync<JsonElement>($"/api/members/{mid}/profile");
     private static async Task<JsonElement> Deposit(HttpClient c,Guid mid)=>(await c.GetFromJsonAsync<JsonElement>($"/api/members/{mid}/deposit-summary")).EnumerateArray().Single(x=>x.GetProperty("containerType").GetString()=="BAG");
