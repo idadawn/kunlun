@@ -5,7 +5,7 @@
   if(typeof module==='object'&&module.exports)module.exports=router;
   else root.KunlunRouter=router;
 })(typeof window==='undefined'?null:window,function(config,win){
-  const normalizePage=(area,page)=>area==='admin'&&page==='settings'?'plans':page;
+  const normalizePage=(area,page)=>config[area]?.aliases?.[page]||page;
   function pathFor(area,page) {
     page=normalizePage(area,page||config[area]?.home);
     if(!config[area]||!config[area].pages.includes(page))throw new Error('页面不存在');

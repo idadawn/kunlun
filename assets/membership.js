@@ -188,10 +188,12 @@
     root.querySelector('[data-new-coupon]').onclick=run(()=>editCoupon());root.querySelector('[data-issue]').onclick=run(()=>issueCoupon());draw();
   }
   async function renderProducts() {
-    const products=await live().req('/api/products');live().products=products;
+    const [products,configs]=await Promise.all([live().req('/api/products'),live().req('/api/containers/summary')]);
+    live().products=products;live().containers=configs;
     const root=document.getElementById('productsContent');
-    root.innerHTML=`<div class="setting-grid">${products.map(p=>`<article class="setting-card"><h3>${esc(p.name)}</h3><div class="setting-row"><span>规格</span><b>${p.capacityLiters} 升 / ${unit(p.waterType)}</b></div><div class="setting-row"><span>包装</span><b>${esc(p.packaging)}</b></div><div class="setting-row"><span>零售价</span><b>${p.retailPrice==null?'未设置':`¥${money(p.retailPrice)} / ${unit(p.waterType)}`}</b></div><div class="setting-row"><span>配送要求</span><b>${p.deliveryMinimum}${unit(p.waterType)}起送 · ${p.deliveryFee===0?'免费':`配送费 ¥${money(p.deliveryFee)}`}</b></div><button class="btn sm" data-edit-product="${p.waterType}">编辑资料</button></article>`).join('')}</div>`;
+    root.innerHTML=`<div class="product-config-grid">${products.map(p=>{const type=p.waterType==='BUCKET_18_9L'?'BUCKET':'BAG',deposit=configs.find(c=>c.containerType===type);return `<article class="setting-card product-config-card"><div class="product-config-heading"><h3>${esc(p.name)}</h3><button class="btn sm" data-edit-product="${p.waterType}">编辑水品</button></div><div class="setting-row"><span>规格</span><b>${p.capacityLiters} 升 / ${unit(p.waterType)}</b></div><div class="setting-row"><span>包装</span><b>${esc(p.packaging)}</b></div><div class="setting-row"><span>零售价</span><b>${p.retailPrice==null?'未设置':`¥${money(p.retailPrice)} / ${unit(p.waterType)}`}</b></div><div class="setting-row"><span>配送要求</span><b>${p.deliveryMinimum}${unit(p.waterType)}起送 · ${p.deliveryFee===0?'免费':`配送费 ¥${money(p.deliveryFee)}`}</b></div><div class="product-deposit-summary"><div><small>${type==='BUCKET'?'周转桶押金':'配套容器押金'}</small><strong>${deposit?`¥${money(deposit.unitDeposit)} <span>/ 个</span>`:'未设置'}</strong></div><button class="btn sm" data-edit-deposit="${type}" ${deposit?'':'disabled'}>修改押金</button></div><p class="product-deposit-note">押金单价修改仅影响新收押金，历史押金按原收款单价退款。</p></article>`;}).join('')}</div>`;
     root.querySelectorAll('[data-edit-product]').forEach(b=>b.onclick=()=>editProduct(products.find(p=>p.waterType===b.dataset.editProduct)));
+    root.querySelectorAll('[data-edit-deposit]').forEach(b=>b.onclick=()=>editDeposit(configs.find(c=>c.containerType===b.dataset.editDeposit)));
   }
   function editProduct(p) {
     dialog('编辑水品资料',field('水品名称','productName',input('productName',p.name,'text','required maxlength="80"'))+
@@ -209,7 +211,6 @@
     if(page==='page-products')await renderProducts();
     else if(page==='page-plans')await renderPlans();
     else if(page==='page-coupons')await renderCoupons();
-    else if(page==='page-deposit-settings')await depositSettings();
     else if(page==='page-staff-accounts')await staffAccounts();
   }
   function orderCard(o, kind) {
@@ -304,10 +305,12 @@
         const v=data(form);const r=await live().req('/api/containers/movements',{method:'POST',body:JSON.stringify({memberId:v.moveMember,containerType:v.moveContainer,fullOutN:Number(v.moveOut),emptyInM:Number(v.moveIn),idempotencyKey:key})});await refresh();window.GQ.toast(`领还已登记，会员当前持有 ${r.currentHeld} 个`);
       },'确认登记');if(live().selectedMember)d.querySelector('#moveMember').value=live().selectedMember.id;
   }
-  async function depositSettings() {
-    const configs=await live().req('/api/containers/summary');const root=document.getElementById('depositSettingsContent');
-    root.innerHTML='<div class="setting-grid">'+configs.map(c=>`<div class="setting-card"><h3>${c.containerType==='BUCKET'?'15L 周转桶':'5L 配套容器'}</h3><div class="setting-row"><span>押金单价</span><b>¥${money(c.unitDeposit)}</b></div><div class="setting-row"><span>站内 / 总量</span><b>${c.inStationQty} / ${c.totalQty}</b></div><div class="setting-row"><span>低库存预警</span><b>${c.warnThreshold} 个</b></div><button class="btn sm" data-deposit-setting="${c.containerType}">修改押金单价</button></div>`).join('')+'</div>';
-    root.querySelectorAll('[data-deposit-setting]').forEach(b=>b.onclick=()=>{const c=configs.find(c=>c.containerType===b.dataset.depositSetting);dialog('修改押金单价',field('新收押金单价（元/个）','unitDeposit',input('unitDeposit',c.unitDeposit,'number','required min="0.01" step="0.01"'))+'<p class="membership-note">只影响新收押金；历史押金仍按原收款单价退款。</p>',async form=>{await live().req(`/api/containers/${c.containerType}/unit-deposit?newUnitDeposit=${encodeURIComponent(data(form).unitDeposit)}`,{method:'PUT'});await refresh();await depositSettings();});});
+  function editDeposit(config) {
+    if(!config)return;
+    dialog('修改桶袋押金',field('新收押金单价（元/个）','unitDeposit',input('unitDeposit',config.unitDeposit,'number','required min="0.01" step="0.01"'))+'<p class="membership-note">只影响新收押金；历史押金仍按原收款单价退款。</p>',async form=>{
+      await live().req(`/api/containers/${config.containerType}/unit-deposit?newUnitDeposit=${encodeURIComponent(data(form).unitDeposit)}`,{method:'PUT'});
+      await refresh();window.GQ.toast('押金标准已保存');
+    });
   }
   function showRecharge(no) {
     const r=live().recharges.find(x=>x.rechargeNo===no);if(!r)throw new Error('未找到充值记录，请刷新');
