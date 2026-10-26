@@ -27,33 +27,29 @@ public static class FinanceEndpoints
                 return Results.BadRequest(new { error = "请填写有效姓名与 11 位手机号" });
 
             var id = Guid.NewGuid();
-            var memberNo = $"No.{Random.Shared.Next(100000, 999999)}";
             await using var conn = await ds.OpenConnectionAsync(ct);
-            await using var cmd = new NpgsqlCommand("""
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            // 手机号冲突时事务回滚，卡号随之退回计数器。
+            var memberNo = await BusinessNumbers.MemberNo(conn, tx, finRepo.TenantId, ct);
+            await using (var cmd = new NpgsqlCommand("""
                 INSERT INTO plugin_kunlun_waterstation.members
                     (id, tenant_id, member_no, name, phone, default_address, status, source)
                 VALUES (@id, @tid, @no, @name, @phone, @addr, 'ACTIVE', 'STAFF_CREATED')
                 ON CONFLICT (tenant_id, phone) DO NOTHING
-                RETURNING id, member_no, name, phone
-                """, conn);
-            cmd.Parameters.AddWithValue("id", id);
-            cmd.Parameters.AddWithValue("tid", finRepo.TenantId);
-            cmd.Parameters.AddWithValue("no", memberNo);
-            cmd.Parameters.AddWithValue("name", name);
-            cmd.Parameters.AddWithValue("phone", phone);
-            cmd.Parameters.AddWithValue("addr", (object?)req.DefaultAddress ?? DBNull.Value);
-
-            await using var r = await cmd.ExecuteReaderAsync(ct);
-            if (!await r.ReadAsync(ct))
-                return Results.Conflict(new { error = "该手机号已存在会员档案" });
-
-            return Results.Ok(new
+                """, conn, tx))
             {
-                id = r.GetGuid(0),
-                memberNo = r.GetString(1),
-                name = r.GetString(2),
-                phone = r.GetString(3)
-            });
+                cmd.Parameters.AddWithValue("id", id);
+                cmd.Parameters.AddWithValue("tid", finRepo.TenantId);
+                cmd.Parameters.AddWithValue("no", memberNo);
+                cmd.Parameters.AddWithValue("name", name);
+                cmd.Parameters.AddWithValue("phone", phone);
+                cmd.Parameters.AddWithValue("addr", (object?)req.DefaultAddress ?? DBNull.Value);
+                if (await cmd.ExecuteNonQueryAsync(ct) == 0)
+                    return Results.Conflict(new { error = "该手机号已存在会员档案" });
+            }
+            await tx.CommitAsync(ct);
+
+            return Results.Ok(new { id, memberNo, name, phone });
         }).RequireAuthorization();
 
         // 1b. 查询会员列表与搜索 (支持按卡号/姓名/手机号检索)
@@ -218,7 +214,7 @@ public static class FinanceEndpoints
 
             var totalAmt = unitPrice * req.Quantity;
             var lotId = Guid.NewGuid();
-            var depositNo = $"YJ{DateTime.UtcNow:yyyyMMdd}{Random.Shared.Next(1000, 9999)}";
+            var depositNo = await BusinessNumbers.DepositNo(conn, tx, ct);
             var operatorName = user.FindFirstValue("display_name") ?? "员工";
 
             await using (var insLot = new NpgsqlCommand("""
@@ -407,7 +403,7 @@ public static class FinanceEndpoints
                 breakdown.Add(new { lotNo = lot.No, takeQty = take, originalUnitPrice = lot.UnitPrice, subAmount = subAmt });
             }
 
-            var refundNo = $"TK{DateTime.UtcNow:yyyyMMdd}{Random.Shared.Next(1000, 9999)}";
+            var refundNo = await BusinessNumbers.DepositRefundNo(conn, tx, ct);
             var operatorName = user.FindFirstValue("display_name") ?? "员工";
 
             await using (var insRef = new NpgsqlCommand("""

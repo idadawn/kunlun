@@ -164,7 +164,7 @@ public static class OrderEndpoints
             }
 
             var orderId = Guid.NewGuid();
-            var orderNo = $"ORD-{DateTime.UtcNow:yyyyMMdd}-{Random.Shared.Next(100000, 999999)}";
+            var orderNo = await BusinessNumbers.OrderNo(conn, tx, ct);
             var pickupCode = req.FulfillMode == "PICKUP"
                 ? Random.Shared.Next(100000, 999999).ToString()
                 : null;
