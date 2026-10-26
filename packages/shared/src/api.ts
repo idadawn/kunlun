@@ -12,6 +12,7 @@ import type {
   ContainerLedgerQuery,
   CreateOrderResult,
   CurrentUser,
+  DepositLedgerQuery,
   DepositLedgerRow,
   DepositSummaryRow,
   ExportDataset,
@@ -29,7 +30,9 @@ import type {
   Paged,
   PayMethod,
   PlanSnapshot,
+  RechargeLedgerQuery,
   RechargeLedgerRow,
+  RechargeRefundLedgerRow,
   RechargePlan,
   RoleCode,
   SaveCouponTemplateRequest,
@@ -214,7 +217,7 @@ export class KunlunApi {
   collectDeposit(body: { memberId: string; containerType: ContainerType; quantity: number; payMethod: PayMethod; idempotencyKey: string }) {
     return this.post<{ depositNo: string; totalAmount: number }>('/api/deposits/collect', body);
   }
-  refundDeposit(body: { memberId: string; containerType: ContainerType; quantity: number; payMethod?: PayMethod; idempotencyKey: string }) {
+  refundDeposit(body: { memberId: string; containerType: ContainerType; quantity: number; payMethod: PayMethod; idempotencyKey: string }) {
     return this.post<{ refundNo: string; refundAmount: number }>('/api/deposits/refund', body);
   }
   inventory(body: InventoryRequest) { return this.post<InventoryOperation>('/api/containers/inventory', body); }
@@ -240,8 +243,9 @@ export class KunlunApi {
   // Reports
   financeSummary() { return this.request<FinanceSummaryReport>('/api/reports/finance-summary'); }
   overview() { return this.request<OverviewReport>('/api/reports/overview'); }
-  rechargeLedger(query: LedgerQuery = {}) { return this.request<Paged<RechargeLedgerRow>>('/api/ledgers/recharges' + paged(query)); }
-  depositLedger(query: LedgerQuery = {}) { return this.request<Paged<DepositLedgerRow>>('/api/ledgers/deposits' + paged(query)); }
+  rechargeLedger(query: RechargeLedgerQuery = {}) { return this.request<Paged<RechargeLedgerRow>>('/api/ledgers/recharges' + paged(query)); }
+  rechargeRefundLedger(query: RechargeLedgerQuery = {}) { return this.request<Paged<RechargeRefundLedgerRow>>('/api/ledgers/recharge-refunds' + paged(query)); }
+  depositLedger(query: DepositLedgerQuery = {}) { return this.request<Paged<DepositLedgerRow>>('/api/ledgers/deposits' + paged(query)); }
   containerLedger(query: ContainerLedgerQuery = {}) { return this.request<Paged<ContainerLedgerRow>>('/api/ledgers/containers' + paged(query)); }
   async exportCsv(dataset: ExportDataset): Promise<Blob> {
     return (await this.send(`/api/exports/${dataset}`)).blob();

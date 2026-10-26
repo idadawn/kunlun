@@ -135,7 +135,7 @@ kunlun/
 
 ## 5.3 列表分页与筛选
 
-`GET /api/members`、`GET /api/orders` 与 `GET /api/ledgers/recharges|deposits|containers` 接受 `page`、`pageSize`（1–100，默认 20）。传入任一参数时返回 `{ rows, total, page, pageSize }`（与 `/api/containers/holdings|circulation|damages` 相同），`page`/`pageSize` 为服务端实际采用的值；都不传时仍返回旧的数组（会员、水单最新 50 条，流水最新 30 条），兼容会员选择器等调用方。筛选在服务端完成：会员 `q`（编号/姓名/手机号）、`status`、`water`（持有该类水票）；水单 `q`（单号、取水码、地址快照联系人/手机号/地址、会员姓名/手机号）、`status`、`mode`、`memberId`、`pickupCode`；充值与押金流水 `q`；水单与这两类流水另有 `from`（含）/`to`（不含）时间区间；容器流水 `containerType`。`q` 中的 `%`、`_` 按字面匹配。管理端会员管理、水单管理、充值与押金、桶袋台账的表格和员工端会员查询均按页加载；充值、发券、押金、开单、领还和破损登记弹窗用 `@kunlun/ui` 的 `MemberPicker` 按姓名、手机号或会员编号向服务端检索会员，预选会员按 ID 读取档案，不依赖页面已加载的会员列表。`KunlunApi` 的 `membersPage`、`ordersPage` 及三个流水方法始终带 `page`。
+`GET /api/members`、`GET /api/orders` 与 `GET /api/ledgers/recharges|recharge-refunds|deposits|containers` 接受 `page`、`pageSize`（1–100，默认 20）。传入任一参数时返回 `{ rows, total, page, pageSize }`（与 `/api/containers/holdings|circulation|damages` 相同），`page`/`pageSize` 为服务端实际采用的值；都不传时仍返回旧的数组（会员、水单最新 50 条，流水最新 30 条），兼容会员选择器等调用方。筛选在服务端完成：会员 `q`（编号/姓名/手机号）、`status`、`water`（持有该类水票）；水单 `q`（单号、取水码、地址快照联系人/手机号/地址、会员姓名/手机号）、`status`、`mode`、`memberId`、`pickupCode`；充值、水费退款与押金流水 `q`（含会员编号与手机号）；水单与这三类流水另有 `from`（含）/`to`（不含）时间区间；充值与水费退款流水 `payMethod`；押金流水 `flowType`（`COLLECT` / `REFUND` / `DEDUCT`）与 `containerType`；容器流水 `containerType`。充值流水带出所用优惠券和退清状态；押金流水带出会员编号和收付方式，退押金登记的退款方式存于 `deposit_refunds.pay_method`（此前登记的退款为空）。`q` 中的 `%`、`_` 按字面匹配。管理端会员管理、水单管理、水费充值、押金管理、桶袋台账的表格和员工端会员查询均按页加载；充值、发券、押金、开单、领还和破损登记弹窗用 `@kunlun/ui` 的 `MemberPicker` 按姓名、手机号或会员编号向服务端检索会员，预选会员按 ID 读取档案，不依赖页面已加载的会员列表。`KunlunApi` 的 `membersPage`、`ordersPage` 及四个流水方法始终带 `page`。
 
 
 ## 6. 袋桶库存、周转与报废扣押

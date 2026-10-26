@@ -327,13 +327,15 @@ public static class FinanceEndpoints
             await using var tx = await conn.BeginTransactionAsync(ct);
             if (ctype is not ("BUCKET" or "BAG") || req.Quantity <= 0 || req.Quantity > 10000)
                 throw new BusinessRuleException("退款数量或容器类型无效");
+            if (req.PayMethod is not (null or "CASH" or "WECHAT" or "WX_OFFLINE" or "ALIPAY" or "BANK"))
+                throw new BusinessRuleException("退款方式无效");
             await TicketBatches.LockRequest(conn, tx, finRepo.TenantId, "deposit-refund", req.IdempotencyKey, ct);
             await TicketBatches.LockMember(conn, tx, finRepo.TenantId, req.MemberId, ct);
-            await using (var replay = TicketBatches.Command(conn, tx, "SELECT refund_no,member_id,container_type,refund_qty,refund_amount FROM plugin_kunlun_waterstation.deposit_refunds WHERE tenant_id=@tid AND idempotency_key=@key", ("tid", finRepo.TenantId), ("key", req.IdempotencyKey)))
+            await using (var replay = TicketBatches.Command(conn, tx, "SELECT refund_no,member_id,container_type,refund_qty,refund_amount,pay_method FROM plugin_kunlun_waterstation.deposit_refunds WHERE tenant_id=@tid AND idempotency_key=@key", ("tid", finRepo.TenantId), ("key", req.IdempotencyKey)))
             await using (var r = await replay.ExecuteReaderAsync(ct))
                 if (await r.ReadAsync(ct))
                 {
-                    if (r.GetGuid(1) != req.MemberId || r.GetString(2) != ctype || r.GetInt32(3) != req.Quantity) throw new BusinessRuleException("请求标识已用于其他退押操作", 409);
+                    if (r.GetGuid(1) != req.MemberId || r.GetString(2) != ctype || r.GetInt32(3) != req.Quantity || (r.IsDBNull(5) ? null : r.GetString(5)) != req.PayMethod) throw new BusinessRuleException("请求标识已用于其他退押操作", 409);
                     return Results.Ok(new { refundNo = r.GetString(0), refundAmount = r.GetDecimal(4), idempotentReplay = true });
                 }
 
@@ -413,8 +415,8 @@ public static class FinanceEndpoints
 
             await using (var insRef = new NpgsqlCommand("""
                 INSERT INTO plugin_kunlun_waterstation.deposit_refunds
-                    (id, tenant_id, refund_no, idempotency_key, member_id, container_type, refund_qty, refund_amount, lot_breakdown, operator_name)
-                VALUES (@id, @tid, @no, @key, @mid, @ct, @qty, @amt, @bd::jsonb, @op)
+                    (id, tenant_id, refund_no, idempotency_key, member_id, container_type, refund_qty, refund_amount, lot_breakdown, operator_name, pay_method)
+                VALUES (@id, @tid, @no, @key, @mid, @ct, @qty, @amt, @bd::jsonb, @op, @pay)
                 """, conn, tx))
             {
                 insRef.Parameters.AddWithValue("id", Guid.NewGuid());
@@ -427,6 +429,7 @@ public static class FinanceEndpoints
                 insRef.Parameters.AddWithValue("amt", refundAmount);
                 insRef.Parameters.AddWithValue("bd", JsonSerializer.Serialize(breakdown));
                 insRef.Parameters.AddWithValue("op", operatorName);
+                insRef.Parameters.AddWithValue("pay", (object?)req.PayMethod ?? DBNull.Value);
                 await insRef.ExecuteNonQueryAsync(ct);
             }
 

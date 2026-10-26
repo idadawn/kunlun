@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { pageCount, pageWindow, pathFor, stationDay, type DateFilter, type ExportDataset, type MemberProfile, type Paged, type WaterOrder, type WaterProduct } from '@kunlun/shared';
+import {
+  KUNLUN_PERMISSIONS as P, pageCount, pageWindow, pathFor, stationDay,
+  type DateFilter, type ExportDataset, type LedgerQuery, type MemberProfile, type Paged, type WaterOrder, type WaterProduct,
+} from '@kunlun/shared';
 import {
   CounterOrder, DepositDialog, Dialog, FulfillDialog, IssueCouponDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog, RechargeDialog,
-  saveBlob, useApi, useDialogs, useLoader, useRun, useToast,
+  Icon, saveBlob, useApi, useAuth, useDialogs, useLoader, useRun, useToast, type DepositAction, type IconName,
 } from '@kunlun/ui';
 import { useAdminData } from './data';
 
 export const PAGE_NAMES: Record<string, string> = {
-  dashboard: '经营总览', members: '会员管理', orders: '水单管理', finance: '充值与押金', inventory: '袋桶库存', assets: '袋桶台账',
+  dashboard: '经营总览', members: '会员管理', orders: '水单管理', recharges: '水费充值', deposits: '押金管理', inventory: '袋桶库存', assets: '袋桶台账',
   products: '水品与押金', plans: '充值套餐', coupons: '优惠券', 'staff-accounts': '员工账号',
 };
 
@@ -40,7 +43,7 @@ export function useOperations() {
   return {
     recharge: (id = memberId) => run(() => dialogs.open(close => <RechargeDialog memberId={id} onClose={close} onDone={refresh} />))(),
     issueCoupon: (id?: string, templateId?: string) => run(() => dialogs.open(close => <IssueCouponDialog memberId={id ?? memberId} templateId={templateId} onClose={close} onDone={refresh} />))(),
-    deposit: (id = memberId) => run(() => dialogs.open(close => <DepositDialog containers={data.containers} memberId={id} onClose={close} onDone={refresh} />))(),
+    deposit: (action?: DepositAction, id = memberId) => run(() => dialogs.open(close => <DepositDialog containers={data.containers} memberId={id} action={action} onClose={close} onDone={refresh} />))(),
     // Opened from a member row it starts with that customer; elsewhere it starts by finding the customer at the counter.
     order: (id?: string) => run(() => dialogs.open(close => <CounterOrderDialog products={data.products} memberId={id} onClose={close} onDone={refresh} />))(),
     movement: (id = memberId) => run(() => dialogs.open(close => <MovementDialog memberId={id} onClose={close} onDone={refresh} />))(),
@@ -118,6 +121,28 @@ export function Pager({ page, total, pageSize = PAGE_SIZE, onChange }: { page: n
       ))}
       <button type="button" className="page-btn" aria-label="下一页" disabled={page >= pages} onClick={() => onChange(page + 1)}>›</button>
     </nav>
+  );
+}
+
+/** A finance ledger page; like the summary cards, it needs the report permission. */
+export function useLedger<T, Q extends LedgerQuery>(load: (query: Q) => Promise<Paged<T>>, filter: Q) {
+  const { can } = useAuth();
+  const reports = can(P.ReportExport);
+  return usePagedTable(page => reports ? load({ ...filter, page, pageSize: PAGE_SIZE }) : Promise.resolve(emptyPage<T>()), [filter, reports]);
+}
+
+/** Empty-table text: the load error, loading, nothing matching the filters, or `none` when nothing exists yet. */
+export function ledgerEmptyText(table: { data: unknown; error: string }, filtered: boolean, none: string, kind: string) {
+  return table.error || (!table.data ? '正在加载…' : filtered ? `没有符合条件的${kind}` : none);
+}
+
+export function StatCard({ label, icon, tone, value, foot }: { label: string; icon: IconName; tone?: 'blue' | 'orange' | 'gold'; value: ReactNode; foot: ReactNode }) {
+  return (
+    <div className="stat-card">
+      <div className="stat-top"><span>{label}</span><span className={`stat-icon ${tone ?? ''}`.trim()}><Icon name={icon} /></span></div>
+      <div className="stat-value">{value}</div>
+      <div className="stat-foot">{foot}</div>
+    </div>
   );
 }
 

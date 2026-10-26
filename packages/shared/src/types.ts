@@ -198,6 +198,7 @@ export interface FinanceSummaryReport {
   brand: string;
   rechargeRevenueTotal: number;
   rechargeRefundedTotal: number;
+  rechargeRefundCount: number;
   rechargeNetReceived: number;
   rechargeOrderCount: number;
   ticketsSoldBuyQty: number;
@@ -206,6 +207,7 @@ export interface FinanceSummaryReport {
   depositCollectCount: number;
   depositRefundedTotal: number;
   depositDeductedTotal: number;
+  depositDeductCount: number;
   depositRefundCount: number;
   unrefundedDepositPoolTotal: number;
   netDepositFromFlows: number;
@@ -250,17 +252,46 @@ export interface RechargeLedgerRow {
   payMethod: PayMethod;
   operatorName: string;
   createdAt: string;
+  /** The coupon redeemed with this recharge, if any. */
+  couponName: string | null;
+  /** Set once the batch's remaining tickets were refunded. */
+  refundNo: string | null;
+  refundAmount: number | null;
+  refundedAt: string | null;
 }
+
+/** 水费退款：退清某次充值剩余权益，与押金退款分开记账。 */
+export interface RechargeRefundLedgerRow {
+  refundNo: string;
+  rechargeNo: string;
+  memberName: string;
+  memberNo: string;
+  planName: string;
+  waterType: WaterType;
+  fulfillMode: FulfillMode;
+  amount: number;
+  refundBuyQty: number;
+  revokedGiftQty: number;
+  payMethod: PayMethod;
+  reason: string;
+  operatorName: string;
+  createdAt: string;
+}
+
+export type DepositFlowType = 'COLLECT' | 'REFUND' | 'DEDUCT';
 
 export interface DepositLedgerRow {
   docNo: string;
   memberName: string;
-  flowType: 'COLLECT' | 'REFUND' | 'DEDUCT';
+  memberNo: string;
+  flowType: DepositFlowType;
   containerType: ContainerType;
   qty: number;
   unitPrice: number;
   amount: number;
   remainingQty: number;
+  /** How the money changed hands; null for scrap deductions and refunds registered before it was recorded. */
+  payMethod: PayMethod | null;
   operatorName: string;
   createdAt: string;
 }
@@ -307,8 +338,17 @@ export interface OrderQuery extends PageQuery, TimeRange {
 }
 
 export interface LedgerQuery extends PageQuery, TimeRange {
-  /** Matches document number, member, plan or operator. */
+  /** Matches document number, member (name, number or phone), plan or operator. */
   q?: string;
+}
+
+export interface RechargeLedgerQuery extends LedgerQuery {
+  payMethod?: PayMethod;
+}
+
+export interface DepositLedgerQuery extends LedgerQuery {
+  flowType?: DepositFlowType;
+  containerType?: ContainerType;
 }
 
 export interface ContainerLedgerQuery extends PageQuery {
@@ -498,6 +538,7 @@ export type ExportDataset =
   | 'members'
   | 'orders'
   | 'recharges'
+  | 'recharge-refunds'
   | 'ticket-ledgers'
   | 'deposit-ledgers'
   | 'container-ledgers'
