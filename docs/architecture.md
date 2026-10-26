@@ -69,8 +69,8 @@ kunlun/
 2. **`members`（会员表）**：`id`, `tenant_id`, `member_no`, `name`, `phone`, `wx_openid`, `default_address`, `status`, `source`
 3. **`recharge_plans`（优惠方案表）**：`id`, `tenant_id`, `name`, `water_type`(`BUCKET_18_9L`/`BAG_7_5L`), `fulfill_mode`(`DELIVERY`/`PICKUP`), `price`(`NUMERIC(10,2)`), `buy_qty`, `gift_qty`, `status`
 4. **`container_configs`（容器标准与总账表）**：
-   - `tenant_id`, `container_type`(`BUCKET`/`BAG`), `unit_deposit`, `total_qty`, `in_station_qty`, `in_transit_qty`, `member_held_qty`, `inspecting_qty`, `abnormal_qty`, `warn_threshold`
-   - **恒等式约束**：`CHECK (total_qty = in_station_qty + in_transit_qty + member_held_qty + inspecting_qty + abnormal_qty)`
+   - `tenant_id`, `container_type`(`BUCKET`/`BAG`), `unit_deposit`, `total_qty`, `in_station_qty`, `member_held_qty`, `damaged_qty`, `scrapped_qty`, `warn_threshold`
+   - **恒等式约束**：`CHECK (total_qty = in_station_qty + member_held_qty + damaged_qty)`，即现存总量 = 门店可用 + 会员持有 + 待报废
 5. **`member_ticket_accounts`（会员四类水票账户表）**：
    - 唯一键：`(tenant_id, member_id, water_type, fulfill_mode)`
    - 字段：`available_buy_qty`, `available_gift_qty`, `reserved_qty`, `used_qty`
@@ -140,7 +140,7 @@ kunlun/
 
 ## 6. 袋桶库存、周转与报废扣押
 
-`ContainerInventory` 只接收 `RECEIVE` / `SCRAP`；库存操作保留 before/after 快照，现存总量恒等于可用、在途、会员持有、待检、异常和破损之和，累计报废独立累计。
+`ContainerInventory` 只接收 `RECEIVE` / `SCRAP`：入库计入门店可用，报废从门店可用扣减，不再区分报废来源。库存操作保留 before/after 快照，现存总量恒等于门店可用、会员持有和待报废（会员破损归还、尚未扣押金）之和，累计报废独立累计。旧库中的在途、待检、异常和门店破损数量在启动时并入门店可用（总量不变）后删除相应列。
 
 `ContainerCirculation` 管理会员破损归还和确认报废。`container_damages` 保存原押金批次及金额、状态、两次操作的幂等回执。破损归还将 `deposit_lots.reserved_damage_qty` 增加；正常退款、领用覆盖额和可退押金展示都排除暂占数量。报废才减少批次 `remaining_qty`、增加 `deducted_qty` 并释放暂占，同时扣会员押金、更新库存并写 `container_ledgers`。财务流水以 `DEDUCT` 区别于 `REFUND`，对账包含累计扣押。
 
