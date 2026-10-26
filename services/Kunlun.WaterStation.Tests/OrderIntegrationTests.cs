@@ -42,7 +42,7 @@ public sealed class OrderIntegrationTests(TestHost factory)
         Assert.Equal("TICKET_INSUFFICIENT", overErr.GetProperty("error").GetString());
 
         // 3) 充值 12 张桶装配送水票 (¥200: 购 10 + 赠 2) 并缴纳 1 个水桶押金 (¥50)
-        var deliveryPlanId = Guid.Parse("30000000-0000-0000-0000-000000000001");
+        var deliveryPlanId = Guid.Parse("30000000-0000-0000-0000-000000000103");
         await _client.PostAsJsonAsync("/api/recharges",
             new CreateRechargeOrderRequest(memberId, deliveryPlanId, "WECHAT", $"idem-m3-rcg-{Guid.NewGuid()}"));
         await _client.PostAsJsonAsync("/api/deposits/collect",
@@ -54,14 +54,14 @@ public sealed class OrderIntegrationTests(TestHost factory)
         Assert.Equal(HttpStatusCode.OK, cancelOrdResp.StatusCode);
         var cancelOrdJson = await cancelOrdResp.Content.ReadFromJsonAsync<JsonElement>();
         var cancelOrderId = cancelOrdJson.GetProperty("id").GetGuid();
-        Assert.Equal(9, cancelOrdJson.GetProperty("availableTicketsAfter").GetInt32());
+        Assert.Equal(10, cancelOrdJson.GetProperty("availableTicketsAfter").GetInt32());
         Assert.Equal(3, cancelOrdJson.GetProperty("reservedTicketsAfter").GetInt32());
 
         var doCancelResp = await _client.PostAsJsonAsync($"/api/orders/{cancelOrderId}/cancel",
             new CancelWaterOrderRequest("客户临时出差改期"));
         Assert.Equal(HttpStatusCode.OK, doCancelResp.StatusCode);
         var doCancelJson = await doCancelResp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(12, doCancelJson.GetProperty("availableTicketsAfter").GetInt32());
+        Assert.Equal(13, doCancelJson.GetProperty("availableTicketsAfter").GetInt32());
         Assert.Equal(0, doCancelJson.GetProperty("reservedTicketsAfter").GetInt32());
 
         // 5) AC-07: 首单配送 1 桶 (发出重桶 N=1, 收回空桶 M=0 -> 持有 1 桶 <= 押金覆盖 1 桶)
@@ -74,7 +74,7 @@ public sealed class OrderIntegrationTests(TestHost factory)
         Assert.Equal(HttpStatusCode.OK, ful1Resp.StatusCode);
         var ful1Json = await ful1Resp.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(1, ful1Json.GetProperty("heldAfter").GetInt32());
-        Assert.Equal(11, ful1Json.GetProperty("availableTicketsAfter").GetInt32());
+        Assert.Equal(12, ful1Json.GetProperty("availableTicketsAfter").GetInt32());
 
         // 6) AC-08: 次单等量换桶配送 1 桶 (发出重桶 N=1, 收回空桶 M=1 -> 净增 0, 持有仍为 1 桶 <= 押金覆盖 1 桶，无需补交押金)
         var ord2Resp = await _client.PostAsJsonAsync("/api/orders",
@@ -86,7 +86,7 @@ public sealed class OrderIntegrationTests(TestHost factory)
         Assert.Equal(HttpStatusCode.OK, ful2Resp.StatusCode);
         var ful2Json = await ful2Resp.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(1, ful2Json.GetProperty("heldAfter").GetInt32());
-        Assert.Equal(10, ful2Json.GetProperty("availableTicketsAfter").GetInt32());
+        Assert.Equal(11, ful2Json.GetProperty("availableTicketsAfter").GetInt32());
 
         // 7) AC-09: 第三单下单 2 桶，配送时发出重桶 N=2，仅收回空桶 M=1 -> 累计占桶将达 2 桶 > 已缴押金覆盖 1 桶 -> 拦截要求补 1 桶押金
         var ord3Resp = await _client.PostAsJsonAsync("/api/orders",
@@ -113,7 +113,7 @@ public sealed class OrderIntegrationTests(TestHost factory)
             new CreateMemberRequest("马超", uniquePhone, "绿麒麟水站门店自提", "M3自提测试"));
         var memberId = (await memResp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
 
-        var pickupPlanId = Guid.Parse("30000000-0000-0000-0000-000000000002");
+        var pickupPlanId = Guid.Parse("30000000-0000-0000-0000-000000000101");
         await _client.PostAsJsonAsync("/api/recharges",
             new CreateRechargeOrderRequest(memberId, pickupPlanId, "WECHAT", $"idem-m3-pkp-{Guid.NewGuid()}"));
         await _client.PostAsJsonAsync("/api/deposits/collect",
@@ -139,7 +139,7 @@ public sealed class OrderIntegrationTests(TestHost factory)
             new VerifyPickupCodeRequest(pickupCode, ActualQty: 2, FullOutN: 2, EmptyInM: 0, DiffReason: "电瓶车踏板仅放得下2桶"));
         Assert.Equal(HttpStatusCode.OK, verifyResp.StatusCode);
         var verifyJson = await verifyResp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(12, verifyJson.GetProperty("availableTicketsAfter").GetInt32());
+        Assert.Equal(14, verifyJson.GetProperty("availableTicketsAfter").GetInt32());
         Assert.Equal(0, verifyJson.GetProperty("reservedTicketsAfter").GetInt32());
         Assert.Equal(2, verifyJson.GetProperty("heldAfter").GetInt32());
 

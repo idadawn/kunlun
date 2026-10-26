@@ -19,7 +19,8 @@ public sealed record CreateRechargeOrderRequest(
     Guid PlanId,
     string PayMethod,
     string IdempotencyKey,
-    string? Remark = null);
+    string? Remark = null,
+    Guid? CouponId = null);
 
 public sealed record CollectDepositRequest(
     Guid MemberId,
@@ -157,20 +158,34 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
             await cmd.ExecuteNonQueryAsync(ct);
         }
 
-        // Seed 3 default recharge plans (AC-02: 同价不同领取方式享不同赠送)
+        // Fixed quantities are all paid tickets; promotional gifts belong to coupons.
         var plans = new[]
         {
-            (Id: Guid.Parse("30000000-0000-0000-0000-000000000001"), Name: "小分子团弱碱活性水 · 配送畅享包", Water: "BUCKET_18_9L", Mode: "DELIVERY", Price: 200.00m, Buy: 10, Gift: 2),
-            (Id: Guid.Parse("30000000-0000-0000-0000-000000000002"), Name: "小分子团弱碱活性水 · 自提实惠包", Water: "BUCKET_18_9L", Mode: "PICKUP", Price: 200.00m, Buy: 12, Gift: 2),
-            (Id: Guid.Parse("30000000-0000-0000-0000-000000000003"), Name: "小分子团弱碱活性水 · 袋装家庭包", Water: "BAG_7_5L", Mode: "PICKUP", Price: 100.00m, Buy: 10, Gift: 1)
+            (Id: Guid.Parse("30000000-0000-0000-0000-000000000101"), Name: "自提 100 元 · 16 桶", Water: "BUCKET_18_9L", Mode: "PICKUP", Price: 100m, Buy: 16, Gift: 0),
+            (Id: Guid.Parse("30000000-0000-0000-0000-000000000102"), Name: "自提 500 元 · 95 桶", Water: "BUCKET_18_9L", Mode: "PICKUP", Price: 500m, Buy: 95, Gift: 0),
+            (Id: Guid.Parse("30000000-0000-0000-0000-000000000103"), Name: "配送 100 元 · 13 桶", Water: "BUCKET_18_9L", Mode: "DELIVERY", Price: 100m, Buy: 13, Gift: 0),
+            (Id: Guid.Parse("30000000-0000-0000-0000-000000000104"), Name: "配送 500 元 · 70 桶", Water: "BUCKET_18_9L", Mode: "DELIVERY", Price: 500m, Buy: 70, Gift: 0)
         };
+        await using (var upgrade = new NpgsqlCommand("""
+            CREATE TABLE IF NOT EXISTS plugin_kunlun_waterstation.finance_migrations (tenant_id UUID NOT NULL,name TEXT NOT NULL,PRIMARY KEY(tenant_id,name));
+            WITH first_run AS (INSERT INTO plugin_kunlun_waterstation.finance_migrations VALUES(@tid,'fixed-packages-v1') ON CONFLICT DO NOTHING RETURNING 1)
+            UPDATE plugin_kunlun_waterstation.recharge_plans SET status='DISABLED'
+            WHERE id IN ('30000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000002','30000000-0000-0000-0000-000000000003')
+              AND EXISTS (SELECT 1 FROM first_run) AND tenant_id=@tid AND name IN ('小分子团弱碱活性水 · 配送畅享包','小分子团弱碱活性水 · 自提实惠包','小分子团弱碱活性水 · 袋装家庭包');
+            UPDATE plugin_kunlun_waterstation.staff SET permissions=permissions || '["kunlun.waterstation:recharge:refund"]'::jsonb,token_version=token_version+1
+            WHERE tenant_id=@tid AND role='ADMIN' AND NOT (permissions ? 'kunlun.waterstation:recharge:refund');
+            """, conn, tx))
+        {
+            upgrade.Parameters.AddWithValue("tid", TenantId);
+            await upgrade.ExecuteNonQueryAsync(ct);
+        }
         foreach (var p in plans)
         {
             await using var cmd = new NpgsqlCommand("""
                 INSERT INTO plugin_kunlun_waterstation.recharge_plans
                     (id, tenant_id, name, water_type, fulfill_mode, price, buy_qty, gift_qty, status)
                 VALUES (@id, @tid, @name, @water, @mode, @price, @buy, @gift, 'ACTIVE')
-                ON CONFLICT (tenant_id, name) DO NOTHING
+                ON CONFLICT DO NOTHING
                 """, conn, tx);
             cmd.Parameters.AddWithValue("id", p.Id);
             cmd.Parameters.AddWithValue("tid", TenantId);

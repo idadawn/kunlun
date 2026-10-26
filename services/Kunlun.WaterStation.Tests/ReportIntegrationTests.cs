@@ -43,7 +43,7 @@ public sealed class ReportIntegrationTests(TestHost factory)
             new CreateMemberRequest("姜维", uniquePhone, "绿麒麟大厦 18 楼", "M4报表对账测试"));
         var memberId = (await memResp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
 
-        var deliveryPlanId = Guid.Parse("30000000-0000-0000-0000-000000000001");
+        var deliveryPlanId = Guid.Parse("30000000-0000-0000-0000-000000000103");
         await _client.PostAsJsonAsync("/api/recharges",
             new CreateRechargeOrderRequest(memberId, deliveryPlanId, "WECHAT", $"idem-m4-rcg-{Guid.NewGuid()}"));
         await _client.PostAsJsonAsync("/api/deposits/collect",
@@ -56,7 +56,7 @@ public sealed class ReportIntegrationTests(TestHost factory)
         Assert.Equal(HttpStatusCode.OK, afterResp.StatusCode);
         var afterJson = await afterResp.Content.ReadFromJsonAsync<JsonElement>();
 
-        Assert.Equal(rcgBefore + 200.00m, afterJson.GetProperty("rechargeRevenueTotal").GetDecimal());
+        Assert.Equal(rcgBefore + 100.00m, afterJson.GetProperty("rechargeRevenueTotal").GetDecimal());
         Assert.Equal(depColBefore + 100.00m, afterJson.GetProperty("depositCollectedTotal").GetDecimal());
         Assert.Equal(depRefBefore + 50.00m, afterJson.GetProperty("depositRefundedTotal").GetDecimal());
         Assert.Equal(poolBefore + 50.00m, afterJson.GetProperty("unrefundedDepositPoolTotal").GetDecimal());

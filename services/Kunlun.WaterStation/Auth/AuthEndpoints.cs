@@ -6,6 +6,8 @@ using Npgsql;
 
 namespace Kunlun.WaterStation.Auth;
 
+public sealed record CreateStaffRequest(string Name, string Phone, string Username, string Password, string Role);
+
 public static class AuthEndpoints
 {
     private static readonly string DummyHash = PasswordHasher.Hash(Guid.NewGuid().ToString());
@@ -15,6 +17,35 @@ public static class AuthEndpoints
 
     public static void MapAuthEndpoints(this WebApplication app)
     {
+        app.MapGet("/api/staff", async (ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>
+        {
+            if (!user.HasClaim("perm", KunlunPermissions.StaffManage)) return Results.Forbid();
+            await using var conn = await db.OpenConnectionAsync(ct);
+            await using var cmd = new NpgsqlCommand("SELECT id,staff_no,name,phone,username,role,status FROM plugin_kunlun_waterstation.staff WHERE tenant_id=@tid ORDER BY created_at,id", conn);
+            cmd.Parameters.AddWithValue("tid", repo.DefaultTenantId);
+            var rows = new List<object>();
+            await using var r = await cmd.ExecuteReaderAsync(ct);
+            while (await r.ReadAsync(ct)) rows.Add(new { id = r.GetGuid(0), staffNo = r.GetString(1), name = r.GetString(2), phone = r.GetString(3), username = r.GetString(4), role = r.GetString(5), status = r.GetString(6) });
+            return Results.Ok(rows);
+        }).RequireAuthorization();
+
+        app.MapPost("/api/staff", async (CreateStaffRequest req, ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>
+        {
+            if (!user.HasClaim("perm", KunlunPermissions.StaffManage)) return Results.Forbid();
+            if (string.IsNullOrWhiteSpace(req.Name) || req.Name.Length > 64 || !Regex.IsMatch(req.Phone ?? "", @"^1\d{10}$") || !ValidUsername(req.Username) || !ValidPassword(req.Password) || req.Role is not ("ADMIN" or "CLERK" or "COURIER"))
+                return Results.BadRequest(new { error = "请填写有效姓名、手机号、用户名、8–128 位密码和角色" });
+            var id = Guid.NewGuid();
+            var permissions = req.Role == "ADMIN" ? KunlunPermissions.AdminAll : req.Role == "CLERK" ? KunlunPermissions.ClerkDefault : KunlunPermissions.CourierDefault;
+            await using var conn = await db.OpenConnectionAsync(ct);
+            await using var cmd = new NpgsqlCommand("INSERT INTO plugin_kunlun_waterstation.staff(id,tenant_id,staff_no,name,phone,username,password_hash,role,permissions) VALUES(@id,@tid,@no,@name,@phone,@username,@hash,@role,@perms::jsonb)", conn);
+            cmd.Parameters.AddWithValue("id", id); cmd.Parameters.AddWithValue("tid", repo.DefaultTenantId); cmd.Parameters.AddWithValue("no", "YG" + id.ToString("N")[..12]);
+            cmd.Parameters.AddWithValue("name", req.Name.Trim()); cmd.Parameters.AddWithValue("phone", req.Phone!); cmd.Parameters.AddWithValue("username", req.Username.Trim().ToLowerInvariant());
+            cmd.Parameters.AddWithValue("hash", PasswordHasher.Hash(req.Password)); cmd.Parameters.AddWithValue("role", req.Role); cmd.Parameters.AddWithValue("perms", JsonSerializer.Serialize(permissions));
+            try { await cmd.ExecuteNonQueryAsync(ct); }
+            catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation) { return Results.Conflict(new { error = "用户名或手机号已被使用" }); }
+            return Results.Ok(new { id });
+        }).RequireAuthorization();
+
         app.MapPost("/api/auth/staff/login", (StaffLoginRequest req, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>
             Login(req, "STAFF", db, repo, ct)).RequireRateLimiting("login");
         app.MapPost("/api/auth/member/login", (StaffLoginRequest req, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>

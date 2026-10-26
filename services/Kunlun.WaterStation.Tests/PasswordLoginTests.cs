@@ -51,4 +51,23 @@ public sealed class PasswordLoginTests(TestHost host)
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/auth/logout", new { })).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/me")).StatusCode);
     }
+    [Fact]
+    public async Task Admin_Can_Create_Staff_But_Clerk_Cannot_And_Last_Admin_Is_Protected()
+    {
+        using var client = host.CreateClient();
+        var auth = (await (await client.PostAsJsonAsync("/api/auth/staff/login", new StaffLoginRequest("YG0001", TestHost.Password))).Content.ReadFromJsonAsync<AuthTokenResponse>())!;
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
+        var username = "staff_" + Guid.NewGuid().ToString("N")[..12]; var password = Guid.NewGuid().ToString("N");
+        var request = new CreateStaffRequest("测试员工", $"132{Random.Shared.Next(10000000, 99999999)}", username, password, "CLERK");
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/staff", request)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/api/staff", request)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PatchAsJsonAsync($"/api/staff/{auth.SubjectId}/status", new UpdateStaffStatusRequest("DISABLED"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PatchAsJsonAsync($"/api/staff/{auth.SubjectId}/status", new UpdateStaffStatusRequest("invalid"))).StatusCode);
+        var clerk = (await (await client.PostAsJsonAsync("/api/auth/staff/login", new StaffLoginRequest(username, password))).Content.ReadFromJsonAsync<AuthTokenResponse>())!;
+        Assert.Equal("CLERK", clerk.Role);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", clerk.AccessToken);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/staff", request)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/staff")).StatusCode);
+    }
+
 }

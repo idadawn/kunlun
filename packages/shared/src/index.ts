@@ -17,6 +17,7 @@ export const KUNLUN_PERMISSIONS = {
   MemberRead: 'kunlun.waterstation:member:read',
   MemberWrite: 'kunlun.waterstation:member:write',
   RechargeCreate: 'kunlun.waterstation:recharge:create',
+  RechargeRefund: 'kunlun.waterstation:recharge:refund',
   DepositCollect: 'kunlun.waterstation:deposit:collect',
   DepositRefundApply: 'kunlun.waterstation:deposit:refund_apply',
   DepositRefundApprove: 'kunlun.waterstation:deposit:refund_approve',
@@ -118,6 +119,8 @@ export interface ContainerSummaryItem {
 export interface FinanceSummaryReport {
   brand: string;
   rechargeRevenueTotal: number;
+  rechargeRefundedTotal: number;
+  rechargeNetReceived: number;
   rechargeOrderCount: number;
   ticketsSoldBuyQty: number;
   ticketsGiftedQty: number;
@@ -211,14 +214,11 @@ export class KunlunApiClient {
     return this.request<RechargePlan[]>('/api/plans');
   }
 
-  async updatePlan(planId: string, price: number, buyQty: number, giftQty: number, status = 'ACTIVE') {
-    return this.request<RechargePlan>(`/api/plans/${planId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ price, buyQty, giftQty, status }),
-    });
+  async updatePlan(plan: RechargePlan) {
+    return this.request<RechargePlan>(`/api/plans/${plan.id}`, { method: 'PUT', body: JSON.stringify(plan) });
   }
 
-  async createRecharge(memberId: string, planId: string, payMethod: string, idempotencyKey: string, remark?: string) {
+  async createRecharge(memberId: string, planId: string, payMethod: string, idempotencyKey: string, remark?: string, couponId?: string) {
     return this.request<{
       id: string;
       rechargeNo: string;
@@ -229,7 +229,7 @@ export class KunlunApiClient {
       idempotentReplay: boolean;
     }>('/api/recharges', {
       method: 'POST',
-      body: JSON.stringify({ memberId, planId, payMethod, idempotencyKey, remark }),
+      body: JSON.stringify({ memberId, planId, payMethod, idempotencyKey, remark, couponId }),
     });
   }
 
@@ -254,7 +254,7 @@ export class KunlunApiClient {
       lotBreakdown: Array<{ depositNo: string; unitPrice: number; deductQty: number; subAmount: number }>;
     }>('/api/deposits/refund', {
       method: 'POST',
-      body: JSON.stringify({ memberId, containerType, refundQty, idempotencyKey, reason }),
+      body: JSON.stringify({ memberId, containerType, quantity: refundQty, idempotencyKey, reason }),
     });
   }
 

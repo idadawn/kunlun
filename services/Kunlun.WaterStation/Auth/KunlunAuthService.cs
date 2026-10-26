@@ -12,6 +12,7 @@ public static class KunlunPermissions
 {
     public const string MemberRead = "kunlun.waterstation:member:read";
     public const string MemberWrite = "kunlun.waterstation:member:write";
+    public const string RechargeRefund = "kunlun.waterstation:recharge:refund";
     public const string RechargeCreate = "kunlun.waterstation:recharge:create";
     public const string DepositCollect = "kunlun.waterstation:deposit:collect";
     public const string DepositRefundApply = "kunlun.waterstation:deposit:refund_apply";
@@ -27,7 +28,7 @@ public static class KunlunPermissions
 
     public static readonly string[] AdminAll =
     [
-        MemberRead, MemberWrite, RechargeCreate, DepositCollect,
+        MemberRead, MemberWrite, RechargeCreate, RechargeRefund, DepositCollect,
         DepositRefundApply, DepositRefundApprove, OrderCreate, OrderAccept,
         OrderFulfill, PickupVerify, ContainerRegister, PlanManage, ReportExport, StaffManage
     ];
