@@ -4,8 +4,8 @@ import { useExport, useGo, useOperations } from '../common';
 import { useAdminData } from '../data';
 
 const EMPTY_CONTAINER: ContainerSummaryItem = {
-  containerType: 'BUCKET', unitDeposit: 0, totalQty: 0, inStationQty: 0, inTransitQty: 0, memberHeldQty: 0, inspectingQty: 0,
-  abnormalQty: 0, damagedQty: 0, scrappedQty: 0, pendingMemberDamageQty: 0, warnThreshold: 0, identityValid: true, lowStockWarning: false,
+  containerType: 'BUCKET', unitDeposit: 0, totalQty: 0, inStationQty: 0, memberHeldQty: 0,
+  damagedQty: 0, scrappedQty: 0, warnThreshold: 0, identityValid: true, lowStockWarning: false,
 };
 
 export function Dashboard() {
@@ -16,6 +16,7 @@ export function Dashboard() {
   const ops = useOperations();
   const bucket = containers.find(c => c.containerType === 'BUCKET') ?? EMPTY_CONTAINER;
   const bag = containers.find(c => c.containerType === 'BAG') ?? { ...EMPTY_CONTAINER, containerType: 'BAG' };
+  const balanced = bucket.identityValid && bag.identityValid;
   const completed = orders.filter(o => o.status === 'COMPLETED');
   const pendingDelivery = overview?.pendingDelivery ?? orders.filter(o => o.status === 'PENDING' && o.fulfillMode === 'DELIVERY').length;
   const pendingPickup = overview?.pendingPickup ?? orders.filter(o => o.status === 'PENDING' && o.fulfillMode === 'PICKUP').length;
@@ -78,7 +79,7 @@ export function Dashboard() {
           <div className="todo-item"><div className="todo-symbol"><Icon name="truck" /></div><div className="todo-text"><b>待接单配送</b><small>请及时指派或提醒送水员接单</small></div><span className="todo-num">{pendingDelivery}</span><button type="button" className="text-btn" onClick={() => go('orders')}>处理</button></div>
           <div className="todo-item"><div className="todo-symbol green"><Icon name="store" /></div><div className="todo-text"><b>待确认自提</b><small>会员到店出示取水码后核销</small></div><span className="todo-num">{pendingPickup}</span><button type="button" className="text-btn" onClick={() => go('orders')}>处理</button></div>
           <div className="todo-item"><div className="todo-symbol blue"><Icon name="deposit" /></div><div className="todo-text"><b>可退押金</b><small>核对容器持有与原收款批次单价</small></div><span className="todo-num">{overview ? `¥${money(overview.refundableDeposit)}` : '—'}</span><button type="button" className="text-btn" onClick={() => go('finance')}>处理</button></div>
-          <div className="todo-item"><div className="todo-symbol"><Icon name="box" /></div><div className="todo-text"><b>15L 周转桶库存{bucket.lowStockWarning ? '偏低' : ''}</b><small>当前站内可用 {bucket.inStationQty} 个，预警值 {bucket.warnThreshold}</small></div><button type="button" className="text-btn" onClick={() => go('assets')}>查看</button></div>
+          <div className="todo-item"><div className="todo-symbol"><Icon name="box" /></div><div className="todo-text"><b>15L 周转桶库存{bucket.lowStockWarning ? '偏低' : ''}</b><small>当前门店可用 {bucket.inStationQty} 个，预警值 {bucket.warnThreshold}</small></div><button type="button" className="text-btn" onClick={() => go('assets')}>查看</button></div>
         </div>
       </div>
     </div>
@@ -104,7 +105,7 @@ export function Dashboard() {
         <div className="asset-content">
           <AssetLine label="15L 周转桶" c={bucket} />
           <div style={{ marginTop: 18 }}><AssetLine label="5L 周转水袋" c={bag} aqua /></div>
-          <div className="identity-formula"><span>库存平衡校验 ({bucket.identityValid && bag.identityValid ? 'PASS' : 'WARN'})</span><b>现存总量 = 可用 + 在途 + 会员持有 + 待检 + 异常 + 破损</b></div>
+          <div className={`identity-formula${balanced ? '' : ' warn'}`}><span>{balanced ? '✓ 库存平衡' : '库存不平衡，请核对'}</span><b>现存总量 = 门店可用 + 会员持有 + 待报废</b></div>
         </div>
       </div>
     </div>
@@ -123,7 +124,7 @@ function AssetLine({ label, c, aqua = false }: { label: string; c: ContainerSumm
   return <>
     <div className="asset-line"><span>{label}</span><span>会员持有 <b>{c.memberHeldQty}</b> / 总量 <b>{c.totalQty}</b></span></div>
     <div className="progress"><i style={{ width: `${Math.max(4, pct)}%`, ...(aqua ? { background: 'var(--grad-aqua)' } : {}) }} /></div>
-    <div className="asset-meta"><span>站内可用 {c.inStationQty}</span><span>配送在途 {c.inTransitQty}</span><span>待检 {c.inspectingQty} · 破损 {c.damagedQty || 0} · 异常 {c.abnormalQty}</span></div>
+    <div className="asset-meta"><span>门店可用 {c.inStationQty}</span><span>待报废 {c.damagedQty}</span><span>累计报废 {c.scrappedQty}</span></div>
   </>;
 }
 

@@ -109,15 +109,15 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
                 tenant_id UUID NOT NULL,
                 container_type VARCHAR(16) NOT NULL, -- BUCKET | BAG
                 unit_deposit NUMERIC(10,2) NOT NULL CHECK (unit_deposit > 0),
-                total_qty INT NOT NULL DEFAULT 1200,
-                in_station_qty INT NOT NULL DEFAULT 86,
-                in_transit_qty INT NOT NULL DEFAULT 18,
-                member_held_qty INT NOT NULL DEFAULT 986,
-                inspecting_qty INT NOT NULL DEFAULT 108,
-                abnormal_qty INT NOT NULL DEFAULT 2,
+                total_qty INT NOT NULL DEFAULT 0,
+                in_station_qty INT NOT NULL DEFAULT 0,
+                member_held_qty INT NOT NULL DEFAULT 0,
+                damaged_qty INT NOT NULL DEFAULT 0, -- member returns awaiting scrap
+                scrapped_qty INT NOT NULL DEFAULT 0,
                 warn_threshold INT NOT NULL DEFAULT 100,
                 PRIMARY KEY (tenant_id, container_type),
-                CHECK (total_qty = in_station_qty + in_transit_qty + member_held_qty + inspecting_qty + abnormal_qty)
+                CONSTRAINT container_stock_balance CHECK (total_qty = in_station_qty + member_held_qty + damaged_qty),
+                CONSTRAINT container_stock_nonnegative CHECK (total_qty >= 0 AND in_station_qty >= 0 AND member_held_qty >= 0 AND damaged_qty >= 0 AND scrapped_qty >= 0)
             );
 
             CREATE TABLE IF NOT EXISTS deposit_lots (
@@ -197,11 +197,12 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
 
         if (!config.GetValue<bool>("Kunlun:SeedDemoData"))
         {
+            // NOT EXISTS rather than ON CONFLICT: until ContainerInventory migrates an older table, its retired
+            // columns' balance check would reject even a conflicting row.
             await using var empty = new NpgsqlCommand("""
-                INSERT INTO plugin_kunlun_waterstation.container_configs
-                  (tenant_id, container_type, unit_deposit, total_qty, in_station_qty, in_transit_qty, member_held_qty, inspecting_qty, abnormal_qty)
-                VALUES (@tid, 'BUCKET', 50, 0, 0, 0, 0, 0, 0), (@tid, 'BAG', 5, 0, 0, 0, 0, 0, 0)
-                ON CONFLICT (tenant_id, container_type) DO NOTHING
+                INSERT INTO plugin_kunlun_waterstation.container_configs (tenant_id, container_type, unit_deposit)
+                SELECT @tid, v.type, v.deposit FROM (VALUES ('BUCKET', 50), ('BAG', 5)) v(type, deposit)
+                WHERE NOT EXISTS (SELECT 1 FROM plugin_kunlun_waterstation.container_configs c WHERE c.tenant_id = @tid AND c.container_type = v.type)
                 """, conn, tx);
             empty.Parameters.AddWithValue("tid", TenantId);
             await empty.ExecuteNonQueryAsync(ct);
@@ -211,11 +212,9 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
         // Current standards: reusable bucket ¥50/item, reusable 5L bag ¥5/item.
         await using (var cfgCmd = new NpgsqlCommand("""
             INSERT INTO plugin_kunlun_waterstation.container_configs
-                (tenant_id, container_type, unit_deposit, total_qty, in_station_qty, in_transit_qty, member_held_qty, inspecting_qty, abnormal_qty, warn_threshold)
-            VALUES
-                (@tid, 'BUCKET', 50.00, 200, 88, 0, 2, 108, 2, 100),
-                (@tid, 'BAG', 5.00, 200, 164, 0, 2, 34, 0, 80)
-            ON CONFLICT (tenant_id, container_type) DO NOTHING
+                (tenant_id, container_type, unit_deposit, total_qty, in_station_qty, member_held_qty, warn_threshold)
+            SELECT @tid, v.* FROM (VALUES ('BUCKET', 50.00, 200, 198, 2, 100), ('BAG', 5.00, 200, 198, 2, 80)) v(type, deposit, total, available, held, warn)
+            WHERE NOT EXISTS (SELECT 1 FROM plugin_kunlun_waterstation.container_configs c WHERE c.tenant_id = @tid AND c.container_type = v.type)
             """, conn, tx))
         {
             cfgCmd.Parameters.AddWithValue("tid", TenantId);

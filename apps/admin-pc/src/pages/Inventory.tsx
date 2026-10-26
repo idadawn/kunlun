@@ -1,21 +1,10 @@
 import { useState } from 'react';
-import { KUNLUN_PERMISSIONS as P, money, type ContainerSummaryItem, type ContainerType, type InventoryAction, type InventorySource } from '@kunlun/shared';
+import { KUNLUN_PERMISSIONS as P, money, type ContainerSummaryItem, type ContainerType, type InventoryAction } from '@kunlun/shared';
 import { Field, FormDialog, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
 import { EmptyRow, useExport } from '../common';
 import { useAdminData } from '../data';
 
 export const CONTAINER_NAMES: Record<ContainerType, string> = { BAG: '周转水袋', BUCKET: '周转桶' };
-const SOURCES: Array<[InventorySource, string]> = [['AVAILABLE', '门店可用'], ['INSPECTING', '待检'], ['ABNORMAL', '异常待处理'], ['DAMAGED', '门店破损']];
-
-/** Stock on hand for one source; member damage awaiting scrap is handled in the ledger, not here. */
-function sourceQty(c: ContainerSummaryItem, source: InventorySource) {
-  switch (source) {
-    case 'INSPECTING': return c.inspectingQty;
-    case 'ABNORMAL': return c.abnormalQty;
-    case 'DAMAGED': return c.damagedQty - c.pendingMemberDamageQty;
-    default: return c.inStationQty;
-  }
-}
 
 export function Inventory() {
   const { containers, version, refresh } = useAdminData();
@@ -31,24 +20,22 @@ export function Inventory() {
   return <>
     <div className="page-head"><div><h2>袋桶库存</h2><p>管理水袋、周转桶的入库与报废</p></div></div>
     <div className="table-card">
-      <div className="table-toolbar"><div><b>袋桶库存</b><small>按实物数量登记入库与报废</small></div></div>
+      <div className="table-toolbar"><div><b>袋桶库存</b><small>入库计入门店可用，报废从门店可用扣减</small></div></div>
       <div className="inventory-table-scroll">
         <table>
-          <thead><tr><th>容器</th><th>现存总量</th><th>门店可用</th><th>会员持有</th><th>在途</th><th>待检 / 异常</th><th>待处理破损</th><th>累计报废</th><th>操作</th></tr></thead>
+          <thead><tr><th>容器</th><th>现存总量</th><th>门店可用</th><th>会员持有</th><th>待报废</th><th>累计报废</th><th>操作</th></tr></thead>
           <tbody>
-            {containers.length === 0 ? <EmptyRow colSpan={9}>正在加载库存…</EmptyRow> : containers.map(c => (
+            {containers.length === 0 ? <EmptyRow colSpan={7}>正在加载库存…</EmptyRow> : containers.map(c => (
               <tr key={c.containerType}>
                 <td><b>{CONTAINER_NAMES[c.containerType]}</b><br /><small>押金 ¥{money(c.unitDeposit)} / 个</small></td>
                 <td><b>{c.totalQty}</b></td>
                 <td>{c.inStationQty}</td>
                 <td>{c.memberHeldQty}</td>
-                <td>{c.inTransitQty}</td>
-                <td>{c.inspectingQty} / {c.abnormalQty}</td>
                 <td>{c.damagedQty}</td>
                 <td>{c.scrappedQty}</td>
                 <td><div className="container-row-actions">
                   <button type="button" className="text-btn" disabled={!permitted} onClick={() => stock(c, 'RECEIVE')}>入库</button>
-                  <button type="button" className="text-btn danger" disabled={!permitted} onClick={() => stock(c, 'SCRAP')}>报废</button>
+                  <button type="button" className="text-btn danger" disabled={!permitted || c.inStationQty === 0} onClick={() => stock(c, 'SCRAP')}>报废</button>
                 </div></td>
               </tr>
             ))}
@@ -56,7 +43,7 @@ export function Inventory() {
         </table>
       </div>
     </div>
-    <p className="membership-note">现存总量不包含已报废数量。会员归还的破损袋桶，请在「袋桶台账」确认报废并扣押金。</p>
+    <p className="membership-note">现存总量 = 门店可用 + 会员持有 + 待报废，不含累计报废。待报废是会员归还的破损袋桶，请在「袋桶台账」确认报废并扣押金。</p>
     {permitted && (
       <div className="table-card">
         <div className="table-toolbar">
@@ -93,36 +80,28 @@ function StockDialog({ config, action, onClose, onDone }: { config: ContainerSum
   const toast = useToast();
   const key = useIdempotencyKey();
   const scrap = action === 'SCRAP';
-  const [source, setSource] = useState<InventorySource>('AVAILABLE');
   const [quantity, setQuantity] = useState(1);
   const [reason, setReason] = useState('');
   const submit = async () => {
-    await api.inventory({ containerType: config.containerType, action, quantity, sourceState: scrap ? source : 'AVAILABLE', reason: reason.trim(), idempotencyKey: key });
+    await api.inventory({ containerType: config.containerType, action, quantity, reason: reason.trim(), idempotencyKey: key });
     await onDone();
     toast(scrap ? '已报废，库存已扣减' : '入库成功');
   };
   return (
     <FormDialog title={`${CONTAINER_NAMES[config.containerType]} · ${scrap ? '报废' : '入库'}`} className="inventory-dialog" submitLabel={scrap ? '确认报废' : '确认入库'} onClose={onClose} onSubmit={submit}>
-      <div className="membership-summary">{scrap ? '报废将扣减现存总量。会员破损请在袋桶台账办理。' : '新购入的袋桶计入门店可用库存。'}</div>
-      {scrap && (
-        <Field label="报废来源" htmlFor="stockSource">
-          <select id="stockSource" className="select" value={source} onChange={e => setSource(e.target.value as InventorySource)}>
-            {SOURCES.map(([id, name]) => <option key={id} value={id}>{name} · {sourceQty(config, id)} 个{id === 'DAMAGED' ? '（不含会员待报废部分）' : ''}</option>)}
-          </select>
-        </Field>
-      )}
+      <div className="membership-summary">{scrap ? <>从门店可用中报废，当前门店可用 <b>{config.inStationQty}</b> 个。</> : '新购入的袋桶计入门店可用。'}</div>
       <Field label="数量（个）" htmlFor="stockQty">
-        <input id="stockQty" className="input" type="number" min={1} max={1000000} step={1} required value={quantity} onChange={e => setQuantity(Number(e.target.value))} />
+        <input id="stockQty" className="input" type="number" min={1} max={scrap ? config.inStationQty : 1000000} step={1} required value={quantity} onChange={e => setQuantity(Number(e.target.value))} />
       </Field>
-      <ReasonField value={reason} onChange={setReason} />
+      <ReasonField value={reason} onChange={setReason} placeholder={scrap ? '如：破损、老化无法使用' : '如：采购批次、供应商'} />
     </FormDialog>
   );
 }
 
-export function ReasonField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+export function ReasonField({ value, onChange, placeholder = '填写来源或处理原因' }: { value: string; onChange: (value: string) => void; placeholder?: string }) {
   return (
     <Field label="原因 / 备注" htmlFor="operationReason">
-      <textarea id="operationReason" className="input" maxLength={500} rows={3} required placeholder="填写来源或处理原因" value={value} onChange={e => onChange(e.target.value)} />
+      <textarea id="operationReason" className="input" maxLength={500} rows={3} required placeholder={placeholder} value={value} onChange={e => onChange(e.target.value)} />
     </Field>
   );
 }

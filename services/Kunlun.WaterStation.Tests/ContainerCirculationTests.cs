@@ -73,8 +73,9 @@ public sealed class ContainerCirculationTests(TestHost host)
         using var c=await Client();var mid=(await Member(c)).GetProperty("id").GetGuid();await Prepare(c,mid);var damage=await Report(c,mid);
         Assert.Equal(HttpStatusCode.BadRequest,(await c.PostAsJsonAsync("/api/deposits/refund",new RefundDepositRequest(mid,"BAG",1,Key()))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest,(await c.PostAsJsonAsync("/api/containers/movements",new RegisterContainerMovementRequest(mid,"BAG",1,0,IdempotencyKey:Key()))).StatusCode);
-        var stock=await Stock(c,"BAG");Assert.Equal(HttpStatusCode.BadRequest,(await c.PostAsJsonAsync("/api/containers/inventory",new InventoryRequest("BAG","SCRAP","不能绕过扣押",Key(),Q(stock,"damagedQty"),"DAMAGED"))).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest,(await c.PostAsJsonAsync("/api/containers/inventory",new InventoryRequest("BAG","SCRAP","不能直接扣会员库存",Key(),1,"MEMBER",mid))).StatusCode);
+        var stock=await Stock(c,"BAG");Assert.Equal(HttpStatusCode.BadRequest,(await c.PostAsJsonAsync("/api/containers/inventory",new InventoryRequest("BAG","SCRAP","不能绕过扣押",Key(),Q(stock,"inStationQty")+1))).StatusCode);
+        var stockScrap=(await Ok(await c.PostAsJsonAsync("/api/containers/inventory",new InventoryRequest("BAG","SCRAP","门店报废只扣可用",Key(),1)))).GetProperty("after");
+        Assert.Equal(Q(stock,"inStationQty")-1,Q(stockScrap,"inStationQty"));Assert.Equal(Q(stock,"damagedQty"),Q(stockScrap,"damagedQty"));Assert.Equal(Q(stock,"memberHeldQty"),Q(stockScrap,"memberHeldQty"));
         Assert.Equal(5m,Money(await Profile(c,mid),"depositAmount"));await Scrap(c,damage.GetProperty("id").GetGuid());
     }
 

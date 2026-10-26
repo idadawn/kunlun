@@ -143,7 +143,7 @@ public sealed class OrderIntegrationTests(TestHost factory)
         Assert.Equal(0, verifyJson.GetProperty("reservedTicketsAfter").GetInt32());
         Assert.Equal(2, verifyJson.GetProperty("heldAfter").GetInt32());
 
-        // 5) AC-20: 校验五维容器库存恒等式 (总量 = 在库 + 在途 + 会员持有 + 待检 + 异常)
+        // 5) AC-20: 校验容器库存恒等式 (现存总量 = 门店可用 + 会员持有 + 待报废)
         var sumResp = await _client.GetAsync("/api/containers/summary");
         Assert.Equal(HttpStatusCode.OK, sumResp.StatusCode);
         var sumList = await sumResp.Content.ReadFromJsonAsync<JsonElement>();
