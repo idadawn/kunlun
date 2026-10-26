@@ -104,6 +104,7 @@ using (var scope = app.Services.CreateScope())
     await ordRepo.EnsureOrderSchemaAsync();
     await TicketBatches.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>(), repo.DefaultTenantId);
     await ContainerInventory.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>(), repo.DefaultTenantId);
+    await ContainerCirculation.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>());
 }
 
 app.MapGet("/healthz", async (NpgsqlDataSource ds) =>
@@ -230,6 +231,7 @@ app.MapPatch("/api/staff/{staffId:guid}/status", async (
 
 app.MapFinanceEndpoints();
 app.MapContainerInventory();
+app.MapContainerCirculation();
 app.MapMembershipEndpoints();
 app.MapWaterProducts();
 app.MapOrderEndpoints();

@@ -212,7 +212,7 @@
     else if(page==='page-plans')await renderPlans();
     else if(page==='page-coupons')await renderCoupons();
     else if(page==='page-staff-accounts')await staffAccounts();
-    else if(page==='page-assets')await window.KunlunInventory.render();
+    else if(page==='page-assets'||page==='page-inventory')await window.KunlunInventory.render();
   }
   function orderCard(o, kind) {
     const state={PENDING:o.fulfillMode==='PICKUP'?'待自提':'待接单',DISPATCHED:'配送中',COMPLETED:'已完成',CANCELLED:'已取消'}[o.status];
@@ -276,8 +276,8 @@
     const cards=root.querySelectorAll('.h5-card');
     cards[0].querySelector('.num').textContent='¥ '+money(rows.reduce((sum,r)=>sum+r.paidAmount,0));
     cards[0].lastElementChild.innerHTML=rows.map(r=>`<span>${r.containerType==='BUCKET'?'桶押金':'袋押金'} ¥${money(r.paidAmount)}（${r.paidQty}个）</span>`).join('');
-    rows.forEach((r,i)=>{const values=cards[i+1].querySelectorAll('.detail-row b');values[0].textContent=`${r.paidQty} 个 / ¥${money(r.paidAmount)}`;values[1].textContent=`${r.heldQty} 个`;values[2].textContent=`${r.refundableQty} 个 / ¥${money(r.refundableAmount)}`;cards[i+1].querySelector('.detail-row span').textContent='已交未退押金（按原收款批次）';});
-    root.querySelectorAll('.h5-section-head .tag').forEach((tag,i)=>{tag.textContent=rows[i].heldQty<=rows[i].paidQty?'押金已覆盖':'需补交押金';});
+    rows.forEach((r,i)=>{const values=cards[i+1].querySelectorAll('.detail-row b');values[0].textContent=`${r.paidQty} 个 / ¥${money(r.paidAmount)}`;values[1].textContent=`${r.heldQty} 个`;values[2].textContent=`${r.refundableQty} 个 / ¥${money(r.refundableAmount)}`;cards[i+1].querySelector('.detail-row span').textContent='剩余押金（按原收款批次）';let note=cards[i+1].querySelector('.damage-deposit-note');if(!note){note=document.createElement('p');note.className='membership-note damage-deposit-note';cards[i+1].append(note);}note.textContent=r.pendingDamageQty?`待报废 ${r.pendingDamageQty} 个，占用押金 ¥${money(r.pendingDamageAmount)}，确认报废后扣除。`:'';});
+    root.querySelectorAll('.h5-section-head .tag').forEach((tag,i)=>{tag.textContent=rows[i].heldQty<=rows[i].paidQty-(rows[i].pendingDamageQty||0)?'押金已覆盖':'需补交押金';});
   }
   function memberOptions() { return live().members.map(m=>option(m.id,`${m.name} · ${m.memberNo}`)).join(''); }
   async function depositForm() {
@@ -292,7 +292,7 @@
         await refresh();window.GQ.toast(`押金登记成功：¥${money(result.refundAmount??result.totalAmount)}`);
       },'确认线下已收付并登记');
     if(live().selectedMember)d.querySelector('#depositMember').value=live().selectedMember.id;
-    let version=0;const preview=async()=>{const mine=++version;const v=data(d.querySelector('form'));const rows=await live().req(`/api/members/${v.depositMember}/deposit-summary`);if(mine!==version||!d.isConnected)return;const row=rows.find(x=>x.containerType===v.depositContainer);const cfg=live().containers.find(x=>x.containerType===v.depositContainer);d.querySelector('#depositPreview').textContent=v.depositAction==='collect'?`当前单价 ¥${money(cfg.unitDeposit)} / 个；本次应收 ¥${money(cfg.unitDeposit*Number(v.depositQuantity))}`:`已交未退 ${row.paidQty} 个，持有 ${row.heldQty} 个，最多可退 ${row.refundableQty} 个；退清可退押金 ¥${money(row.refundableAmount)}，退款按原收款单价计算。`;};
+    let version=0;const preview=async()=>{const mine=++version;const v=data(d.querySelector('form'));const rows=await live().req(`/api/members/${v.depositMember}/deposit-summary`);if(mine!==version||!d.isConnected)return;const row=rows.find(x=>x.containerType===v.depositContainer);const cfg=live().containers.find(x=>x.containerType===v.depositContainer);d.querySelector('#depositPreview').textContent=v.depositAction==='collect'?`当前单价 ¥${money(cfg.unitDeposit)} / 个；本次应收 ¥${money(cfg.unitDeposit*Number(v.depositQuantity))}`:`已交未退 ${row.paidQty} 个，持有 ${row.heldQty} 个，待报废 ${row.pendingDamageQty||0} 个，最多可退 ${row.refundableQty} 个；退清可退押金 ¥${money(row.refundableAmount)}，退款按原收款单价计算。`;};
     d.querySelectorAll('select,input').forEach(el=>el.onchange=run(preview));await preview();
   }
   async function movementForm() {

@@ -378,7 +378,7 @@
 
         finStats[1].querySelector('.stat-top').textContent = '押金收支净额';
         finStats[1].querySelector('.stat-value').textContent = `¥ ${(depCol - depRef).toFixed(2)}`;
-        finStats[1].querySelector('.stat-foot').textContent = `收押 ${this.finance?.depositCollectCount || 0} 笔 (¥${depCol.toFixed(0)}) · 退押 ${this.finance?.depositRefundCount || 0} 笔 (¥${depRef.toFixed(0)})`;
+        finStats[1].querySelector('.stat-foot').textContent = `收押 ${this.finance?.depositCollectCount || 0} 笔 (¥${depCol.toFixed(0)}) · 退押 ${this.finance?.depositRefundCount || 0} 笔 (¥${depRef.toFixed(0)}) · 报废扣押 ¥${Number(this.finance?.depositDeductedTotal||0).toFixed(2)}`;
 
         finStats[2].querySelector('.stat-top').textContent = '在池未退押金总额';
         finStats[2].querySelector('.stat-value').textContent = `¥ ${depPool.toFixed(2)}`;
@@ -470,7 +470,7 @@
               (d) => `<tr>
               <td><span class="order-no">${d.docNo}</span><br><small style="color:var(--muted)">${new Date(d.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</small></td>
               <td><b>${escapeHtml(d.memberName)}</b></td>
-              <td><span class="tag ${d.flowType === 'COLLECT' ? 'green' : 'orange'}">${d.flowType === 'COLLECT' ? '交押金' : '退押金'}</span></td>
+              <td><span class="tag ${d.flowType === 'COLLECT' ? 'green' : 'orange'}">${({COLLECT:'交押金',REFUND:'退押金',DEDUCT:'报废扣押金'})[d.flowType]||d.flowType}</span></td>
               <td>${d.containerType === 'BUCKET' ? '15L 周转桶' : '5L 周转水袋'} × ${d.qty}</td>
               <td>¥ ${Number(d.unitPrice).toFixed(2)}</td>
               <td><b>${d.flowType === 'COLLECT' ? '+' : '-'}¥ ${Number(d.amount).toFixed(2)}</b></td>
@@ -691,7 +691,7 @@
         const headers = {};
         if (Live.token) headers['Authorization'] = `Bearer ${Live.token}`;
         const section = document.querySelector('.section.active')?.id;
-        const dataset = section==='page-finance' ? (window._currentFinanceTab==='押金记录'?'deposit-ledgers':'recharges') : ({'page-members':'members','page-orders':'orders','page-assets':'container-ledgers'})[section] || 'ticket-ledgers';
+        const dataset = section==='page-finance' ? (window._currentFinanceTab==='押金记录'?'deposit-ledgers':'recharges') : ({'page-members':'members','page-orders':'orders','page-assets':'container-ledgers','page-inventory':'inventory-operations'})[section] || 'ticket-ledgers';
         const res = await fetch(`${Live.baseUrl}/api/exports/${dataset}`, { headers });
         if (!res.ok) {
           const err = await res.json().catch(() => ({ message: '导出失败' }));

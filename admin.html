@@ -242,7 +242,8 @@ td b{color:var(--ink)}
     <button class="nav-item" data-page="members" aria-label="会员管理" title="会员管理"><svg class="icon"><use href="#i-users"/></svg><span class="nav-text">会员管理</span></button>
     <button class="nav-item" data-page="orders" aria-label="水单管理" title="水单管理"><svg class="icon"><use href="#i-order"/></svg><span class="nav-text">水单管理</span><span class="nav-badge" id="orderBadge">6</span></button>
     <button class="nav-item" data-page="finance" aria-label="充值与押金" title="充值与押金"><svg class="icon"><use href="#i-wallet"/></svg><span class="nav-text">充值与押金</span></button>
-    <button class="nav-item" data-page="assets" aria-label="桶袋台账" title="桶袋台账"><svg class="icon"><use href="#i-box"/></svg><span class="nav-text">桶袋台账</span></button>
+    <button class="nav-item" data-page="inventory" aria-label="袋桶库存" title="袋桶库存"><svg class="icon"><use href="#i-box"/></svg><span class="nav-text">袋桶库存</span></button>
+    <button class="nav-item" data-page="assets" aria-label="袋桶台账" title="袋桶台账"><svg class="icon"><use href="#i-box"/></svg><span class="nav-text">袋桶台账</span></button>
     <div class="nav-label">商品与营销</div>
     <button class="nav-item" data-page="products" aria-label="水品与押金" title="水品与押金"><svg class="icon"><use href="#i-drop"/></svg><span class="nav-text">水品与押金</span></button>
     <button class="nav-item" data-page="plans" aria-label="充值套餐" title="充值套餐"><svg class="icon"><use href="#i-wallet"/></svg><span class="nav-text">充值套餐</span></button>
@@ -463,26 +464,17 @@ td b{color:var(--ink)}
         </div>
       </section>
 
-      <!-- 5. 桶袋台账 -->
+      <section id="page-inventory" class="section">
+        <div class="page-head"><div><h2>袋桶库存</h2><p>管理水袋、周转桶的入库与报废</p></div></div>
+        <div id="inventoryContent"><p>正在加载库存…</p></div>
+      </section>
       <section id="page-assets" class="section">
-        <div class="page-head">
-          <div><h2>桶袋台账</h2><p>管理周转桶、水袋的库存、领还、破损和报废</p></div>
-          <div class="head-actions"><button class="btn" onclick="exportCSV()"><svg class="icon"><use href="#i-export"/></svg>导出台账</button><button class="btn primary" onclick="openModal('container')"><svg class="icon"><use href="#i-plus"/></svg>独立登记领还</button></div>
-        </div>
-        <div id="inventorySummary"><p>正在加载库存…</p></div>
-        <div id="inventoryHistory"></div>
-        <div class="table-card" id="containerMovementPanel">
-          <div class="table-toolbar">
-            <div><b>容器领还流水</b><small>满桶出库（领出 N）与空桶回库（收回 M）独立留痕</small></div>
-            <select class="select"><option>全部容器</option><option>15L 周转桶</option><option>5L 周转水袋</option></select>
-          </div>
-          <div style="overflow-x:auto">
-            <table>
-              <thead><tr><th>流水单号 / 时间</th><th>会员</th><th>关联单号</th><th>容器类型</th><th>满桶领出 (N)</th><th>空桶收回 (M)</th><th>持有变化 (N−M)</th><th>操作人</th></tr></thead>
-              <tbody id="containerMovementBody"><tr><td colspan="9">正在加载…</td></tr></tbody>
-            </table>
-          </div>
-        </div>
+        <div class="page-head"><div><h2>袋桶台账</h2><p>会员领还、破损归还与报废扣押金，全程记录</p></div><div class="head-actions">
+          <button class="btn" onclick="KunlunInventory.exportLedger()">导出周转流水</button>
+          <button class="btn" onclick="KunlunInventory.reportDamage()">登记破损</button>
+          <button class="btn primary" onclick="openModal('container')">登记领还</button>
+        </div></div>
+        <div id="circulationContent"><p>正在加载台账…</p></div>
       </section>
 
       <section id="page-products" class="section"><div class="page-head"><div><h2>水品与押金</h2><p>统一维护水品规格、零售价、配送要求和桶袋押金</p></div></div><div id="productsContent"><p>正在加载…</p></div></section>
@@ -550,7 +542,7 @@ td b{color:var(--ink)}
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const ico=n=>GQ.icon(n), toast=m=>GQ.toast(m);
-const pageNames={dashboard:'经营总览',members:'会员管理',orders:'水单管理',finance:'充值与押金',assets:'桶袋台账',products:'水品与押金',plans:'充值套餐',coupons:'优惠券','staff-accounts':'员工账号'};
+const pageNames={dashboard:'经营总览',members:'会员管理',orders:'水单管理',finance:'充值与押金',inventory:'袋桶库存',assets:'袋桶台账',products:'水品与押金',plans:'充值套餐',coupons:'优惠券','staff-accounts':'员工账号'};
 let orderQty=1, fulfillQty=1;
 document.addEventListener('DOMContentLoaded',()=>{
 $$('.gq-logo').forEach(e=>e.innerHTML=GQ.logoSvg);
