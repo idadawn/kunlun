@@ -9,7 +9,6 @@ namespace Kunlun.WaterStation.Operations;
 public sealed record SaveCouponRequest(string Name, Guid PlanId, int GiftQty, DateTimeOffset StartsAt, DateTimeOffset ExpiresAt, int PerMemberLimit, string Status = "ACTIVE");
 public sealed record IssueCouponRequest(Guid MemberId, string IdempotencyKey);
 public sealed record RefundRechargeRequest(string IdempotencyKey, string PayMethod, string Reason);
-public sealed record SaveAddressRequest(string Address);
 
 public static class MembershipEndpoints
 {
@@ -21,15 +20,6 @@ public static class MembershipEndpoints
 
     public static void MapMembershipEndpoints(this WebApplication app)
     {
-        app.MapPut("/api/members/{mid:guid}/address", async (Guid mid, SaveAddressRequest req, ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>
-        {
-            if (!(Can(user, KunlunPermissions.MemberWrite) || (user.FindFirstValue("subject_type") == "MEMBER" && user.FindFirstValue("sub") == mid.ToString()))) return Results.Forbid();
-            if (string.IsNullOrWhiteSpace(req.Address) || req.Address.Length > 500) throw new BusinessRuleException("请填写不超过 500 字的配送地址");
-            await using var conn = await db.OpenConnectionAsync(ct);
-            if (await Exec(conn, null, "UPDATE plugin_kunlun_waterstation.members SET default_address=@address WHERE tenant_id=@tid AND id=@id", ct, ("address", req.Address.Trim()), ("tid", repo.DefaultTenantId), ("id", mid)) == 0) return Results.NotFound();
-            return Results.Ok(new { address = req.Address.Trim() });
-        }).RequireAuthorization();
-
         app.MapGet("/api/members/{mid:guid}/deposit-summary", async (Guid mid, ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>
         {
             if (!CanRead(user, mid)) return Results.Forbid();

@@ -1,26 +1,24 @@
-import routes from '../config/web-routes.json';
+import { WEB_ROUTES, resolveRoute, type AppArea } from '../packages/shared/src/routes';
 
-export function cleanRoutes(defaultArea: 'admin' | 'member') {
-  const config = routes as Record<string, { home: string; pages: string[]; aliases?: Record<string, string> }>;
+/**
+ * Serves the React app's index for every declared clean route of the given areas (dev and preview),
+ * redirects `/` to the home area and answers 404 for unknown pages and any `.html` URL.
+ */
+export function cleanRoutes(areas: AppArea[]) {
   const install = (server: any) => {
     server.middlewares.use((req: any, res: any, next: any) => {
-      if (!['GET','HEAD'].includes(req.method || 'GET')) return next();
+      if (!['GET', 'HEAD'].includes(req.method || 'GET')) return next();
       const url = new URL(req.url || '/', 'http://localhost');
-      const path = url.pathname.replace(/\/+$/, '') || '/';
-      const legacy = /^\/(admin|staff|member)\.html$/.exec(path);
-      if (path === '/' || path === '/index.html' || legacy) {
-        res.statusCode = 308;
-        res.setHeader('Location', '/' + (legacy?.[1] || defaultArea) + url.search);
-        res.end(); return;
+      const notFound = () => { res.statusCode = 404; res.setHeader('Content-Type', 'text/plain; charset=utf-8'); res.end('页面不存在'); };
+      if (url.pathname === '/') {
+        res.statusCode = 308; res.setHeader('Location', '/' + areas[0] + url.search); res.end(); return;
       }
-      const parts = path.replace(/\/index\.html$/, '').split('/').filter(Boolean);
-      const area = parts[0];
-      if (!config[area]) return next();
-      const page = config[area].aliases?.[parts[1]] || parts[1] || config[area].home;
-      if (parts.length > 2 || !config[area].pages.includes(page)) {
-        res.statusCode = 404; res.setHeader('Content-Type', 'text/plain; charset=utf-8'); res.end('页面不存在'); return;
-      }
-      req.url = '/' + area + '.html' + url.search;
+      if (url.pathname.endsWith('.html')) return notFound();
+      const first = url.pathname.split('/')[1];
+      if (!Object.hasOwn(WEB_ROUTES, first)) return next();
+      const route = resolveRoute(url.pathname);
+      if (!route || !areas.includes(route.area)) return notFound();
+      req.url = '/index.html' + url.search;
       next();
     });
   };

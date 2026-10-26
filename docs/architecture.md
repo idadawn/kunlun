@@ -23,16 +23,17 @@ kunlun/
 ├── docs/
 │   ├── PRD.md                           # 产品需求文档
 │   └── architecture.md                  # 技术架构、权限与四账数据库设计（本文档）
-├── index.html / admin.html / staff.html / member.html / assets/
-│                                        # 三端独立交互原型（管理端 PC + 员工端小程序 + 会员端小程序）
+├── deploy/nginx.conf                    # 生产路由：两个 React 构建产物 + /api 反向代理
+├── scripts/                             # Vite 干净路由插件、构建产物检查与路由/价目表测试
 ├── services/
 │   ├── Kunlun.WaterStation/             # .NET 10 核心业务插件与宿主 (id: kunlun.waterstation)
 │   └── Kunlun.WaterStation.Tests/       # 集成与验收测试 (AC-01 ~ AC-20)
 ├── packages/
-│   └── shared/                          # @kunlun/shared：三端共享类型、四账计算公式与权限常量
+│   ├── shared/                          # @kunlun/shared：类型、API 客户端、路由表、四账公式、价目表模型与权限常量
+│   └── ui/                              # @kunlun/ui：品牌样式、图标、弹窗、登录门禁、套餐选择、地址簿与员工业务弹窗
 └── apps/
-    ├── admin-pc/                        # @kunlun/admin-pc：管理端 PC (React + Vite + @idadawn/yue)
-    └── mini-app/                        # @kunlun/mini-app：员工端 & 会员端微信小程序 (Taro 4 + React)
+    ├── admin-pc/                        # @kunlun/admin-pc：管理端 PC（React 18 + Vite + React Router）
+    └── mini-app/                        # @kunlun/mini-app：员工端 /staff 与会员端 /member H5（React 18 + Vite）
 ```
 
 ---
@@ -45,7 +46,7 @@ kunlun/
 
 首次部署显式提供数据库连接、至少 32 字节 JWT 签名密钥及初始化管理员用户名/密码；只在员工表为空时创建管理员。默认不写演示账号。已有员工使用原工号作为用户名，会员由授权员工在会员详情中设置账号。修改密码、重置凭证、退出登录和停用账号均递增 token_version，服务端每次请求检查状态和版本。登录按来源 IP 限流，页面不保存密码。
 
-开发启动必须显式提供环境配置，不自动读取 `.env.local`。测试仅使用 `KUNLUN_TEST_DATABASE_URL`，自行创建独立测试数据库并在结束后删除。三端 HTML 与 assets 由根目录维护，通过 `pnpm sync:frontends` 同步到 Vite 入口和 public，避免页面副本漂移。
+开发启动必须显式提供环境配置，不自动读取 `.env.local`。测试仅使用 `KUNLUN_TEST_DATABASE_URL`，自行创建独立测试数据库并在结束后删除。前端源码只在 `apps/*/src` 与 `packages/*/src` 中维护，不再保留手写 HTML 页面。
 
 ### 2.2 四级内置角色与权限码（`kunlun.waterstation:<resource>:<action>`）
 
@@ -103,16 +104,25 @@ kunlun/
 
 默认套餐是自提 100/16、500/95，配送 100/13、500/70；`buy_qty` 表示全部固定付费票。历史 `gift_qty` 字段保留兼容原单，新方案设置为零，额外赠水由券生成。`recharge_orders.plan_snapshot`、`coupon_snapshot` 保存交易条件，改价不改变退款计价。退款按批次一次退清，最终金额舍入到分，无重复分次舍入损失。
 
-管理端沿用根目录 `admin.html`，员工端与会员端沿用 `staff.html`、`member.html`；`assets/live-api.js` 负责登录与原有数据绑定，`assets/membership.js` 接通套餐、发券、充值、批次退款和订单履约。当前交付为浏览器 H5 页面，并非已打包发布的原生微信小程序。
+管理端为 `apps/admin-pc` React 应用；员工端与会员端为 `apps/mini-app` React H5 应用，按路径加载对应端的代码与样式。`@kunlun/shared` 的 `KunlunApi` 是唯一 API 入口，`@kunlun/ui` 提供登录门禁、弹窗栈以及充值、发券、退款、代开水单、履约、押金和领还等员工业务弹窗，管理端和员工端共用。当前交付为浏览器 H5 页面，并非已打包发布的原生微信小程序。
 
 接口：`POST/PUT /api/plans`，`POST /api/recharges`（可选 `couponId`），`GET /api/members/{id}/ticket-batches`，`POST /api/ticket-batches/{id}/refund`，`GET/POST/PUT /api/coupon-templates`，`POST /api/coupon-templates/{id}/issue`，`GET /api/members/{id}/coupons`。退款需 `recharge:refund` 权限，仅默认授予管理员；会员查询强制本人范围。充值汇总分别返回累计收款、累计退款及水费净收。
 
 
 ## 5. Web 路由与部署入口
 
-三端使用 `/admin`、`/staff`、`/member` 路径。`config/web-routes.json` 定义合法页面；`assets/app-router.js` 处理浏览器 History 导航及旧链接兼容；`scripts/vite-routes.ts` 为开发和 preview 提供正确页面入口及未知页面 404。`sync-frontends.mjs` 将同一路由清单生成到 `public/<端>/<页面>/index.html`，这些生成目录不入 Git，生产构建包含实际文件。部署可使用 `deploy/nginx.conf` 的 `try_files` 配置；不能只更改地址栏而依赖开发服务器 fallback。
+三端使用 `/admin`、`/staff`、`/member` 路径，合法页面由 `packages/shared/src/routes.ts` 定义，应用内用 React Router 导航。`scripts/vite-routes.ts` 为开发与 preview 服务器提供同一套规则：声明的页面返回 React 入口，`/` 跳转 `/admin`（H5 应用跳转 `/member`），未知页面和任何 `.html` 地址返回 404，不再兼容 `admin.html`、`#页面` 等旧链接。
 
-内部 HTML 模板文件保留作为维护源，公开访问和资源引用使用干净路径与 `/assets/` 绝对地址。优惠券套餐选择由 `assets/plan-picker.js` 统一处理，只有启用套餐可确认；保存优惠券时后端另行锁定/校验套餐状态。
+构建产物为 `apps/admin-pc/dist`、`apps/mini-app/dist`，各含一个入口文档和 `/static/admin/`、`/static/h5/` 下带哈希的资源，两套资源目录不冲突，也不与 `/admin/assets` 等页面路径冲突。`deploy/nginx.conf` 按页面路由把请求分发到对应构建，`scripts/web-routes.test.mjs` 校验其正则与路由表一致；`scripts/check-production-pages.mjs` 校验构建产物。优惠券和充值共用 `@kunlun/ui` 的套餐选择器，只有启用套餐可确认；保存优惠券时后端另行锁定/校验套餐状态。
+
+
+## 5.1 会员收货地址簿
+
+`member_addresses` 保存会员的多个收货地址：`location`（收货地址：小区/街道/楼栋）、`door_no`（门牌号）、`contact_name`、`contact_phone`、`is_default`，部分唯一索引保证每位会员最多一个默认地址，每人最多 20 个。新增地址时联系人和手机号默认带出会员本人，可改为实际收货人；首个地址自动设为默认，删除默认地址时由最近修改的地址接替。`members.default_address` 保留默认地址的展示文本，会员列表、导出等既有读取方不受影响。
+
+接口：`GET/POST /api/members/{id}/addresses`，`PUT/DELETE /api/members/{id}/addresses/{addressId}`，`POST /api/members/{id}/addresses/{addressId}/default`。会员只能维护本人地址；员工读取需 `member:read`，修改需 `member:write`。同一会员的地址变更先锁会员行。新建会员时填写的收货地址和门牌号成为首个默认地址。
+
+配送水单提交 `addressId`（省略时使用默认地址），没有可用地址时拒绝下单；`address_snapshot` 记录地址 ID、联系人、手机号、收货地址、门牌号和完整地址文本，之后修改或删除地址不影响已下单水单。升级前只有单行文本地址的会员在启动时自动迁移为一条默认地址，门牌号留空，提示会员或员工补充。
 
 
 ## 6. 周转容器库存维护

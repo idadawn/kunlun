@@ -22,7 +22,7 @@ public sealed class MembershipTests(TestHost host)
         var c = host.CreateClient(); var s = await Ok(await c.PostAsJsonAsync("/api/auth/staff/login", new StaffLoginRequest(account, TestHost.Password)));
         c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", s.GetProperty("accessToken").GetString()); return c;
     }
-    private static async Task<Guid> Member(HttpClient c) => (await Ok(await c.PostAsJsonAsync("/api/members", new CreateMemberRequest("批次验收", $"139{Random.Shared.Next(10000000, 99999999)}", "测试地址", null)))).GetProperty("id").GetGuid();
+    private static async Task<Guid> Member(HttpClient c) => (await Ok(await c.PostAsJsonAsync("/api/members", new CreateMemberRequest("批次验收", $"139{Random.Shared.Next(10000000, 99999999)}", "测试地址", null, "1-101")))).GetProperty("id").GetGuid();
     private static async Task<Guid> Plan(HttpClient c, int qty = 16, decimal price = 100, string mode = "PICKUP") => (await Ok(await c.PostAsJsonAsync("/api/plans", new SaveRechargePlanRequest("验收套餐-" + Key(), "BUCKET_18_9L", mode, price, qty, 0)))).GetProperty("id").GetGuid();
     private static async Task<Guid> Coupon(HttpClient c, Guid member, Guid plan, int gift = 1, int limit = 1)
     {
@@ -149,11 +149,12 @@ public sealed class MembershipTests(TestHost host)
         var login = await Ok(await c.PostAsJsonAsync("/api/auth/member/login", new StaffLoginRequest("No.008621", TestHost.Password)));
         c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", login.GetProperty("accessToken").GetString());
         foreach (var suffix in new[] { "ticket-batches", "coupons", "deposit-summary" }) Assert.Equal(HttpStatusCode.Forbidden, (await c.GetAsync($"/api/members/{other}/{suffix}")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await c.PutAsJsonAsync($"/api/members/{other}/address", new SaveAddressRequest("越权地址"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.GetAsync($"/api/members/{other}/addresses")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.PostAsJsonAsync($"/api/members/{other}/addresses", new SaveMemberAddressRequest("越权", "13900000000", "越权地址", "1-1"))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await c.PostAsJsonAsync("/api/recharges", new CreateRechargeOrderRequest(other, Guid.NewGuid(), "CASH", Key()))).StatusCode);
         var self = login.GetProperty("subjectId").GetGuid();
-        await Ok(await c.PutAsJsonAsync($"/api/members/{self}/address", new SaveAddressRequest("会员自助修改地址")));
-        Assert.Equal("会员自助修改地址", (await c.GetFromJsonAsync<JsonElement>($"/api/members/{self}/profile")).GetProperty("defaultAddress").GetString());
+        await Ok(await c.PostAsJsonAsync($"/api/members/{self}/addresses", new SaveMemberAddressRequest("陈静", "13800138000", "会员自助新增地址", "9-901", IsDefault: true)));
+        Assert.Equal("会员自助新增地址 9-901", (await c.GetFromJsonAsync<JsonElement>($"/api/members/{self}/profile")).GetProperty("defaultAddress").GetString());
     }
 
 }

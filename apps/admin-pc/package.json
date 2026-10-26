@@ -11,7 +11,9 @@
   "dependencies": {
     "@kunlun/shared": "workspace:*",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "@kunlun/ui": "workspace:*",
+    "react-router-dom": "^6.30.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",

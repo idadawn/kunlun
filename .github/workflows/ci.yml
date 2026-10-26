@@ -28,12 +28,12 @@ jobs:
           version: 9.15.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm check:pages
       - run: pnpm test:poster
       - run: pnpm test:web
-      - run: node --check assets/live-api.js && node --check assets/membership.js
+      - run: pnpm typecheck
       - run: dotnet test Kunlun.slnx --configuration Release

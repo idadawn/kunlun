@@ -30,7 +30,7 @@ public sealed class OrderIntegrationTests(TestHost factory)
         // 1) 新建测试会员
         var uniquePhone = $"135{Random.Shared.Next(10000000, 99999999)}";
         var memResp = await _client.PostAsJsonAsync("/api/members",
-            new CreateMemberRequest("黄忠", uniquePhone, "绿麒麟嘉园 6 栋 602", "M3配送测试"));
+            new CreateMemberRequest("黄忠", uniquePhone, "绿麒麟嘉园 6 栋", "M3配送测试", "602"));
         Assert.Equal(HttpStatusCode.OK, memResp.StatusCode);
         var memberId = (await memResp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
 
@@ -110,7 +110,7 @@ public sealed class OrderIntegrationTests(TestHost factory)
         // 1) 新建会员并充值自提实惠包 (¥200: 购 12 + 赠 2 = 14 桶) + 缴 2 桶押金
         var uniquePhone = $"136{Random.Shared.Next(10000000, 99999999)}";
         var memResp = await _client.PostAsJsonAsync("/api/members",
-            new CreateMemberRequest("马超", uniquePhone, "绿麒麟水站门店自提", "M3自提测试"));
+            new CreateMemberRequest("马超", uniquePhone, null, "M3自提测试"));
         var memberId = (await memResp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
 
         var pickupPlanId = Guid.Parse("30000000-0000-0000-0000-000000000101");
