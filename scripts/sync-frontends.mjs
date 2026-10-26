@@ -8,7 +8,7 @@ for (const app of ['admin-pc', 'mini-app']) {
   for (const [area,route] of Object.entries(routes)) {
     const file=area+'.html';
     copyFileSync(file, `${root}/public/${file}`);
-    for(const page of ['',...route.pages,...(area==='admin'?['settings']:[])]){
+    for(const page of ['',...route.pages,...Object.keys(route.aliases||{})]){
       const folder=`${root}/public/${area}${page?'/'+page:''}`;
       mkdirSync(folder,{recursive:true});copyFileSync(file,`${folder}/index.html`);
     }

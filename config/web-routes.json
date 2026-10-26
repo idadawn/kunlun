@@ -1,5 +1,39 @@
 {
-  "admin": {"home":"dashboard","pages":["dashboard","members","orders","finance","assets","products","plans","coupons","deposit-settings","staff-accounts"]},
-  "staff": {"home":"home","pages":["home","orders","members","profile"]},
-  "member": {"home":"home","pages":["home","orders","assets","records","profile"]}
+  "admin": {
+    "home": "dashboard",
+    "pages": [
+      "dashboard",
+      "members",
+      "orders",
+      "finance",
+      "assets",
+      "products",
+      "plans",
+      "coupons",
+      "staff-accounts"
+    ],
+    "aliases": {
+      "settings": "plans",
+      "deposit-settings": "products"
+    }
+  },
+  "staff": {
+    "home": "home",
+    "pages": [
+      "home",
+      "orders",
+      "members",
+      "profile"
+    ]
+  },
+  "member": {
+    "home": "home",
+    "pages": [
+      "home",
+      "orders",
+      "assets",
+      "records",
+      "profile"
+    ]
+  }
 }

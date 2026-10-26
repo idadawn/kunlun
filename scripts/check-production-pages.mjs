@@ -8,7 +8,7 @@ for (const app of ['admin-pc','mini-app']) {
     assert.ok(!/(?:src|href)="assets\//.test(html),`${path} uses relative assets that break deep links`);
     assert.ok(!forbidden.test(html),`${path} contains a prototype surface`);
     if(html.includes('id="adminApp"')) {
-      for(const section of ['products','plans','coupons','deposit-settings','staff-accounts']) {
+      for(const section of ['products','plans','coupons','staff-accounts']) {
         assert.ok(html.includes(`data-page="${section}"`) && html.includes(`id="page-${section}"`),`${path} is missing a functional section`);
       }
       assert.ok(!html.includes('id="page-settings"'),`${path} still contains the mixed settings page`);

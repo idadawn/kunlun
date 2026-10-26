@@ -16,6 +16,8 @@ test('clean URLs normalize legacy links, hashes and directory entries',()=>{
  assert.equal(router.resolve('/member.html','#records').path,'/member/records');
  assert.equal(router.resolve('/staff/orders/index.html').path,'/staff/orders');
  assert.equal(router.resolve('/admin/settings').path,'/admin/plans');
+ assert.equal(router.resolve('/admin/deposit-settings').path,'/admin/products');
+ assert.equal(router.resolve('/admin.html','#deposit-settings').path,'/admin/products');
  assert.equal(router.resolve('/','', 'member').path,'/member');
  assert.equal(router.resolve('/member/home/').path,'/member');
  assert.equal(router.resolve('/admin/not-a-page'),null);
@@ -54,6 +56,7 @@ for(const app of ['admin-pc','mini-app'])for(const mode of ['dev','preview']){
     const path=router.pathFor(area,page);const response=await fetch(base+path);assert.equal(response.status,200,path);
     const html=await response.text();assert.ok(html.includes(`data-app-area="${area}"`),path);
    }
+   assert.equal((await fetch(base+'/admin/deposit-settings')).status,200);
    const redirect=await fetch(base+'/admin.html',{redirect:'manual'});assert.equal(redirect.status,308);assert.equal(redirect.headers.get('location'),'/admin');
    const home=await fetch(base+'/',{redirect:'manual'});assert.equal(home.headers.get('location'),app==='admin-pc'?'/admin':'/member');
    assert.equal((await fetch(base+'/admin/no-such-page')).status,404);
