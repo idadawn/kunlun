@@ -1,13 +1,16 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-app-area="member">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>会员端小程序 | 绿麒麟·水站会员管理系统</title>
-<link rel="stylesheet" href="assets/brand.css">
-<script src="assets/brand.js"></script>
-<script src="assets/live-api.js"></script>
-<script src="assets/membership.js"></script>
+<link rel="stylesheet" href="/assets/brand.css">
+<script src="/assets/route-config.js"></script>
+<script src="/assets/app-router.js"></script>
+<script src="/assets/brand.js"></script>
+<script src="/assets/live-api.js"></script>
+<script src="/assets/membership.js"></script>
+<script src="/assets/plan-picker.js"></script>
 <style>
 .h5-scroll{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:76px}
 .h5-page{display:none}.h5-page.active{display:block}
@@ -145,7 +148,7 @@
 
           <div class="h5-body overlap">
             <div class="wallet-card">
-              <div class="wallet-head"><b>我的水票资产</b><a href="javascript:memberNav('records')">变动流水 ›</a></div>
+              <div class="wallet-head"><b>我的水票资产</b><a href="/member/records" data-route-page="records">变动流水 ›</a></div>
               <div class="ticket-grid">
                 <div class="ticket-box">
                   <div class="num" id="mDelivBucket">8<small>桶</small></div>
@@ -177,10 +180,10 @@
               </button>
             </div>
 
-            <div class="h5-section-head"><h3>进行中的水单</h3><a href="javascript:memberNav('orders')">全部水单 ›</a></div>
+            <div class="h5-section-head"><h3>进行中的水单</h3><a href="/member/orders" data-route-page="orders">全部水单 ›</a></div>
             <div class="h5-order" id="homeActiveOrder"><p>正在加载…</p></div>
 
-            <div class="h5-section-head"><h3>我的容器与押金</h3><a href="javascript:memberNav('assets')">查看明细 ›</a></div>
+            <div class="h5-section-head"><h3>我的容器与押金</h3><a href="/member/assets" data-route-page="assets">查看明细 ›</a></div>
             <div class="h5-card">
               <div class="asset-mini-grid">
                 <div><b>2</b><small>持有周转桶</small></div>
@@ -199,7 +202,7 @@
 
         <!-- 3. 资产 -->
         <div id="member-assets" class="h5-page">
-          <div class="mobile-top"><h2>押金与容器资产</h2><a href="javascript:memberNav('records')" style="font-size:12px">全部流水 ›</a></div>
+          <div class="mobile-top"><h2>押金与容器资产</h2><a href="/member/records" data-route-page="records" style="font-size:12px">全部流水 ›</a></div>
           <div class="h5-body">
             <div class="h5-card" style="background:var(--grad-card);color:#fff">
               <small style="opacity:.8">我的在池押金总额</small>

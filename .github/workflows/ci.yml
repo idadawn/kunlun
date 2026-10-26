@@ -34,5 +34,6 @@ jobs:
       - run: pnpm build
       - run: pnpm check:pages
       - run: pnpm test:poster
+      - run: pnpm test:web
       - run: node --check assets/live-api.js && node --check assets/membership.js
       - run: dotnet test Kunlun.slnx --configuration Release

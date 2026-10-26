@@ -14,7 +14,20 @@
   const select = (name, options) => `<select class="select" id="${name}" name="${name}">${options}</select>`;
   const option = (id, label) => `<option value="${esc(id)}">${esc(label)}</option>`;
   const data = form => Object.fromEntries(new FormData(form));
-  const planOptions = plans => plans.map(p => option(p.id, `${p.name} · ¥${money(p.price)} / ${p.buyQty}${unit(p.waterType)}`)).join('');
+  function planSelectorBody(plan) {
+    if(!plan)return `<span class="plan-selector-icon">${window.GQ.icon('wallet')}</span><span class="plan-selector-text"><b>选择充值套餐</b><small>按分类查看启用套餐</small></span>${window.GQ.icon('chevron')}`;
+    return `<span class="plan-selector-icon">${window.GQ.icon(plan.fulfillMode==='PICKUP'?'store':'truck')}</span><span class="plan-selector-text"><b>${esc(plan.name)}</b><small>¥${money(plan.price)} · ${mode(plan.fulfillMode)} · 到账 ${plan.buyQty+plan.giftQty}${unit(plan.waterType)}${plan.status==='ACTIVE'?'':' · 原套餐已停用，请重新选择'}</small></span><span class="plan-selector-change">更换</span>`;
+  }
+  function planSelector(name,plan=null) {
+    return `<input type="hidden" id="${name}" name="${name}" value="${esc(plan?.id||'')}"><button type="button" id="${name}Picker" class="plan-selector-button ${plan&&plan.status!=='ACTIVE'?'is-unavailable':''}" aria-haspopup="dialog" aria-label="选择充值套餐">${planSelectorBody(plan)}</button>`;
+  }
+  function bindPlanSelector(d,name,changed) {
+    const button=d.querySelector('#'+name+'Picker');
+    button.onclick=run(async()=>{
+      button.disabled=true;
+      try{const plan=await window.KunlunPlanPicker.open({selectedId:d.querySelector('#'+name).value});if(plan&&d.isConnected){d.querySelector('#'+name).value=plan.id;button.innerHTML=planSelectorBody(plan);button.classList.remove('is-unavailable');await changed?.(plan);}}finally{button.disabled=false;if(d.isConnected&&d.open)button.focus();}
+    });
+  }
   function dialog(title, body, submit, button='保存') {
     const d=document.createElement('dialog');d.className='membership-dialog';
     d.innerHTML=`<form><header><h2>${esc(title)}</h2><button type="button" class="btn sm" data-close aria-label="关闭">关闭</button></header><div class="membership-fields">${body}</div><p role="alert" class="account-error"></p>${submit?`<footer><button class="btn primary" type="submit">${button}</button></footer>`:''}</form>`;
@@ -33,36 +46,38 @@
   }
   async function recharge(memberId) {
     if(!can('recharge:create'))throw new Error('当前账号没有充值权限');
-    const plans=(await live().req('/api/plans')).filter(p=>p.status==='ACTIVE');
+    let plans=(await live().req('/api/plans')).filter(p=>p.status==='ACTIVE');
     if(!plans.length)throw new Error('请先配置并启用充值套餐');
     const key=crypto.randomUUID();let coupons=[];
     const members=live().members;
     if(!members.length)throw new Error('请先建立会员档案');
     const d=dialog('水费充值登记',
       field('会员','chargeMember',select('chargeMember',members.map(m=>option(m.id,`${m.name} · ${m.memberNo}`)).join('')))+
-      field('充值套餐','chargePlan',select('chargePlan',planOptions(plans)))+
+      field('充值套餐','chargePlanPicker',planSelector('chargePlan'))+
       field('优惠券（每笔最多一张）','chargeCoupon',select('chargeCoupon',option('','不使用优惠券')))+
       '<div id="chargeSummary" class="membership-summary"></div>'+
       field('实际收款方式','chargePay',select('chargePay',payments))+
       '<p class="membership-note">确认线下已收款后登记；押金另行办理。</p>',async form=>{
-        const v=data(form);const result=await live().req('/api/recharges',{method:'POST',body:JSON.stringify({memberId:v.chargeMember,planId:v.chargePlan,couponId:v.chargeCoupon||null,payMethod:v.chargePay,idempotencyKey:key})});
+        const v=data(form);if(!v.chargePlan)throw new Error('请选择启用中的充值套餐');const result=await live().req('/api/recharges',{method:'POST',body:JSON.stringify({memberId:v.chargeMember,planId:v.chargePlan,couponId:v.chargeCoupon||null,payMethod:v.chargePay,idempotencyKey:key})});
         await refresh();if(document.querySelector('[data-batch-dialog]')){document.querySelector('[data-batch-dialog]').close();await showAssets(v.chargeMember);}window.GQ?.toast(`充值成功：付费 ${result.buyQty} + 赠送 ${result.giftQty}，共 ${result.totalTickets} 张水票`);
       },'确认已收款并登记');
     if(memberId&&members.some(m=>m.id===memberId))d.querySelector('#chargeMember').value=memberId;
     let version=0;
     const update=()=>{
       const plan=plans.find(p=>p.id===d.querySelector('#chargePlan').value);
+      if(!plan){d.querySelector('#chargeSummary').textContent='请选择充值套餐';return;}
       const coupon=coupons.find(c=>c.id===d.querySelector('#chargeCoupon').value);
       const gift=(plan.giftQty||0)+(coupon?.snapshot.giftQty||0);
       d.querySelector('#chargeSummary').textContent=`实收 ¥${money(plan.price)} · ${mode(plan.fulfillMode)}付费 ${plan.buyQty}${unit(plan.waterType)} + 赠送 ${gift}${unit(plan.waterType)} = 共 ${plan.buyQty+gift}${unit(plan.waterType)}`;
     };
     const loadCoupons=async()=>{
       const current=++version;const mid=d.querySelector('#chargeMember').value;const pid=d.querySelector('#chargePlan').value;
+      if(!pid){coupons=[];d.querySelector('#chargeCoupon').innerHTML=option('','不使用优惠券');update();return;}
       const list=await live().req(`/api/members/${mid}/coupons`);if(current!==version||!d.isConnected)return;
       coupons=list.filter(c=>c.status==='AVAILABLE'&&c.snapshot.planId===pid&&c.snapshot.price===plans.find(p=>p.id===pid).price&&c.snapshot.fixedQty===plans.find(p=>p.id===pid).buyQty&&c.snapshot.fulfillMode===plans.find(p=>p.id===pid).fulfillMode&&c.snapshot.waterType===plans.find(p=>p.id===pid).waterType&&new Date(c.snapshot.startsAt)<=new Date()&&new Date(c.snapshot.expiresAt)>new Date());
       d.querySelector('#chargeCoupon').innerHTML=option('','不使用优惠券')+coupons.map(c=>option(c.id,`${c.snapshot.name} · 赠 ${c.snapshot.giftQty}${unit(plans.find(p=>p.id===pid).waterType)}`)).join('');update();
     };
-    d.querySelector('#chargeMember').onchange=run(loadCoupons);d.querySelector('#chargePlan').onchange=run(loadCoupons);d.querySelector('#chargeCoupon').onchange=update;
+    d.querySelector('#chargeMember').onchange=run(loadCoupons);bindPlanSelector(d,'chargePlan',async p=>{plans=[...plans.filter(x=>x.id!==p.id),p];await loadCoupons();});d.querySelector('#chargeCoupon').onchange=update;
     await loadCoupons();
   }
   async function editPlan(plan) {
@@ -80,28 +95,32 @@
   }
   const localDate = value => {const date=new Date(value);return new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16);};
   async function editCoupon(template) {
-    const plans=await live().req('/api/plans');
+    const plans=await live().req('/api/plans');const selected=template?plans.find(p=>p.id===template.planId):null;
     const d=dialog(template?'修改赠水优惠券':'新建赠水优惠券',
-      field('优惠券名称','couponName',input('couponName',template?.name||'充值赠 1 桶','text','required maxlength="80"'))+
-      field('适用充值套餐','couponPlan',select('couponPlan',planOptions(plans)))+
-      field('赠水数量','couponGift',input('couponGift',template?.giftQty||1,'number','required min="1" max="10000" step="1"'))+
-      field('可使用开始时间','couponStart',input('couponStart',localDate(template?.startsAt||Date.now()),'datetime-local','required'))+
-      field('可使用截止时间','couponEnd',input('couponEnd',localDate(template?.expiresAt||Date.now()+30*86400000),'datetime-local','required'))+
-      field('每人最多领取次数','couponLimit',input('couponLimit',template?.perMemberLimit||1,'number','required min="1" max="1000" step="1"'))+
-      field('状态','couponStatus',select('couponStatus',option('ACTIVE','启用')+option('DISABLED','停用')))+
-      '<p class="membership-note">修改和停用影响后续发券；已发券按领取时规则使用。兑换后的赠票不单设有效期，不折现。</p>',async form=>{
-        const v=data(form);await live().req(`/api/coupon-templates${template?'/'+template.id:''}`,{method:template?'PUT':'POST',body:JSON.stringify({name:v.couponName,planId:v.couponPlan,giftQty:Number(v.couponGift),startsAt:new Date(v.couponStart).toISOString(),expiresAt:new Date(v.couponEnd).toISOString(),perMemberLimit:Number(v.couponLimit),status:v.couponStatus})});await refresh();window.GQ?.toast('优惠券已保存');
+      '<div class="coupon-form-grid"><div class="coupon-field coupon-wide">'+field('优惠券名称','couponName',input('couponName',template?.name||'','text','required maxlength="80" placeholder="例如：首次充值赠水券"'))+'</div>'+
+      '<div class="coupon-field coupon-wide">'+field('适用充值套餐','couponPlanPicker',planSelector('couponPlan',selected))+'</div>'+
+      '<div class="coupon-field">'+field('赠送水票数量','couponGift',input('couponGift',template?.giftQty||1,'number','required min="1" max="10000" step="1"'))+'</div>'+
+      '<div class="coupon-field">'+field('每人最多领取次数','couponLimit',input('couponLimit',template?.perMemberLimit||1,'number','required min="1" max="1000" step="1"'))+'</div>'+
+      '<div class="coupon-field">'+field('开始时间','couponStart',input('couponStart',localDate(template?.startsAt||Date.now()),'datetime-local','required'))+'</div>'+
+      '<div class="coupon-field">'+field('截止时间','couponEnd',input('couponEnd',localDate(template?.expiresAt||Date.now()+30*86400000),'datetime-local','required'))+'</div>'+
+      '<div class="coupon-field">'+field('活动状态','couponStatus',select('couponStatus',option('ACTIVE','启用')+option('DISABLED','停用')))+'</div></div>'+
+      '<p class="membership-note">仅可选择启用套餐；已发放的优惠券保留原规则，修改用于后续发券。</p>',async form=>{
+        const v=data(form);if(!v.couponPlan)throw new Error('请选择已启用的充值套餐');
+        await live().req(`/api/coupon-templates${template?'/'+template.id:''}`,{method:template?'PUT':'POST',body:JSON.stringify({name:v.couponName,planId:v.couponPlan,giftQty:Number(v.couponGift),startsAt:new Date(v.couponStart).toISOString(),expiresAt:new Date(v.couponEnd).toISOString(),perMemberLimit:Number(v.couponLimit),status:v.couponStatus})});await refresh();window.GQ?.toast('优惠券已保存');
       });
-    if(template){d.querySelector('#couponPlan').value=template.planId;d.querySelector('#couponStatus').value=template.status;}
+    d.classList.add('coupon-editor');bindPlanSelector(d,'couponPlan');
+    if(template)d.querySelector('#couponStatus').value=template.status;
   }
-  async function issueCoupon(memberId) {
-    const templates=(await live().req('/api/coupon-templates')).filter(c=>c.status==='ACTIVE'&&new Date(c.expiresAt)>new Date());
-    if(!templates.length)throw new Error('暂无可发放优惠券，请先在业务设置中创建');
+  async function issueCoupon(memberId,templateId) {
+    const [availablePlans,allTemplates]=await Promise.all([live().req('/api/plans'),live().req('/api/coupon-templates')]);
+    const activeIds=new Set(availablePlans.filter(p=>p.status==='ACTIVE').map(p=>p.id));
+    const templates=allTemplates.filter(c=>c.status==='ACTIVE'&&new Date(c.expiresAt)>new Date()&&activeIds.has(c.planId));
+    if(!templates.length)throw new Error('暂无可发放优惠券，请先在优惠券页面创建');
     if(!live().members.length)throw new Error('请先建立会员档案');
     const key=crypto.randomUUID();
     const d=dialog('发放充值赠水券',field('会员','issueMember',select('issueMember',live().members.map(m=>option(m.id,`${m.name} · ${m.memberNo}`)).join('')))+field('优惠券','issueTemplate',select('issueTemplate',templates.map(c=>option(c.id,`${c.name} · 赠 ${c.giftQty} 张 · 每人限 ${c.perMemberLimit} 次`)).join(''))),async form=>{
       const v=data(form);await live().req(`/api/coupon-templates/${v.issueTemplate}/issue`,{method:'POST',body:JSON.stringify({memberId:v.issueMember,idempotencyKey:key})});if(document.querySelector('[data-batch-dialog]')){document.querySelector('[data-batch-dialog]').close();await showAssets(v.issueMember);}window.GQ?.toast('优惠券已到账，符合套餐的下次充值可使用');
-    },'确认发券');if(memberId)d.querySelector('#issueMember').value=memberId;
+    },'确认发券');if(memberId)d.querySelector('#issueMember').value=memberId;if(templateId)d.querySelector('#issueTemplate').value=templateId;
   }
   async function refund(batch,memberId) {
     const key=crypto.randomUUID();
@@ -151,12 +170,22 @@
       } finally {button.disabled=false;button.removeAttribute('aria-busy');button.innerHTML=idleMarkup;}
     });
   }
+  let couponFilter='ALL',couponQuery='';
+  function couponState(c){if(c.status!=='ACTIVE')return 'DISABLED';if(new Date(c.expiresAt)<=new Date())return 'EXPIRED';if(new Date(c.startsAt)>new Date())return 'SCHEDULED';return 'LIVE';}
   async function renderCoupons() {
     const root=document.getElementById('couponsContent');
     const [plans,templates]=await Promise.all([live().req('/api/plans'),live().req('/api/coupon-templates')]);
-    root.innerHTML=`<div class="module-toolbar"><span>共 ${templates.length} 个优惠券活动</span><div class="membership-actions"><button class="btn" data-issue>向会员发券</button><button class="btn primary" data-new-coupon>新建优惠券</button></div></div><div class="setting-grid">${templates.length?templates.map(c=>`<article class="setting-card"><span class="tag ${c.status==='ACTIVE'?'gold':'gray'}">${c.status==='ACTIVE'?'启用':'停用'}</span><h3>${esc(c.name)}</h3><p>${esc(plans.find(p=>p.id===c.planId)?.name||'原套餐')}</p><p>赠 ${c.giftQty} 张 · 每人限 ${c.perMemberLimit} 次</p><small>截止 ${esc(new Date(c.expiresAt).toLocaleDateString('zh-CN'))}</small><p><button class="btn sm" data-edit-coupon="${c.id}">编辑优惠券</button></p></article>`).join(''):'<p class="membership-note">暂无优惠券活动</p>'}</div>`;
-    root.querySelector('[data-new-coupon]').onclick=run(()=>editCoupon());root.querySelector('[data-issue]').onclick=run(()=>issueCoupon());
-    root.querySelectorAll('[data-edit-coupon]').forEach(b=>b.onclick=run(()=>editCoupon(templates.find(c=>c.id===b.dataset.editCoupon))));
+    root.innerHTML=`<div class="coupon-toolbar"><div class="coupon-filters"><label for="couponFilter">活动状态</label><select id="couponFilter" class="select"><option value="ALL">全部活动</option><option value="LIVE">生效中</option><option value="SCHEDULED">未开始</option><option value="EXPIRED">已过期</option><option value="DISABLED">已停用</option></select><input class="input" type="search" id="couponSearch" aria-label="搜索优惠券或套餐" placeholder="搜索优惠券或套餐" value="${esc(couponQuery)}"></div><div class="membership-actions"><button class="btn" data-issue>发放优惠券</button><button class="btn primary" data-new-coupon>${window.GQ.icon('plus')}新建优惠券</button></div></div><div class="coupon-list-caption"></div><div class="coupon-grid"></div>`;
+    const draw=()=>{
+      const rows=templates.filter(c=>(couponFilter==='ALL'||couponState(c)===couponFilter)&&(`${c.name} ${plans.find(p=>p.id===c.planId)?.name||''}`).toLowerCase().includes(couponQuery.toLowerCase()));
+      root.querySelector('.coupon-list-caption').textContent=`共 ${rows.length} 个优惠券活动`;
+      root.querySelector('.coupon-grid').innerHTML=rows.length?rows.map(c=>{const p=plans.find(p=>p.id===c.planId),state=couponState(c),labels={LIVE:'生效中',SCHEDULED:'未开始',EXPIRED:'已过期',DISABLED:'已停用'},canIssue=c.status==='ACTIVE'&&new Date(c.expiresAt)>new Date()&&p?.status==='ACTIVE';const date=v=>new Date(v).toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});return `<article class="coupon-card"><header><div class="coupon-gift"><span>赠水券</span><strong>${c.giftQty}<small>${p?unit(p.waterType):'张'}</small></strong></div><div class="coupon-title"><h3>${esc(c.name)}</h3><span class="coupon-status state-${state.toLowerCase()}">${labels[state]}</span></div></header><div class="coupon-scope"><small>适用套餐${p?.status!=='ACTIVE'?' · 套餐已停用':''}</small><b>${esc(p?.name||'原套餐')}</b></div><div class="coupon-facts"><span>每人限领 <b>${c.perMemberLimit}</b> 次</span><span>${esc(date(c.startsAt))} — ${esc(date(c.expiresAt))}</span></div><footer><button class="btn sm" data-edit-coupon="${c.id}">${window.GQ.icon('edit','sm')}编辑规则</button><button class="btn primary sm" data-issue-one="${c.id}" ${canIssue?'':'disabled'}>发放此券</button></footer></article>`;}).join(''):'<div class="plan-empty">暂无符合条件的优惠券活动</div>';
+      root.querySelectorAll('[data-edit-coupon]').forEach(b=>b.onclick=run(()=>editCoupon(templates.find(c=>c.id===b.dataset.editCoupon))));
+      root.querySelectorAll('[data-issue-one]').forEach(b=>b.onclick=run(()=>issueCoupon(null,b.dataset.issueOne)));
+    };
+    root.querySelector('#couponFilter').value=couponFilter;root.querySelector('#couponFilter').onchange=e=>{couponFilter=e.target.value;draw();};
+    root.querySelector('#couponSearch').oninput=e=>{couponQuery=e.target.value;draw();};
+    root.querySelector('[data-new-coupon]').onclick=run(()=>editCoupon());root.querySelector('[data-issue]').onclick=run(()=>issueCoupon());draw();
   }
   async function renderProducts() {
     const products=await live().req('/api/products');live().products=products;
@@ -321,12 +350,9 @@
       document.querySelectorAll('#page-orders .field-search input,#page-finance .field-search input').forEach(i=>i.oninput=applyListFilters);
       const originalFinance=window.financeTab;window.financeTab=(btn,type)=>{originalFinance(btn,type);applyListFilters();};
       const originalOrderFilter=window.filterOrders;window.filterOrders=(btn,state)=>{originalOrderFilter(btn,state);applyListFilters();};
-      const originalPage=window.showPage;window.showPage=page=>{originalPage(page);run(refresh)();};
+      const originalPage=window.showPage;const showAdminPage=page=>{originalPage(page);run(refresh)();};window.showPage=page=>window.KunlunRouter.navigate(page);
       window.openRecharge=run(()=>recharge(live().selectedMember?.id));window.openPlan=run(()=>editPlan());window.openDeposit=run(depositForm);window.openContainer=run(movementForm);window.openOrder=run(staffOrder);window.openFulfill=run((no,name,water,qty,id)=>fulfill(live().orders.find(o=>o.id===id||o.orderNo===no)));
-      const requested=decodeURIComponent(location.hash.slice(1));
-      if(requested&&document.getElementById('page-'+requested))window.showPage(requested);
-      else if(requested==='settings')window.showPage('plans');
-      else run(renderAdminModule)();
+      window.KunlunRouter.mount('admin',showAdminPage);
       const originalMember=window.openMember;
       window.openMember=(name)=>{originalMember(name);
         const cards=document.querySelectorAll('#drawerMask .detail-card');
@@ -334,7 +360,7 @@
         const foot=document.querySelector('#drawerMask .drawer-foot')||document.querySelector('#drawerMask .drawer-body');if(foot&&!document.getElementById('memberBatchButton')){const b=document.createElement('button');b.id='memberBatchButton';b.className='btn primary';b.textContent='水票批次 / 优惠券 / 退款';b.onclick=run(()=>showAssets(live().selectedMember.id));foot.append(b);}};
       const heads=document.querySelector('#page-members .page-head');if(heads&&!document.getElementById('issueCouponButton')){const b=document.createElement('button');b.id='issueCouponButton';b.className='btn';b.textContent='发放优惠券';b.onclick=run(()=>issueCoupon());heads.append(b);}
     } else if(kind==='staff') {
-      const originalNav=window.staffNav;window.staffNav=page=>{originalNav(page);run(refresh)();};
+      const originalNav=window.staffNav;window.staffNav=page=>window.KunlunRouter.navigate(page);window.KunlunRouter.mount('staff',page=>{originalNav(page);run(refresh)();});
       const original=window.openSheet;
       window.openSheet=(type,...args)=>{
         if(type==='recharge')return run(()=>recharge(live().selectedMember?.id))();
@@ -349,11 +375,11 @@
       };
     } else {
       window.openEditAddress=()=>dialog('修改默认配送地址',field('配送地址','memberAddress',input('memberAddress',live().selectedMember?.defaultAddress||'','text','required maxlength="500"')),async form=>{await live().req(`/api/members/${live().session.subjectId}/address`,{method:'PUT',body:JSON.stringify({address:data(form).memberAddress})});await refresh();});
-      const original=window.memberNav;window.memberNav=(page)=>{original(page);if(page==='orders'||page==='home')run(refresh)();if(page==='assets')run(renderDeposits)();if(page==='records')run(async()=>{
+      const original=window.memberNav;window.memberNav=page=>window.KunlunRouter.navigate(page);window.KunlunRouter.mount('member',page=>{original(page);if(page==='orders'||page==='home')run(refresh)();if(page==='assets')run(renderDeposits)();if(page==='records')run(async()=>{
         const [batches,coupons]=await Promise.all([live().req(`/api/members/${live().session.subjectId}/ticket-batches`),live().req(`/api/members/${live().session.subjectId}/coupons`)]);
         document.querySelector('#member-records .h5-body').innerHTML=`<h3>充值与退款记录</h3>${batchCards(batches)}<h3>我的优惠券</h3>${couponCards(coupons)}`;
-      })();};
-      const anchor=document.querySelector('.wallet-head a');if(anchor){anchor.textContent='水票 / 优惠券 ›';anchor.onclick=run(()=>showAssets());anchor.removeAttribute('href');}
+      })();});
+      const anchor=document.querySelector('.wallet-head a');if(anchor){anchor.textContent='水票 / 优惠券 ›';anchor.onclick=run(()=>showAssets());anchor.removeAttribute('href');anchor.removeAttribute('data-route-page');anchor.setAttribute('role','button');anchor.tabIndex=0;anchor.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();anchor.click();}};}
     }
   }
   window.KunlunMembership={mount,renderOrders,applyListFilters,showRecharge:run(showRecharge),showOrder:run(showOrder),recharge:run(recharge),showAssets:run(showAssets)};

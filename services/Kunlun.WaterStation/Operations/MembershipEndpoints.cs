@@ -169,8 +169,22 @@ public static class MembershipEndpoints
         if (!Can(user, KunlunPermissions.PlanManage)) return Results.Forbid();
         if (string.IsNullOrWhiteSpace(req.Name) || req.Name.Length > 80 || req.GiftQty <= 0 || req.GiftQty > 10000 || req.PerMemberLimit <= 0 || req.PerMemberLimit > 1000 || req.ExpiresAt <= req.StartsAt || req.Status is not ("ACTIVE" or "DISABLED")) throw new BusinessRuleException("优惠券名称、赠水数量、有效期或次数无效");
         await using var conn = await db.OpenConnectionAsync(ct); await using var tx = await conn.BeginTransactionAsync(ct);
-        await using (var plan = Command(conn, tx, "SELECT id FROM plugin_kunlun_waterstation.recharge_plans WHERE tenant_id=@tid AND id=@id", ("tid", repo.DefaultTenantId), ("id", req.PlanId)))
-            if (await plan.ExecuteScalarAsync(ct) is null) throw new BusinessRuleException("适用套餐不存在");
+        Guid? previousPlanId = null;
+        if (id.HasValue)
+        {
+            await using var previous = Command(conn, tx, "SELECT plan_id FROM plugin_kunlun_waterstation.coupon_templates WHERE tenant_id=@tid AND id=@id FOR UPDATE", ("tid", repo.DefaultTenantId), ("id", id.Value));
+            var value = await previous.ExecuteScalarAsync(ct);
+            if (value is null) return Results.NotFound();
+            previousPlanId = (Guid)value;
+        }
+        await using (var plan = Command(conn, tx, "SELECT status FROM plugin_kunlun_waterstation.recharge_plans WHERE tenant_id=@tid AND id=@id FOR SHARE", ("tid", repo.DefaultTenantId), ("id", req.PlanId)))
+        {
+            var status = await plan.ExecuteScalarAsync(ct);
+            if (status is null) throw new BusinessRuleException("适用套餐不存在");
+            // A historical coupon may still be disabled without reassigning its old package.
+            if ((string)status != "ACTIVE" && !(previousPlanId == req.PlanId && req.Status == "DISABLED"))
+                throw new BusinessRuleException("请选择启用中的充值套餐；原套餐已停用时，可停用此优惠券或重新选择套餐");
+        }
         var cid = id ?? Guid.NewGuid();
         var sql = id.HasValue ? "UPDATE plugin_kunlun_waterstation.coupon_templates SET name=@name,plan_id=@plan,gift_qty=@qty,starts_at=@start,expires_at=@end,per_member_limit=@limit,status=@status WHERE tenant_id=@tid AND id=@id"
             : "INSERT INTO plugin_kunlun_waterstation.coupon_templates(id,tenant_id,name,plan_id,gift_qty,starts_at,expires_at,per_member_limit,status) VALUES(@id,@tid,@name,@plan,@qty,@start,@end,@limit,@status)";
