@@ -3,4 +3,8 @@
     <AssemblyName>Kunlun.WaterStation</AssemblyName>
     <RootNamespace>Kunlun.WaterStation</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="9.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0-*" />
+  </ItemGroup>
 </Project>

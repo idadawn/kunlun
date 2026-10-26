@@ -391,8 +391,8 @@ function openSheet(type,a,b,c,d){
         <b style="font-size:16px;color:var(--ink)">绿麒麟水站 · 员工端小程序</b>
         <p style="margin:4px 0 0;color:var(--muted);font-size:12px">通过微信绑定手机号自动匹配水站员工白名单与角色权限</p>
       </div>
-      <button class="wx-auth-btn" onclick="closeSheet();GQ.toast('已通过微信手机号 138****0012 识别为：店员小林')">微信手机号一键登录（店员小林）</button>
-      <button class="btn block" style="margin-top:8px;height:40px" onclick="closeSheet();GQ.toast('已切换为：送水员王师傅（仅开放接单/交付/补押权限）')">切换演示身份：送水员王师傅</button>`);
+      <button class="wx-auth-btn" onclick="switchStaffRole('CLERK')">微信手机号一键登录 · 店员小林 (CLERK)</button>
+      <button class="btn block" style="margin-top:8px;height:40px" onclick="switchStaffRole('COURIER')">切换为送水员王师傅 (COURIER · 受限权限)</button>`);
   }else if(type==='newMember'){
     setSheet('新建会员',`
       <div class="field"><label>会员姓名 *</label><input class="input" id="nmName" placeholder="请输入真实姓名"></div>
@@ -402,6 +402,22 @@ function openSheet(type,a,b,c,d){
   }
 }
 
+function switchStaffRole(role){
+  const h2=document.querySelector('.h5-greeting h2');
+  const btns=$$('.quick-grid .quick-item');
+  if(role==='COURIER'){
+    if(h2) h2.textContent='王师傅（送水员）';
+    btns.forEach(b=>{
+      const restricted=b.textContent.includes('水费充值')||b.textContent.includes('新建会员');
+      b.style.opacity=restricted?'.38':'1';
+      b.onclick=restricted?()=>GQ.toast('AC-16 越权拦截：送水员无水费充值/建档权限'):b.onclick;
+    });
+    closeSheet();
+    GQ.toast('已切换为送水员王师傅 (COURIER)，充值与建档入口已受限');
+  }else{
+    location.reload();
+  }
+}
 function pickPlan(btn,amt,desc){
   btn.parentElement.querySelectorAll('.plan-opt').forEach(x=>x.classList.remove('active'));
   btn.classList.add('active');

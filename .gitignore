@@ -15,3 +15,7 @@ dist/
 # OS
 .DS_Store
 .publish/
+
+.env
+.env.*
+!.env.example
