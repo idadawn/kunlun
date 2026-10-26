@@ -5,6 +5,7 @@ using static Kunlun.WaterStation.Operations.TicketBatches;
 namespace Kunlun.WaterStation.Operations;
 
 public sealed record WaterProduct(string WaterType, string Name, decimal CapacityLiters, string Packaging, decimal? RetailPrice, int DeliveryMinimum, decimal DeliveryFee);
+public sealed record SaveWaterProduct(string Name, decimal CapacityLiters, string Packaging, decimal? RetailPrice, int DeliveryMinimum);
 
 public static class WaterProducts
 {
@@ -56,6 +57,20 @@ public static class WaterProducts
     }
     public static void MapWaterProducts(this WebApplication app)
     {
+        app.MapPut("/api/products/{type}", async (string type, SaveWaterProduct req, ClaimsPrincipal user, NpgsqlDataSource db, Auth.KunlunAuthRepository repo, CancellationToken ct) =>
+        {
+            if (user.FindFirstValue("subject_type") != "STAFF" || !user.HasClaim("perm", Auth.KunlunPermissions.PlanManage)) return Results.Forbid();
+            if (type is not ("BUCKET_18_9L" or "BAG_7_5L") || string.IsNullOrWhiteSpace(req.Name) || req.Name.Length > 80 || string.IsNullOrWhiteSpace(req.Packaging) || req.Packaging.Length > 80
+                || req.CapacityLiters <= 0 || req.CapacityLiters > 1000 || decimal.Round(req.CapacityLiters, 2) != req.CapacityLiters
+                || req.DeliveryMinimum < 1 || req.DeliveryMinimum > 10000
+                || (req.RetailPrice.HasValue && (req.RetailPrice.Value <= 0 || req.RetailPrice.Value > 99999999 || decimal.Round(req.RetailPrice.Value, 2) != req.RetailPrice.Value)))
+                throw new BusinessRuleException("水品名称、规格、包装、零售价或起送数量无效");
+            await using var conn = await db.OpenConnectionAsync(ct);
+            await using var cmd = Command(conn, null, "UPDATE plugin_kunlun_waterstation.water_products SET name=@name,capacity_liters=@capacity,packaging=@packaging,retail_price=@retail,delivery_minimum=@minimum WHERE tenant_id=@tid AND water_type=@type", ("tid", repo.DefaultTenantId), ("type", type), ("name", req.Name.Trim()), ("capacity", req.CapacityLiters), ("packaging", req.Packaging.Trim()), ("minimum", req.DeliveryMinimum));
+            cmd.Parameters.Add(new NpgsqlParameter("retail", NpgsqlTypes.NpgsqlDbType.Numeric) { Value = (object?)req.RetailPrice ?? DBNull.Value });
+            if (await cmd.ExecuteNonQueryAsync(ct) == 0) return Results.NotFound();
+            return Results.Ok(await Read(conn, null, repo.DefaultTenantId, type, ct));
+        }).RequireAuthorization();
         app.MapGet("/api/products", async (NpgsqlDataSource db, Auth.KunlunAuthRepository repo, CancellationToken ct) =>
         {
             await using var conn = await db.OpenConnectionAsync(ct);

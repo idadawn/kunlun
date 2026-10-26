@@ -353,13 +353,13 @@
                 <td><span class="order-no">${o.orderNo}</span><br><small style="color:var(--muted)">${new Date(o.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</small></td>
                 <td><b>${escapeHtml(contactName)}</b><br><small style="color:var(--muted)">${escapeHtml(contactPhone)}</small></td>
                 <td><span class="tag ${isPickup ? 'aqua' : 'green'}">${isPickup ? '自提' : '配送'}</span> ${addr}</td>
-                <td>小分子团弱碱活性水 ${waterLabel} × <b>${o.orderQty}</b></td>
+                <td>小分子团弱碱活性水 ${escapeHtml(waterLabel)} × <b>${o.orderQty}</b></td>
                 <td>${o.status === 'COMPLETED' ? `已核销 ${o.actualQty ?? o.orderQty}` : o.status === 'CANCELLED' ? '已释放预占' : `预占 ${o.reservedQty} ${unit}`}</td>
                 <td>${o.status === 'COMPLETED' ? '已交付' : '待交付'}</td>
                 <td><span class="tag ${st.cls}">${st.text}</span></td>
                 <td>${
                   o.status === 'PENDING' || o.status === 'DISPATCHED'
-                    ? `<button class="link" onclick="openFulfill('${o.orderNo}',${escapeHtml(JSON.stringify(contactName))},'${waterLabel}',${o.orderQty},'${o.id}')">${isPickup ? '核验自提' : '接单并交付'}</button>
+                    ? `<button class="link" onclick="openFulfill('${o.orderNo}',${escapeHtml(JSON.stringify(contactName))},${escapeHtml(JSON.stringify(waterLabel))},${o.orderQty},'${o.id}')">${isPickup ? '核验自提' : '接单并交付'}</button>
                        <button class="link" style="color:var(--red-500);margin-left:8px" onclick="KunlunLive.cancelOrderById('${o.id}','${o.orderNo}')">取消</button>`
                     : `<button class="link" onclick="KunlunMembership.showOrder('${o.id}')">查看详情</button>`
                 }</td>
@@ -774,8 +774,8 @@
       originalMemberOrder(mode);
       const p = Live.selectedMember, pickup = mode === '自提';
       const choices = document.getElementById('mWaterSel');
-      choices.options[0].textContent = `15L 桶装水（可用 ${pickup ? p.bucketPickupTickets : p.bucketDeliveryTickets} 桶）`;
-      choices.options[1].textContent = `5L 袋装水（可用 ${pickup ? p.bagPickupTickets : p.bagDeliveryTickets} 袋）`;
+      choices.options[0].textContent = `${Live.products.find(x=>x.waterType==='BUCKET_18_9L').name}（可用 ${pickup ? p.bucketPickupTickets : p.bucketDeliveryTickets} 桶）`;
+      choices.options[1].textContent = `${Live.products.find(x=>x.waterType==='BAG_7_5L').name}（可用 ${pickup ? p.bagPickupTickets : p.bagDeliveryTickets} 袋）`;
       if (!pickup) document.querySelector('#mSheetBody .field input').value = p.defaultAddress || '';
       window.updateMOrderSummary();
     };
