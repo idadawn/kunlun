@@ -229,6 +229,7 @@ app.MapPatch("/api/staff/{staffId:guid}/status", async (
 
 app.MapFinanceEndpoints();
 app.MapMembershipEndpoints();
+app.MapWaterProducts();
 app.MapOrderEndpoints();
 app.MapReportEndpoints();
 app.MapOverviewEndpoints();

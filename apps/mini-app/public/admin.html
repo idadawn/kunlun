@@ -316,7 +316,7 @@ td b{color:var(--ink)}
               <div class="todo-item"><div class="todo-symbol"><svg class="icon"><use href="#i-truck"/></svg></div><div class="todo-text"><b>待接单配送</b><small>请及时指派或提醒送水员接单</small></div><span class="todo-num">—</span><button class="text-btn" onclick="showPage('orders')">处理</button></div>
               <div class="todo-item"><div class="todo-symbol green"><svg class="icon"><use href="#i-store"/></svg></div><div class="todo-text"><b>待确认自提</b><small>会员到店出示取水码后核销</small></div><span class="todo-num">—</span><button class="text-btn" onclick="showPage('orders')">处理</button></div>
               <div class="todo-item"><div class="todo-symbol blue"><svg class="icon"><use href="#i-deposit"/></svg></div><div class="todo-text"><b>待核对退押金</b><small>核对容器持有与原收款批次单价</small></div><span class="todo-num">—</span><button class="text-btn" onclick="showPage('finance')">处理</button></div>
-              <div class="todo-item"><div class="todo-symbol"><svg class="icon"><use href="#i-box"/></svg></div><div class="todo-text"><b>18.9L 周转桶库存偏低</b><small>当前站内可用 86 个，低于预警值 100</small></div><button class="text-btn" onclick="showPage('assets')">查看</button></div>
+              <div class="todo-item"><div class="todo-symbol"><svg class="icon"><use href="#i-box"/></svg></div><div class="todo-text"><b>15L 周转桶库存偏低</b><small>当前站内可用 86 个，低于预警值 100</small></div><button class="text-btn" onclick="showPage('assets')">查看</button></div>
             </div>
           </div>
         </div>
@@ -335,10 +335,10 @@ td b{color:var(--ink)}
           <div class="card">
             <div class="card-head"><div class="card-title">容器资产恒等概览 <small>桶、袋独立核算</small></div><button class="text-btn" onclick="showPage('assets')">查看台账 ›</button></div>
             <div class="asset-content">
-              <div class="asset-line"><span>18.9L 周转桶</span><span>会员持有 <b>986</b> / 总量 <b>1,200</b></span></div>
+              <div class="asset-line"><span>15L 周转桶</span><span>会员持有 <b>986</b> / 总量 <b>1,200</b></span></div>
               <div class="progress"><i style="width:82%"></i></div>
               <div class="asset-meta"><span>站内可用 86</span><span>配送在途 18</span><span>待检 108 · 异常 2</span></div>
-              <div class="asset-line" style="margin-top:18px"><span>7.5L 配套水袋/周转筐</span><span>会员持有 <b>298</b> / 总量 <b>500</b></span></div>
+              <div class="asset-line" style="margin-top:18px"><span>5L 配套水袋/周转筐</span><span>会员持有 <b>298</b> / 总量 <b>500</b></span></div>
               <div class="progress"><i style="width:59.6%;background:var(--grad-aqua)"></i></div>
               <div class="asset-meta"><span>站内可用 162</span><span>配送在途 6</span><span>待检 34 · 异常 0</span></div>
               <div class="identity-formula"><span>恒等式校验</span><b>总量 = 站内可用 + 配送在途 + 会员持有 + 待检 + 异常</b></div>
@@ -361,7 +361,7 @@ td b{color:var(--ink)}
         </div>
         <div class="filter-card">
           <label class="field-search"><svg class="icon"><use href="#i-search"/></svg><input id="memberSearch" placeholder="搜索姓名、手机号或会员编号" oninput="filterMembers(this.value)"></label>
-          <select class="select"><option>全部水品偏好</option><option>18.9L 桶装水</option><option>7.5L 袋装水</option></select>
+          <select class="select"><option>全部水品偏好</option><option>15L 桶装水</option><option>5L 袋装水</option></select>
           <select class="select"><option>全部状态</option><option>正常</option><option>已停用</option></select>
           <div class="filter-spacer"></div>
           <button class="btn" onclick="exportCSV()"><svg class="icon"><use href="#i-export"/></svg>导出会员</button>
@@ -457,15 +457,15 @@ td b{color:var(--ink)}
           <div class="head-actions"><button class="btn" onclick="exportCSV()"><svg class="icon"><use href="#i-export"/></svg>导出台账</button><button class="btn primary" onclick="openModal('container')"><svg class="icon"><use href="#i-plus"/></svg>独立登记领还</button></div>
         </div>
         <div class="stats-grid">
-          <div class="stat-card"><div class="stat-top"><span>18.9L 周转桶 · 站内可用</span><span class="stat-icon"><svg class="icon"><use href="#i-box"/></svg></span></div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
-          <div class="stat-card"><div class="stat-top"><span>18.9L 周转桶 · 会员持有</span><span class="stat-icon blue"><svg class="icon"><use href="#i-users"/></svg></span></div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
-          <div class="stat-card"><div class="stat-top"><span>7.5L 袋装容器 · 站内可用</span><span class="stat-icon orange"><svg class="icon"><use href="#i-box"/></svg></span></div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
-          <div class="stat-card"><div class="stat-top"><span>7.5L 袋装容器 · 会员持有</span><span class="stat-icon gold"><svg class="icon"><use href="#i-users"/></svg></span></div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
+          <div class="stat-card"><div class="stat-top"><span>15L 周转桶 · 站内可用</span><span class="stat-icon"><svg class="icon"><use href="#i-box"/></svg></span></div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
+          <div class="stat-card"><div class="stat-top"><span>15L 周转桶 · 会员持有</span><span class="stat-icon blue"><svg class="icon"><use href="#i-users"/></svg></span></div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
+          <div class="stat-card"><div class="stat-top"><span>5L 袋装容器 · 站内可用</span><span class="stat-icon orange"><svg class="icon"><use href="#i-box"/></svg></span></div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
+          <div class="stat-card"><div class="stat-top"><span>5L 袋装容器 · 会员持有</span><span class="stat-icon gold"><svg class="icon"><use href="#i-users"/></svg></span></div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
         </div>
         <div class="table-card">
           <div class="table-toolbar">
             <div><b>容器领还流水</b><small>满桶出库（领出 N）与空桶回库（收回 M）独立留痕</small></div>
-            <select class="select"><option>全部容器</option><option>18.9L 周转桶</option><option>7.5L 袋装容器</option></select>
+            <select class="select"><option>全部容器</option><option>15L 周转桶</option><option>5L 袋装容器</option></select>
           </div>
           <div style="overflow-x:auto">
             <table>
@@ -540,7 +540,7 @@ td b{color:var(--ink)}
       </div>
       <div class="detail-card">
         <h4>最近业务流水</h4>
-        <div class="record-item"><div class="record-icon blue"><svg class="icon"><use href="#i-drop"/></svg></div><div class="record-main"><b>18.9L 桶装水配送 × 2</b><small>今天 09:42 · WS202610240018</small></div><span class="tag orange">待接单</span></div>
+        <div class="record-item"><div class="record-icon blue"><svg class="icon"><use href="#i-drop"/></svg></div><div class="record-main"><b>15L 桶装水配送 × 2</b><small>今天 09:42 · WS202610240018</small></div><span class="tag orange">待接单</span></div>
         <div class="record-item"><div class="record-icon"><svg class="icon"><use href="#i-wallet"/></svg></div><div class="record-main"><b>配送畅享包 · 到账 12 桶</b><small>今天 09:38 · 水费实收 ¥200</small></div><span class="tag green">已入账</span></div>
         <div class="record-item"><div class="record-icon orange"><svg class="icon"><use href="#i-box"/></svg></div><div class="record-main"><b>满桶领出 2 · 空桶收回 2</b><small>10月22日 15:26 · 王师傅</small></div><span class="tag gray">持有 0 变动</span></div>
       </div>

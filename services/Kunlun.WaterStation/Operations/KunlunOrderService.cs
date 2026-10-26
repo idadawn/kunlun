@@ -79,6 +79,8 @@ public sealed class KunlunOrderRepository(NpgsqlDataSource dataSource, KunlunAut
                 UNIQUE (tenant_id, idempotency_key)
             );
 
+            ALTER TABLE water_orders ADD COLUMN IF NOT EXISTS product_snapshot JSONB;
+
             CREATE TABLE IF NOT EXISTS container_ledgers (
                 id BIGSERIAL PRIMARY KEY,
                 tenant_id UUID NOT NULL,

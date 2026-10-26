@@ -139,27 +139,27 @@ export function App() {
                 <div style={{ fontSize: 14, fontWeight: 700 }}>我的 4 类专属水票余量 (实库实时)</div>
                 <div className="ticket-grid">
                   <div className="ticket-box">
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>18.9L 桶装配送票</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>15L 桶装配送票</div>
                     <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--brand-primary-dark)' }}>
                       {profile.bucketDeliveryTickets} <span style={{ fontSize: 11 }}>张</span>
                     </div>
                     <div style={{ fontSize: 11, color: '#0369a1' }}>预占中：{profile.reservedBucketDeliveryTickets} 张</div>
                   </div>
                   <div className="ticket-box">
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>18.9L 桶装自提票</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>15L 桶装自提票</div>
                     <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--brand-primary-dark)' }}>
                       {profile.bucketPickupTickets} <span style={{ fontSize: 11 }}>张</span>
                     </div>
                     <div style={{ fontSize: 11, color: '#0369a1' }}>预占中：{profile.reservedBucketPickupTickets} 张</div>
                   </div>
                   <div className="ticket-box">
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>7.5L 袋装自提票</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>5L 袋装自提票</div>
                     <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--brand-primary-dark)' }}>
                       {profile.bagPickupTickets} <span style={{ fontSize: 11 }}>张</span>
                     </div>
                   </div>
                   <div className="ticket-box">
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>7.5L 袋装配送票</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>5L 袋装配送票</div>
                     <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--brand-primary-dark)' }}>
                       {profile.bagDeliveryTickets} <span style={{ fontSize: 11 }}>张</span>
                     </div>

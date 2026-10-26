@@ -61,7 +61,7 @@ public static class MembershipEndpoints
             await using var cmd = Command(conn, null, """
                 SELECT b.id,b.source,b.water_type,b.fulfill_mode,b.paid_amount,b.fixed_qty,b.gift_qty,b.remaining_buy,b.remaining_gift,
                   b.reserved_buy,b.reserved_gift,b.status,b.created_at,COALESCE(r.recharge_no,''),COALESCE(r.plan_snapshot->>'name','历史余额待核对'),
-                  COALESCE(f.amount,0),COALESCE(f.refund_no,'')
+                  COALESCE(f.amount,0),COALESCE(f.refund_no,''),COALESCE(r.plan_snapshot->>'waterLabel','')
                 FROM plugin_kunlun_waterstation.ticket_batches b
                 LEFT JOIN plugin_kunlun_waterstation.recharge_orders r ON r.id=b.recharge_id
                 LEFT JOIN plugin_kunlun_waterstation.recharge_refunds f ON f.batch_id=b.id
@@ -88,7 +88,7 @@ public static class MembershipEndpoints
                 name = r.GetString(14),
                 refundableAmount = r.GetString(1) == "PURCHASE" && r.GetString(11) == "ACTIVE" && r.GetInt32(9) + r.GetInt32(10) == 0 ? Math.Round(r.GetDecimal(4) * r.GetInt32(7) / r.GetInt32(5), 2, MidpointRounding.AwayFromZero) : 0,
                 refundedAmount = r.GetDecimal(15),
-                refundNo = r.GetString(16)
+                refundNo = r.GetString(16), waterLabel = r.GetString(17)
             });
             return Results.Ok(rows);
         }).RequireAuthorization();
@@ -213,7 +213,8 @@ public static class MembershipEndpoints
             couponSnapshot = JsonSerializer.Serialize(new { id = req.CouponId.Value, coupon });
         }
         var id = Guid.NewGuid(); var no = Number("CZ");
-        var snapshot = new { planId = req.PlanId, name, waterType = water, fulfillMode = mode, price, buyQty = qty, giftQty = gift, totalTickets = qty + gift };
+        var product = await WaterProducts.Read(conn, tx, tid, water, ct);
+        var snapshot = new { planId = req.PlanId, name, waterType = water, waterLabel = product.Name, capacityLiters = product.CapacityLiters, fulfillMode = mode, price, buyQty = qty, giftQty = gift, totalTickets = qty + gift };
         await Exec(conn, tx, """
             INSERT INTO plugin_kunlun_waterstation.recharge_orders
               (id,tenant_id,recharge_no,idempotency_key,member_id,plan_id,plan_snapshot,paid_amount,buy_qty,gift_qty,total_tickets,pay_method,operator_id,operator_name,remark,coupon_snapshot)
