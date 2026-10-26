@@ -231,6 +231,7 @@ app.MapFinanceEndpoints();
 app.MapMembershipEndpoints();
 app.MapOrderEndpoints();
 app.MapReportEndpoints();
+app.MapOverviewEndpoints();
 app.Run();
 
 public partial class Program;

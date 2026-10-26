@@ -32,5 +32,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - run: pnpm check:pages
       - run: node --check assets/live-api.js && node --check assets/membership.js
       - run: dotnet test Kunlun.slnx --configuration Release

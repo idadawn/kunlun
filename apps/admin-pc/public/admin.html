@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>管理端 PC | 绿麒麟·水站会员管理系统</title>
+<title>管理后台 | 绿麒麟·水站会员管理系统</title>
 <link rel="stylesheet" href="assets/brand.css">
 <script src="assets/brand.js"></script>
 <script src="assets/live-api.js"></script>
@@ -28,10 +28,10 @@
 
 .main-wrap{overflow:auto;min-width:0;background:var(--bg)}
 .topbar{height:64px;padding:0 30px;display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.88);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:9;backdrop-filter:blur(12px)}
-.breadcrumb{color:var(--muted);font-size:13px;display:flex;align-items:center;gap:8px}
+.breadcrumb{color:var(--muted);font-size:13px;min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .breadcrumb b{color:var(--ink);font-weight:600}
 .breadcrumb .pill{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--brand-50);color:var(--brand-600);font-weight:600}
-.top-actions{display:flex;align-items:center;gap:16px}
+.top-actions{display:flex;align-items:center;gap:16px;flex-shrink:0;white-space:nowrap}
 .search-mini{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line);padding:7px 12px;border-radius:9px;color:var(--muted)}
 .search-mini input{border:0;background:none;outline:0;width:180px;font-size:12.5px;color:var(--text)}
 .icon-btn{border:0;background:transparent;color:var(--text);width:36px;height:36px;display:grid;place-items:center;border-radius:9px;position:relative}
@@ -220,10 +220,11 @@ td b{color:var(--ink)}
 .success-detail{text-align:left;border:1px solid var(--line);border-radius:var(--r-md);padding:12px 15px;margin-top:14px}
 .hide{display:none!important}
 @media(max-width:1100px){.stats-grid{grid-template-columns:repeat(2,1fr)}.dashboard-grid,.bottom-grid,.setting-grid{grid-template-columns:1fr}}
+@media(max-width:1150px){.topbar{gap:12px;padding:0 20px}.topbar .search-mini,.breadcrumb .pill,.user-text small{display:none}.top-actions{gap:8px}}
 </style>
 </head>
 <body>
-<div data-proto-bar="admin"></div>
+
 <div id="adminApp" class="admin-app">
   <aside class="sidebar">
     <div class="brand">
@@ -251,7 +252,7 @@ td b{color:var(--ink)}
       <div class="breadcrumb">绿麒麟水站 / <b id="breadcrumb">经营总览</b> <span class="pill">小分子团弱碱活性水</span></div>
       <div class="top-actions">
         <label class="search-mini"><svg class="icon"><use href="#i-search"/></svg><input placeholder="搜索会员姓名、手机号、水单" onkeydown="globalSearch(event)"></label>
-        <button class="icon-btn" onclick="toast('今日有 3 单待接单、2 笔退押金待核对')"><svg class="icon"><use href="#i-bell"/></svg><i class="dot"></i></button>
+        <button class="icon-btn" onclick="showPage('orders')" title="待处理水单"><svg class="icon"><use href="#i-bell"/></svg><i class="dot"></i></button>
         <div class="user" style="cursor:pointer" onclick="openModal('authSwitch')" title="退出登录"><div class="avatar" id="topAvatar">林</div><div class="user-text"><b id="topUserName">林站长</b><small id="topUserRole">ADMIN · 水站管理员 ▾</small></div></div>
       </div>
     </div>
@@ -268,7 +269,7 @@ td b{color:var(--ink)}
           <div class="slogan-pill">
             <b>鲜活每一滴，好水到你家</b>
             <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
-              <button class="btn sm" onclick="exportCSV()"><svg class="icon sm"><use href="#i-export"/></svg>导出日报</button>
+              <button class="btn sm" onclick="exportCSV()"><svg class="icon sm"><use href="#i-export"/></svg>导出水票流水</button>
               <button class="btn primary sm" onclick="openModal('order')"><svg class="icon sm"><use href="#i-plus"/></svg>代开水单</button>
             </div>
           </div>
@@ -277,23 +278,23 @@ td b{color:var(--ink)}
         <div class="stats-grid">
           <div class="stat-card">
             <div class="stat-top"><span>今日实收合计（元）</span><span class="stat-icon"><svg class="icon"><use href="#i-wallet"/></svg></span></div>
-            <div class="stat-value">¥ 2,486.00</div>
-            <div class="stat-foot"><span class="trend-up">↑ 12.5%</span>水费实收 ¥2,206 · 押金实收 ¥280</div>
+            <div class="stat-value">—</div>
+            <div class="stat-foot">—</div>
           </div>
           <div class="stat-card">
             <div class="stat-top"><span>今日核销用水</span><span class="stat-icon blue"><svg class="icon"><use href="#i-drop"/></svg></span></div>
-            <div class="stat-value">64<small>桶</small> · 22<small>袋</small></div>
-            <div class="stat-foot"><span class="trend-up">↑ 8.2%</span>小分子团弱碱活性水（桶袋分列）</div>
+            <div class="stat-value">—</div>
+            <div class="stat-foot">—</div>
           </div>
           <div class="stat-card">
             <div class="stat-top"><span>待履约水单</span><span class="stat-icon orange"><svg class="icon"><use href="#i-truck"/></svg></span></div>
-            <div class="stat-value" id="pendingStat">6<small>单</small></div>
-            <div class="stat-foot"><span style="color:var(--orange-500)">待接单 3</span> · 配送中 2 · 待自提 1</div>
+            <div class="stat-value" id="pendingStat">—</div>
+            <div class="stat-foot">—</div>
           </div>
           <div class="stat-card">
             <div class="stat-top"><span>会员持有容器</span><span class="stat-icon gold"><svg class="icon"><use href="#i-box"/></svg></span></div>
-            <div class="stat-value">986<small>桶</small> / 298<small>袋</small></div>
-            <div class="stat-foot">配送在途：桶 18 · 袋 6</div>
+            <div class="stat-value">—</div>
+            <div class="stat-foot">—</div>
           </div>
         </div>
 
@@ -305,23 +306,16 @@ td b{color:var(--ink)}
             </div>
             <div class="chart-wrap">
               <div class="chart-legend"><span><i class="legend-dot"></i>水费实收（元）</span><span><i class="legend-dot light"></i>核销桶/袋数</span></div>
-              <svg class="chart" viewBox="0 0 700 210" preserveAspectRatio="none">
-                <line class="gridline" x1="45" y1="20" x2="680" y2="20"/><line class="gridline" x1="45" y1="65" x2="680" y2="65"/><line class="gridline" x1="45" y1="110" x2="680" y2="110"/><line class="gridline" x1="45" y1="155" x2="680" y2="155"/>
-                <text x="8" y="24">3,000</text><text x="8" y="69">2,000</text><text x="8" y="114">1,000</text><text x="23" y="159">0</text>
-                <path d="M55 155 L55 116 L150 116 L150 155Z M155 155 L155 99 L250 99 L250 155Z M255 155 L255 107 L350 107 L350 155Z M355 155 L355 87 L450 87 L450 155Z M455 155 L455 104 L550 104 L550 155Z M555 155 L555 76 L650 76 L650 155Z" fill="#7fd3a8" opacity=".28"/>
-                <path d="M55 112 L150 88 L250 98 L350 70 L450 83 L550 53 L650 66" fill="none" stroke="#12925f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-                <g fill="#fff" stroke="#12925f" stroke-width="2.2"><circle cx="55" cy="112" r="4"/><circle cx="150" cy="88" r="4"/><circle cx="250" cy="98" r="4"/><circle cx="350" cy="70" r="4"/><circle cx="450" cy="83" r="4"/><circle cx="550" cy="53" r="4"/><circle cx="650" cy="66" r="4"/></g>
-                <g text-anchor="middle"><text x="55" y="185">10/18</text><text x="150" y="185">10/19</text><text x="250" y="185">10/20</text><text x="350" y="185">10/21</text><text x="450" y="185">10/22</text><text x="550" y="185">10/23</text><text x="650" y="185">今日</text></g>
-              </svg>
+              <svg class="chart" viewBox="0 0 700 210" preserveAspectRatio="none"><text x="300" y="100">正在加载…</text></svg>
             </div>
           </div>
 
           <div class="card">
             <div class="card-head"><div class="card-title">今日待办</div><button class="text-btn" onclick="showPage('orders')">查看全部 ›</button></div>
             <div class="todo-list">
-              <div class="todo-item"><div class="todo-symbol"><svg class="icon"><use href="#i-truck"/></svg></div><div class="todo-text"><b>待接单配送</b><small>请及时指派或提醒送水员接单</small></div><span class="todo-num">3</span><button class="text-btn" onclick="showPage('orders')">处理</button></div>
-              <div class="todo-item"><div class="todo-symbol green"><svg class="icon"><use href="#i-store"/></svg></div><div class="todo-text"><b>待确认自提</b><small>会员到店出示取水码后核销</small></div><span class="todo-num">1</span><button class="text-btn" onclick="showPage('orders')">处理</button></div>
-              <div class="todo-item"><div class="todo-symbol blue"><svg class="icon"><use href="#i-deposit"/></svg></div><div class="todo-text"><b>待核对退押金</b><small>核对容器持有与原收款批次单价</small></div><span class="todo-num">2</span><button class="text-btn" onclick="showPage('finance')">处理</button></div>
+              <div class="todo-item"><div class="todo-symbol"><svg class="icon"><use href="#i-truck"/></svg></div><div class="todo-text"><b>待接单配送</b><small>请及时指派或提醒送水员接单</small></div><span class="todo-num">—</span><button class="text-btn" onclick="showPage('orders')">处理</button></div>
+              <div class="todo-item"><div class="todo-symbol green"><svg class="icon"><use href="#i-store"/></svg></div><div class="todo-text"><b>待确认自提</b><small>会员到店出示取水码后核销</small></div><span class="todo-num">—</span><button class="text-btn" onclick="showPage('orders')">处理</button></div>
+              <div class="todo-item"><div class="todo-symbol blue"><svg class="icon"><use href="#i-deposit"/></svg></div><div class="todo-text"><b>待核对退押金</b><small>核对容器持有与原收款批次单价</small></div><span class="todo-num">—</span><button class="text-btn" onclick="showPage('finance')">处理</button></div>
               <div class="todo-item"><div class="todo-symbol"><svg class="icon"><use href="#i-box"/></svg></div><div class="todo-text"><b>18.9L 周转桶库存偏低</b><small>当前站内可用 86 个，低于预警值 100</small></div><button class="text-btn" onclick="showPage('assets')">查看</button></div>
             </div>
           </div>
@@ -332,9 +326,9 @@ td b{color:var(--ink)}
             <div class="card-head"><div class="card-title">最新水单</div><button class="text-btn" onclick="showPage('orders')">全部水单 ›</button></div>
             <div class="order-mini">
               <div class="order-row head"><span>会员 / 单号</span><span>方式</span><span>水品与数量</span><span>状态</span></div>
-              <div class="order-row"><span><b>陈静</b><br><small style="color:var(--muted)">WS202610240018</small></span><span>配送</span><span>18.9L 桶装 × 2</span><span class="tag orange dot">待接单</span></div>
-              <div class="order-row"><span><b>周明</b><br><small style="color:var(--muted)">WS202610240017</small></span><span>自提</span><span>7.5L 袋装 × 3</span><span class="tag aqua dot">待自提</span></div>
-              <div class="order-row"><span><b>林晓</b><br><small style="color:var(--muted)">WS202610240016</small></span><span>配送</span><span>18.9L 桶装 × 1</span><span class="tag green dot">配送中</span></div>
+
+
+
             </div>
           </div>
 
@@ -360,10 +354,10 @@ td b{color:var(--ink)}
           <button class="btn primary" onclick="openModal('newMember')"><svg class="icon"><use href="#i-plus"/></svg>新建会员</button>
         </div>
         <div class="summary-strip">
-          <div class="summary-item"><small>会员总数</small><b>1,268</b></div>
-          <div class="summary-item"><small>本月新增</small><b>46</b></div>
-          <div class="summary-item"><small>持有水票会员</small><b>892</b></div>
-          <div class="summary-item"><small>持有容器会员</small><b>736</b></div>
+          <div class="summary-item"><small>会员总数</small><b>—</b></div>
+          <div class="summary-item"><small>本月新增</small><b>—</b></div>
+          <div class="summary-item"><small>持有水票会员</small><b>—</b></div>
+          <div class="summary-item"><small>持有容器会员</small><b>—</b></div>
         </div>
         <div class="filter-card">
           <label class="field-search"><svg class="icon"><use href="#i-search"/></svg><input id="memberSearch" placeholder="搜索姓名、手机号或会员编号" oninput="filterMembers(this.value)"></label>
@@ -376,17 +370,11 @@ td b{color:var(--ink)}
           <div class="table-toolbar"><div><b>会员列表</b><small>共 1,268 位会员 · 点击查看 360° 档案</small></div></div>
           <div style="overflow-x:auto">
             <table>
-              <thead><tr><th>会员</th><th>联系电话</th><th>自提/配送桶票</th><th>自提/配送袋票</th><th>押金余额</th><th>持有桶 / 袋</th><th>最近用水</th><th>操作</th></tr></thead>
-              <tbody id="memberTable">
-                <tr data-member="陈静"><td><div class="member-cell"><div class="member-avatar">陈</div><div><b>陈静</b><small>No. 008621</small></div></div></td><td>138 0013 8000</td><td><b>10</b> / <b>8</b> 桶</td><td><b>6</b> / <b>0</b> 袋</td><td>¥ 130.00</td><td>2 桶 / 1 袋</td><td>2026-10-22</td><td><button class="link" onclick="openMember('陈静')">360° 详情</button></td></tr>
-                <tr data-member="周明"><td><div class="member-cell"><div class="member-avatar" style="background:var(--aqua-50);color:var(--aqua-600)">周</div><div><b>周明</b><small>No. 008620</small></div></div></td><td>139 1122 3344</td><td><b>0</b> / <b>0</b> 桶</td><td><b>12</b> / <b>0</b> 袋</td><td>¥ 30.00</td><td>0 桶 / 1 袋</td><td>2026-10-24</td><td><button class="link" onclick="openMember('周明')">360° 详情</button></td></tr>
-                <tr data-member="林晓"><td><div class="member-cell"><div class="member-avatar" style="background:var(--gold-50);color:var(--gold-600)">林</div><div><b>林晓</b><small>No. 008619</small></div></div></td><td>136 5566 7788</td><td><b>0</b> / <b>8</b> 桶</td><td><b>0</b> / <b>0</b> 袋</td><td>¥ 100.00</td><td>2 桶 / 0 袋</td><td>2026-10-24</td><td><button class="link" onclick="openMember('林晓')">360° 详情</button></td></tr>
-                <tr data-member="吴建国"><td><div class="member-cell"><div class="member-avatar" style="background:var(--violet-50);color:var(--violet-500)">吴</div><div><b>吴建国</b><small>No. 008618</small></div></div></td><td>135 6677 8899</td><td><b>12</b> / <b>11</b> 桶</td><td><b>4</b> / <b>0</b> 袋</td><td>¥ 150.00</td><td>3 桶 / 0 袋</td><td>2026-10-20</td><td><button class="link" onclick="openMember('吴建国')">360° 详情</button></td></tr>
-                <tr data-member="许芳"><td><div class="member-cell"><div class="member-avatar" style="background:var(--orange-50);color:var(--orange-500)">许</div><div><b>许芳</b><small>No. 008617</small></div></div></td><td>137 8899 0011</td><td><b>5</b> / <b>0</b> 桶</td><td><b>9</b> / <b>0</b> 袋</td><td>¥ 50.00</td><td>1 桶 / 0 袋</td><td>2026-10-18</td><td><button class="link" onclick="openMember('许芳')">360° 详情</button></td></tr>
-              </tbody>
+              <thead><tr><th>会员</th><th>联系电话</th><th>自提/配送桶票</th><th>自提/配送袋票</th><th>押金余额</th><th>持有桶 / 袋</th><th>建档时间</th><th>操作</th></tr></thead>
+              <tbody id="memberTable"><tr><td colspan="8">正在加载…</td></tr></tbody>
             </table>
           </div>
-          <div class="table-footer"><span>第 1–5 条，共 1,268 条</span><div class="pagination"><button class="page-btn">‹</button><button class="page-btn active">1</button><button class="page-btn">2</button><button class="page-btn">3</button><button class="page-btn">…</button><button class="page-btn">254</button><button class="page-btn">›</button></div></div>
+          <div class="table-footer"><span>第 1–5 条，共 1,268 条</span><div class="pagination"></div></div>
         </div>
       </section>
 
@@ -397,10 +385,10 @@ td b{color:var(--ink)}
           <div class="head-actions"><button class="btn" onclick="exportCSV()"><svg class="icon"><use href="#i-export"/></svg>导出汇总</button><button class="btn primary" onclick="openModal('order')"><svg class="icon"><use href="#i-plus"/></svg>代开水单</button></div>
         </div>
         <div class="summary-strip">
-          <div class="summary-item"><small>今日水单</small><b>42</b></div>
-          <div class="summary-item"><small>待接单</small><b style="color:var(--orange-500)">3</b></div>
-          <div class="summary-item"><small>配送中 / 待自提</small><b>3</b></div>
-          <div class="summary-item"><small>今日已完成</small><b>36</b></div>
+          <div class="summary-item"><small>今日水单</small><b>—</b></div>
+          <div class="summary-item"><small>待接单</small><b style="color:var(--orange-500)">—</b></div>
+          <div class="summary-item"><small>配送中 / 待自提</small><b>—</b></div>
+          <div class="summary-item"><small>今日已完成</small><b>—</b></div>
         </div>
         <div class="tabs">
           <button class="tab active" onclick="filterOrders(this,'全部')">全部水单</button>
@@ -415,22 +403,16 @@ td b{color:var(--ink)}
           <select class="select"><option>全部领取方式</option><option>配送</option><option>自提</option></select>
           <select class="select"><option>今天</option><option>近 7 天</option><option>本月</option></select>
           <div class="filter-spacer"></div>
-          <button class="btn" onclick="toast('水单列表已刷新')"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button>
+          <button class="btn" onclick="KunlunLive.refreshPage()"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button>
         </div>
         <div class="table-card">
           <div style="overflow-x:auto">
             <table>
               <thead><tr><th>水单号 / 创建时间</th><th>会员</th><th>方式 / 地址快照</th><th>水品与数量</th><th>水票预占</th><th>送水员</th><th>状态</th><th>操作</th></tr></thead>
-              <tbody id="orderTable">
-                <tr data-status="待接单"><td><span class="order-no">WS202610240018</span><br><small style="color:var(--muted)">今天 09:42 · 会员下单</small></td><td><b>陈静</b><br><small style="color:var(--muted)">138 0013 8000</small></td><td><span class="tag green">配送</span> 幸福里 3-2-501</td><td>小分子团弱碱活性水 18.9L × <b>2</b></td><td>配送桶票 2</td><td>—</td><td><span class="tag orange dot">待接单</span></td><td><button class="link" onclick="openFulfill('WS202610240018','陈静','18.9L 桶装水',2)">接单并交付</button></td></tr>
-                <tr data-status="待自提"><td><span class="order-no">WS202610240017</span><br><small style="color:var(--muted)">今天 09:36 · 员工代开</small></td><td><b>周明</b><br><small style="color:var(--muted)">139 1122 3344</small></td><td><span class="tag aqua">自提</span> 绿麒麟水站到店</td><td>小分子团弱碱活性水 7.5L × <b>3</b></td><td>自提袋票 3</td><td>—</td><td><span class="tag aqua dot">待自提</span></td><td><button class="link" onclick="openFulfill('WS202610240017','周明','7.5L 袋装水',3)">核验自提</button></td></tr>
-                <tr data-status="配送中"><td><span class="order-no">WS202610240016</span><br><small style="color:var(--muted)">今天 09:18 · 会员下单</small></td><td><b>林晓</b><br><small style="color:var(--muted)">136 5566 7788</small></td><td><span class="tag green">配送</span> 金桂花园 8-302</td><td>小分子团弱碱活性水 18.9L × <b>1</b></td><td>配送桶票 1</td><td>王师傅</td><td><span class="tag green dot">配送中</span></td><td><button class="link" onclick="openFulfill('WS202610240016','林晓','18.9L 桶装水',1)">确认交付</button></td></tr>
-                <tr data-status="待接单"><td><span class="order-no">WS202610240015</span><br><small style="color:var(--muted)">今天 09:05 · 会员下单</small></td><td><b>吴建国</b><br><small style="color:var(--muted)">135 6677 8899</small></td><td><span class="tag green">配送</span> 翠竹苑 5-102</td><td>小分子团弱碱活性水 18.9L × <b>2</b></td><td>配送桶票 2</td><td>—</td><td><span class="tag orange dot">待接单</span></td><td><button class="link" onclick="openFulfill('WS202610240015','吴建国','18.9L 桶装水',2)">接单并交付</button></td></tr>
-                <tr data-status="已完成"><td><span class="order-no">WS202610240014</span><br><small style="color:var(--muted)">今天 08:52 · 员工代开</small></td><td><b>许芳</b><br><small style="color:var(--muted)">137 8899 0011</small></td><td><span class="tag aqua">自提</span> 绿麒麟水站到店</td><td>小分子团弱碱活性水 7.5L × <b>2</b></td><td>已核销 2</td><td>小林</td><td><span class="tag gray">已完成</span></td><td><button class="link" onclick="toast('水单 WS202610240014：领出满袋 2 / 收回 2，持有不变')">查看详情</button></td></tr>
-              </tbody>
+              <tbody id="orderTable"><tr><td colspan="8">正在加载…</td></tr></tbody>
             </table>
           </div>
-          <div class="table-footer"><span>交付完成后预占转核销；接单前取消自动释放预占水票</span><div class="pagination"><button class="page-btn active">1</button><button class="page-btn">2</button><button class="page-btn">3</button><button class="page-btn">›</button></div></div>
+          <div class="table-footer"><span>交付完成后预占转核销；接单前取消自动释放预占水票</span><div class="pagination"></div></div>
         </div>
       </section>
 
@@ -441,15 +423,15 @@ td b{color:var(--ink)}
           <div class="head-actions"><button class="btn" onclick="openModal('deposit')"><svg class="icon"><use href="#i-deposit"/></svg>押金收款 / 退款</button><button class="btn primary" onclick="openModal('recharge')"><svg class="icon"><use href="#i-plus"/></svg>水费充值登记</button></div>
         </div>
         <div class="stats-grid">
-          <div class="stat-card"><div class="stat-top">今日水费实收</div><div class="stat-value">¥ 2,206.00</div><div class="stat-foot">充值 18 笔 · 赠水 26 桶/袋</div></div>
-          <div class="stat-card"><div class="stat-top">今日押金实收（净额）</div><div class="stat-value">¥ 280.00</div><div class="stat-foot">交押金 7 笔 · 退款 2 笔</div></div>
-          <div class="stat-card"><div class="stat-top">在池押金总额</div><div class="stat-value">¥ 48,650.00</div><div class="stat-foot">桶押金 ¥42,300 · 袋押金 ¥6,350</div></div>
-          <div class="stat-card"><div class="stat-top">当前可退押金</div><div class="stat-value">¥ 1,240.00</div><div class="stat-foot">已扣除实际持有及履约新增占用</div></div>
+          <div class="stat-card"><div class="stat-top">今日水费实收</div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
+          <div class="stat-card"><div class="stat-top">今日押金实收（净额）</div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
+          <div class="stat-card"><div class="stat-top">在池押金总额</div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
+          <div class="stat-card"><div class="stat-top">当前可退押金</div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
         </div>
         <div class="tabs">
           <button class="tab active" onclick="financeTab(this,'充值记录')">水费实收记录</button>
           <button class="tab" onclick="financeTab(this,'押金记录')">押金收支记录</button>
-          <button class="tab" onclick="financeTab(this,'退款审核')">押金退款核对 <span class="tag orange">2</span></button>
+
         </div>
         <div class="filter-card">
           <label class="field-search"><svg class="icon"><use href="#i-search"/></svg><input placeholder="搜索会员或业务单号"></label>
@@ -461,15 +443,10 @@ td b{color:var(--ink)}
           <div style="overflow-x:auto">
             <table>
               <thead><tr id="financeHead"><th>业务单号 / 时间</th><th>会员</th><th>优惠方案快照</th><th>水费实收</th><th>购水 / 赠水</th><th>收款方式</th><th>操作人</th><th>操作</th></tr></thead>
-              <tbody id="financeBody">
-                <tr><td><span class="order-no">CZ202610240012</span><br><small style="color:var(--muted)">今天 09:38</small></td><td><b>陈静</b></td><td>桶装水 · 配送畅享包</td><td><b>¥ 200.00</b></td><td>购 10 桶 + 赠 2 桶</td><td>现金登记</td><td>小林</td><td><button class="link" onclick="toast('已保存充值方案快照，支持关联原单纠错')">查看快照</button></td></tr>
-                <tr><td><span class="order-no">CZ202610240011</span><br><small style="color:var(--muted)">今天 09:12</small></td><td><b>吴建国</b></td><td>桶装水 · 自提实惠包</td><td><b>¥ 200.00</b></td><td>购 12 桶 + 赠 2 桶</td><td>微信收款码</td><td>小林</td><td><button class="link" onclick="toast('已保存充值方案快照')">查看快照</button></td></tr>
-                <tr><td><span class="order-no">CZ202610240010</span><br><small style="color:var(--muted)">今天 08:46</small></td><td><b>周明</b></td><td>袋装水 · 自提家庭包</td><td><b>¥ 100.00</b></td><td>购 10 袋 + 赠 1 袋</td><td>现金登记</td><td>王师傅</td><td><button class="link" onclick="toast('已保存充值方案快照')">查看快照</button></td></tr>
-                <tr><td><span class="order-no">CZ202610230028</span><br><small style="color:var(--muted)">昨天 17:20</small></td><td><b>林晓</b></td><td>桶装水 · 配送畅享包</td><td><b>¥ 400.00</b></td><td>购 20 桶 + 赠 4 桶</td><td>支付宝收款码</td><td>小林</td><td><button class="link" onclick="toast('已保存充值方案快照')">查看快照</button></td></tr>
-              </tbody>
+              <tbody id="financeBody"><tr><td colspan="8">正在加载…</td></tr></tbody>
             </table>
           </div>
-          <div class="table-footer"><span>押金不计入水费实收；退押金严格按原收取批次单价计算</span><div class="pagination"><button class="page-btn active">1</button><button class="page-btn">2</button><button class="page-btn">›</button></div></div>
+          <div class="table-footer"><span>押金不计入水费实收；退押金严格按原收取批次单价计算</span><div class="pagination"></div></div>
         </div>
       </section>
 
@@ -480,10 +457,10 @@ td b{color:var(--ink)}
           <div class="head-actions"><button class="btn" onclick="exportCSV()"><svg class="icon"><use href="#i-export"/></svg>导出台账</button><button class="btn primary" onclick="openModal('container')"><svg class="icon"><use href="#i-plus"/></svg>独立登记领还</button></div>
         </div>
         <div class="stats-grid">
-          <div class="stat-card"><div class="stat-top"><span>18.9L 周转桶 · 站内可用</span><span class="stat-icon"><svg class="icon"><use href="#i-box"/></svg></span></div><div class="stat-value">86<small>/ 1,200</small></div><div class="stat-foot"><span style="color:var(--orange-500)">低于预警值 100</span> · 待检 108</div></div>
-          <div class="stat-card"><div class="stat-top"><span>18.9L 周转桶 · 会员持有</span><span class="stat-icon blue"><svg class="icon"><use href="#i-users"/></svg></span></div><div class="stat-value">986<small>个</small></div><div class="stat-foot">押金已覆盖 982 · 待补押 4</div></div>
-          <div class="stat-card"><div class="stat-top"><span>7.5L 袋装容器 · 站内可用</span><span class="stat-icon orange"><svg class="icon"><use href="#i-box"/></svg></span></div><div class="stat-value">162<small>/ 500</small></div><div class="stat-foot">待检 34 · 配送在途 6</div></div>
-          <div class="stat-card"><div class="stat-top"><span>7.5L 袋装容器 · 会员持有</span><span class="stat-icon gold"><svg class="icon"><use href="#i-users"/></svg></span></div><div class="stat-value">298<small>个</small></div><div class="stat-foot">押金已覆盖 298 · 账实一致</div></div>
+          <div class="stat-card"><div class="stat-top"><span>18.9L 周转桶 · 站内可用</span><span class="stat-icon"><svg class="icon"><use href="#i-box"/></svg></span></div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
+          <div class="stat-card"><div class="stat-top"><span>18.9L 周转桶 · 会员持有</span><span class="stat-icon blue"><svg class="icon"><use href="#i-users"/></svg></span></div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
+          <div class="stat-card"><div class="stat-top"><span>7.5L 袋装容器 · 站内可用</span><span class="stat-icon orange"><svg class="icon"><use href="#i-box"/></svg></span></div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
+          <div class="stat-card"><div class="stat-top"><span>7.5L 袋装容器 · 会员持有</span><span class="stat-icon gold"><svg class="icon"><use href="#i-users"/></svg></span></div><div class="stat-value">—</div><div class="stat-foot">—</div></div>
         </div>
         <div class="table-card">
           <div class="table-toolbar">
@@ -493,11 +470,7 @@ td b{color:var(--ink)}
           <div style="overflow-x:auto">
             <table>
               <thead><tr><th>流水单号 / 时间</th><th>会员</th><th>关联水单</th><th>容器类型</th><th>满桶领出 (N)</th><th>空桶收回 (M)</th><th>持有变化 (N−M)</th><th>操作人</th></tr></thead>
-              <tbody>
-                <tr><td><span class="order-no">TB202610240036</span><br><small style="color:var(--muted)">今天 09:28</small></td><td><b>林晓</b></td><td>WS202610240011</td><td>18.9L 周转桶</td><td><b>2</b></td><td><b>2</b></td><td><span class="tag green">0（等量换水）</span></td><td>王师傅</td></tr>
-                <tr><td><span class="order-no">TB202610240035</span><br><small style="color:var(--muted)">今天 09:06</small></td><td><b>吴建国</b></td><td>WS202610240009</td><td>18.9L 周转桶</td><td><b>2</b></td><td><b>1</b></td><td><span class="tag orange">+1（新增占用）</span></td><td>王师傅</td></tr>
-                <tr><td><span class="order-no">TB202610240034</span><br><small style="color:var(--muted)">今天 08:52</small></td><td><b>许芳</b></td><td>WS202610240014</td><td>7.5L 袋装容器</td><td><b>2</b></td><td><b>2</b></td><td><span class="tag green">0（等量换水）</span></td><td>小林</td></tr>
-              </tbody>
+              <tbody><tr><td colspan="9">正在加载…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -506,49 +479,16 @@ td b{color:var(--ink)}
       <!-- 6. 业务设置 -->
       <section id="page-settings" class="section">
         <div class="page-head">
-          <div><h2>业务设置</h2><p>管理绿麒麟水站优惠方案、押金单价、员工角色权限与自动备份</p></div>
+          <div><h2>业务设置</h2><p>管理充值套餐、优惠券、押金单价和员工账号</p></div>
           <button class="btn primary" onclick="openModal('plan')"><svg class="icon"><use href="#i-plus"/></svg>新建优惠方案</button>
         </div>
         <div class="tabs">
           <button class="tab active" onclick="settingsTab(this,'plans')">优惠方案</button>
           <button class="tab" onclick="settingsTab(this,'deposit')">押金与容器</button>
           <button class="tab" onclick="settingsTab(this,'staff')">员工与权限</button>
-          <button class="tab" onclick="settingsTab(this,'system')">系统与备份</button>
+
         </div>
-        <div id="settingsContent">
-          <div class="setting-grid">
-            <div class="setting-card plan-card">
-              <span class="tag green">启用中</span>
-              <div class="plan-price">¥ 200 <small>/ 套</small></div>
-              <h3>小分子团弱碱活性水 · 配送畅享包</h3>
-              <div class="plan-gift">购 10 桶 + 赠 2 桶 = 到账 12 桶（配送桶票）</div>
-              <div class="setting-row"><span>适用水品</span><b>18.9L 桶装</b></div>
-              <div class="setting-row"><span>领取方式</span><b>送水到家（配送）</b></div>
-              <div class="setting-row"><span>累计办理</span><b>286 笔</b></div>
-              <div style="display:flex;gap:8px;margin-top:14px"><button class="btn sm" onclick="openModal('plan')"><svg class="icon sm"><use href="#i-edit"/></svg>编辑</button><button class="btn sm" onclick="toast('方案已停用，不影响历史充值快照')">停用</button></div>
-            </div>
-            <div class="setting-card plan-card">
-              <span class="tag green">启用中</span>
-              <div class="plan-price">¥ 200 <small>/ 套</small></div>
-              <h3>小分子团弱碱活性水 · 自提实惠包</h3>
-              <div class="plan-gift">购 12 桶 + 赠 2 桶 = 到账 14 桶（自提桶票）</div>
-              <div class="setting-row"><span>适用水品</span><b>18.9L 桶装</b></div>
-              <div class="setting-row"><span>领取方式</span><b>到店自提</b></div>
-              <div class="setting-row"><span>累计办理</span><b>194 笔</b></div>
-              <div style="display:flex;gap:8px;margin-top:14px"><button class="btn sm" onclick="openModal('plan')"><svg class="icon sm"><use href="#i-edit"/></svg>编辑</button><button class="btn sm" onclick="toast('方案已停用，不影响历史充值快照')">停用</button></div>
-            </div>
-            <div class="setting-card plan-card orange-top">
-              <span class="tag gold">启用中</span>
-              <div class="plan-price">¥ 100 <small>/ 套</small></div>
-              <h3>小分子团弱碱活性水 · 袋装家庭包</h3>
-              <div class="plan-gift" style="color:var(--gold-600)">购 10 袋 + 赠 1 袋 = 到账 11 袋（自提袋票）</div>
-              <div class="setting-row"><span>适用水品</span><b>7.5L 袋装</b></div>
-              <div class="setting-row"><span>领取方式</span><b>到店自提</b></div>
-              <div class="setting-row"><span>累计办理</span><b>102 笔</b></div>
-              <div style="display:flex;gap:8px;margin-top:14px"><button class="btn sm" onclick="openModal('plan')"><svg class="icon sm"><use href="#i-edit"/></svg>编辑</button><button class="btn sm" onclick="toast('方案已停用，不影响历史充值快照')">停用</button></div>
-            </div>
-          </div>
-        </div>
+        <div id="settingsContent"><p>正在加载…</p></div>
       </section>
     </div>
   </main>
@@ -612,29 +552,16 @@ td b{color:var(--ink)}
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const ico=n=>GQ.icon(n), toast=m=>GQ.toast(m);
 const pageNames={dashboard:'经营总览',members:'会员管理',orders:'水单管理',finance:'充值与押金',assets:'桶袋台账',settings:'业务设置'};
-const memberData={
-  '陈静':{bucket:18,bag:6,deposit:'¥130',held:'2 / 1',paidDeposit:2,heldBucket:2},
-  '周明':{bucket:0,bag:12,deposit:'¥30',held:'0 / 1',paidDeposit:0,heldBucket:0},
-  '林晓':{bucket:8,bag:0,deposit:'¥100',held:'2 / 0',paidDeposit:2,heldBucket:2},
-  '吴建国':{bucket:23,bag:4,deposit:'¥150',held:'3 / 0',paidDeposit:3,heldBucket:3},
-  '许芳':{bucket:5,bag:9,deposit:'¥50',held:'1 / 0',paidDeposit:1,heldBucket:1}
-};
-let orderQty=2, fulfillQty=2;
-
+let orderQty=1, fulfillQty=1;
 document.addEventListener('DOMContentLoaded',()=>{
-  $$('.gq-logo').forEach(e=>e.innerHTML=GQ.logoSvg);
-  $$('[data-page]').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));
+$$('.gq-logo').forEach(e=>e.innerHTML=GQ.logoSvg);
+$$('[data-page]').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));
 });
-
 function showPage(page){
   $$('.section').forEach(s=>s.classList.toggle('active',s.id===`page-${page}`));
   $$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
   $('#breadcrumb').textContent=pageNames[page];
   $('.main-wrap').scrollTop=0;
-}
-
-function selectedMember(name='陈静'){
-  return `<div class="selected-member"><div class="member-avatar">${name[0]}</div><div><b>${name}</b><small>138 0013 8000 · No.008621</small></div><button class="text-btn" onclick="openModal('memberSearch')">更换会员</button></div>`;
 }
 function setModal(title,body,foot='',wide=false){
   $('#modalTitle').textContent=title;
@@ -646,40 +573,6 @@ function setModal(title,body,foot='',wide=false){
 }
 function closeModal(){$('#modalMask').classList.remove('open')}
 function closeDrawer(){$('#drawerMask').classList.remove('open')}
-
-function openMember(name){
-  const d=memberData[name]||memberData['陈静'];
-  $('#drawerName').textContent=name;
-  $('#drawerAvatar').textContent=name[0];
-  $('#drawerBucket').textContent=d.bucket;
-  $('#drawerBag').textContent=d.bag;
-  $('#drawerDeposit').textContent=d.deposit;
-  $('#drawerHeld').textContent=d.held;
-  $('#drawerMask').classList.add('open');
-}
-
-function choiceBind(){
-  $$('.choice[data-group]').forEach(b=>b.onclick=()=>{
-    $$(`.choice[data-group="${b.dataset.group}"]`).forEach(x=>x.classList.remove('active'));
-    b.classList.add('active');
-    if(b.dataset.group==='plan'){
-      window.rechargeDesc=b.dataset.desc; window.rechargeGet=b.dataset.get;
-      $('#planAmount').textContent=`¥ ${b.dataset.amount}.00`;
-      $('#planGet').textContent=b.dataset.get;
-      $('#planDesc').textContent=b.dataset.desc;
-    }
-    if(b.dataset.group==='depositType'){
-      window.depositUnit=b.dataset.value==='桶'?50:30;
-      $('#depositOld').textContent=b.dataset.value==='桶'?'桶押金 2 个 / ¥100':'袋押金 1 个 / ¥30';
-      updateDepositAmount();
-    }
-    if(b.dataset.group==='memberMethod'){
-      $('#orderAddress').classList.toggle('hide',b.dataset.value==='自提');
-      $('#orderReserve').textContent=`${b.dataset.value}桶装水票 ${orderQty} 桶`;
-    }
-  });
-}
-
 function openModal(type){
   closeDrawer();
   if(type==='recharge')openRecharge();
@@ -692,139 +585,6 @@ function openModal(type){
   if(type==='authSwitch')openAuthSwitch();
 }
 function openAuthSwitch(){ KunlunLive.logoutAdmin(); }
-
-function openRecharge(){
-  window.rechargeDesc='配送桶装水票：购 10 桶 + 赠 2 桶'; window.rechargeGet=12;
-  setModal('水费充值登记',`${selectedMember()}
-    <div class="form-group"><label><span class="required">*</span>选择优惠方案</label>
-      <div class="choice-row">
-        <button class="choice active" data-group="plan" data-amount="200" data-get="12" data-desc="配送桶装水票：购 10 桶 + 赠 2 桶">配送畅享包<small>¥200 · 到账 12 桶</small></button>
-        <button class="choice" data-group="plan" data-amount="200" data-get="14" data-desc="自提桶装水票：购 12 桶 + 赠 2 桶">自提实惠包<small>¥200 · 到账 14 桶</small></button>
-        <button class="choice" data-group="plan" data-amount="100" data-get="11" data-desc="自提袋装水票：购 10 袋 + 赠 1 袋">袋装家庭包<small>¥100 · 到账 11 袋</small></button>
-      </div>
-    </div>
-    <div class="amount-summary">
-      <div class="amount-line"><span>方案快照</span><b id="planDesc">配送桶装水票：购 10 桶 + 赠 2 桶</b></div>
-      <div class="amount-line"><span>水票到账</span><span><b id="planGet" style="color:var(--brand-600);font-size:16px">12</b> 桶/袋</span></div>
-      <div class="amount-line total"><span>本次水费实收</span><b id="planAmount">¥ 200.00</b></div>
-    </div>
-    <div class="form-grid" style="margin-top:12px">
-      <div class="form-group"><label>登记收款方式</label><select class="input"><option>现金收款</option><option>微信收款码（线下）</option><option>支付宝收款码（线下）</option></select></div>
-      <div class="form-group"><label>备注</label><input class="input" placeholder="选填"></div>
-    </div>
-    <div class="form-note">${ico('info')}水费实收与押金独立记账；本单永久保存当前方案快照。</div>`,
-    `<button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="completeRecharge()">${ico('check')}确认已收款并入账</button>`);
-  choiceBind();
-}
-
-function completeRecharge(){
-  setModal('充值入账成功',`<div class="success-state"><div class="success-icon">${ico('check')}</div><h3>水票已到账</h3><p>水费实收与优惠方案快照已保存</p><div class="success-detail"><div class="detail-row"><span>会员</span><b>陈静 · 138 0013 8000</b></div><div class="detail-row"><span>充值单号</span><b>CZ202610240029</b></div><div class="detail-row"><span>到账明细</span><b style="color:var(--brand-600)">${window.rechargeDesc}（共 ${window.rechargeGet}）</b></div></div></div>`,`<button class="btn" onclick="closeModal()">返回</button><button class="btn primary" onclick="openModal('order')">继续代开水单</button>`);
-  toast('充值成功，水票已到账');
-}
-
-function openDeposit(){
-  setModal('独立押金收款 / 退款',`${selectedMember()}
-    <div class="tabs" style="margin-bottom:14px"><button class="tab active" id="depositPayTab" onclick="depositMode('pay')">交押金 / 补交</button><button class="tab" id="depositRefundTab" onclick="depositMode('refund')">退押金核对</button></div>
-    <div id="depositForm"></div>
-    <div class="form-note">${ico('info')}交押金不代表已领走容器；退押金按原收款批次单价计算，不触发赠水。</div>`,
-    `<button class="btn" onclick="closeModal()">取消</button><button class="btn primary" id="depositSubmit" onclick="completeDeposit()">确认登记收款</button>`);
-  depositMode('pay');
-}
-function depositMode(mode){
-  $('#depositPayTab').classList.toggle('active',mode==='pay');
-  $('#depositRefundTab').classList.toggle('active',mode==='refund');
-  $('#depositSubmit').textContent=mode==='pay'?'确认登记收款':'核对并登记退款';
-  $('#depositForm').innerHTML=`
-    <div class="form-grid">
-      <div class="form-group"><label>容器类型</label><div class="choice-row"><button class="choice active" data-group="depositType" data-value="桶">18.9L 周转桶<small>¥50 / 个</small></button><button class="choice" data-group="depositType" data-value="袋">7.5L 袋装容器<small>¥30 / 个</small></button></div></div>
-      <div class="form-group"><label>${mode==='pay'?'交押金数量':'申请退押数量'}</label><div class="qty-control"><button onclick="depositQty(-1)">−</button><input id="depositQty" value="1" readonly><button onclick="depositQty(1)">+</button></div></div>
-    </div>
-    <div class="amount-summary">
-      <div class="amount-line"><span>已交押金</span><b id="depositOld">桶押金 2 个 / ¥100</b></div>
-      <div class="amount-line"><span>当前实际持有容器</span><b>2 个（可退额度 = 已交 2 − 持有 2 = 0）</b></div>
-      <div class="amount-line total"><span>${mode==='pay'?'本次应收押金':'当前可退押金'}</span><b id="depositAmount">${mode==='pay'?'¥ 50.00':'¥ 0.00'}</b></div>
-    </div>`;
-  choiceBind(); window.depositModeValue=mode; window.depositUnit=50; window.depositNumber=1;
-}
-function depositQty(d){window.depositNumber=Math.max(1,(window.depositNumber||1)+d);$('#depositQty').value=window.depositNumber;updateDepositAmount()}
-function updateDepositAmount(){
-  if(window.depositModeValue==='refund'){$('#depositAmount').textContent='¥ 0.00';return}
-  $('#depositAmount').textContent=`¥ ${(window.depositUnit||50)*(window.depositNumber||1)}.00`;
-}
-function completeDeposit(){
-  if(window.depositModeValue==='refund'){toast('当前押金均被实际持有容器占用，请先登记归还空桶');return}
-  closeModal(); toast('押金收款已独立入账');
-}
-
-function openOrder(){
-  orderQty=2;
-  setModal('代开水单',`${selectedMember()}
-    <div class="form-grid">
-      <div class="form-group"><label><span class="required">*</span>领取方式</label><div class="choice-row"><button class="choice active" data-group="memberMethod" data-value="配送">${ico('truck')}送水到家</button><button class="choice" data-group="memberMethod" data-value="自提">${ico('store')}到店自提</button></div></div>
-      <div class="form-group"><label><span class="required">*</span>选择水品</label><div class="choice-row"><button class="choice active" data-group="water">18.9L 桶装<small>配送桶票可用 8</small></button><button class="choice" data-group="water">7.5L 袋装<small>自提袋票可用 6</small></button></div></div>
-      <div class="form-group"><label><span class="required">*</span>下单数量</label><div class="qty-control"><button onclick="changeOrderQty(-1)">−</button><input id="orderQty" value="2" readonly><button onclick="changeOrderQty(1)">+</button></div></div>
-      <div class="form-group"><label>期望时间</label><select class="input"><option>尽快送达</option><option>今天 14:00–16:00</option><option>今天 16:00–18:00</option></select></div>
-      <div class="form-group full" id="orderAddress"><label><span class="required">*</span>配送地址（将写入水单快照）</label><input class="input" value="幸福里小区 3 栋 2 单元 501 室"></div>
-      <div class="form-group full"><label>备注</label><input class="input" placeholder="如：空桶放门口"></div>
-    </div>
-    <div class="amount-summary">
-      <div class="amount-line"><span>本次预占水票</span><b id="orderReserve">配送桶装水票 2 桶</b></div>
-      <div class="amount-line"><span>预占后剩余可用</span><b>6 桶</b></div>
-    </div>`,
-    `<button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="completeOrder()">确认开单并预占水票</button>`,true);
-  choiceBind();
-}
-function changeOrderQty(d){orderQty=Math.max(1,Math.min(8,orderQty+d));$('#orderQty').value=orderQty;$('#orderReserve').textContent=`配送桶装水票 ${orderQty} 桶`}
-function completeOrder(){
-  closeModal();
-  const badge=$('#orderBadge'); badge.textContent=Number(badge.textContent)+1;
-  toast('水单 WS202610240019 创建成功，已预占水票');
-}
-
-function openFulfill(no,name,water,qty){
-  fulfillQty=qty;
-  setModal('确认交付与容器领还登记',`${selectedMember(name)}
-    <div class="detail-card" style="margin-bottom:14px">
-      <div class="detail-row"><span>水单号 / 水品</span><b>${no} · 小分子团弱碱活性水 ${water} × ${qty}</b></div>
-      <div class="detail-row"><span>水票处理</span><b>核销预占水票 ${qty}</b></div>
-    </div>
-    <div class="form-grid">
-      <div class="form-group"><label>实际交付数量</label><div class="qty-control"><button onclick="stepFulfill('fulfillQty',-1)">−</button><input id="fulfillQty" value="${qty}" readonly><button onclick="stepFulfill('fulfillQty',1)">+</button></div></div>
-      <div class="form-group"><label>满桶领出 (N)</label><div class="qty-control"><button onclick="stepFulfill('outQty',-1)">−</button><input id="outQty" value="${qty}" readonly><button onclick="stepFulfill('outQty',1)">+</button></div></div>
-      <div class="form-group"><label>空桶收回 (M)</label><div class="qty-control"><button onclick="stepFulfill('inQty',-1)">−</button><input id="inQty" value="${qty}" readonly><button onclick="stepFulfill('inQty',1)">+</button></div></div>
-      <div class="form-group"><label>差异原因（数量不一致时必填）</label><input class="input" id="diffReason" placeholder="一致无需填写"></div>
-    </div>
-    <div class="amount-summary" id="fulfillCheck">
-      <div class="amount-line"><span>会员持有变化 (N − M)</span><b id="holdDelta">0 个（等量换水）</b></div>
-      <div class="amount-line"><span>押金覆盖校验</span><b id="depositCheck" style="color:var(--brand-600)">已交押金 2 个，当前覆盖充足</b></div>
-    </div>`,
-    `<button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="completeFulfill('${no}')">${ico('check')}确认交付并核销</button>`,true);
-}
-function stepFulfill(id,d){
-  const el=$('#'+id); el.value=Math.max(0,Number(el.value)+d);
-  const n=Number($('#outQty').value), m=Number($('#inQty').value), delta=n-m;
-  $('#holdDelta').textContent=delta===0?'0 个（等量换水）':(delta>0?`+${delta} 个（新增持有）`:`${delta} 个（归还大于领出）`);
-  const check=$('#depositCheck');
-  if(delta>0){
-    check.style.color='var(--orange-500)';
-    check.textContent=`新增领用 ${delta} 个超出已交押金覆盖，需补交押金 ¥${delta*50}.00`;
-  }else{
-    check.style.color='var(--brand-600)';
-    check.textContent='已交押金覆盖充足，无需重复收押金';
-  }
-}
-function completeFulfill(no){
-  $$('#orderTable .order-no').forEach(el=>{
-    if(el.textContent===no){
-      const tr=el.closest('tr'); tr.dataset.status='已完成';
-      const tag=tr.querySelector('.tag.orange,.tag.green,.tag.aqua');
-      if(tag){tag.className='tag gray';tag.textContent='已完成'}
-      tr.lastElementChild.innerHTML='<span style="color:var(--muted)">已核销</span>';
-    }
-  });
-  closeModal(); toast(`水单 ${no} 已完成交付核销`);
-}
-
 function openNewMember(){
   setModal('新建会员',`
     <div class="form-grid">
@@ -834,91 +594,11 @@ function openNewMember(){
       <div class="form-group full"><label>备注</label><textarea class="textarea" placeholder="选填"></textarea></div>
     </div>`,`<button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveMember()">保存并建档</button>`);
 }
-function saveMember(){
-  const name=$('#newMemberName').value.trim(), phone=$('#newMemberPhone').value.trim();
-  if(!name||!/^1\d{10}$/.test(phone)){toast('请填写姓名和正确的 11 位手机号');return}
-  memberData[name]={bucket:0,bag:0,deposit:'¥0',held:'0 / 0'};
-  closeModal(); toast(`会员「${name}」建档成功，编号 No.008622`);
-}
-function openMemberSearch(){
-  setModal('查询或选择会员',`
-    <label class="field-search" style="width:100%;margin-bottom:14px"><svg class="icon"><use href="#i-search"/></svg><input placeholder="输入姓名、手机号或会员编号"></label>
-    <div class="detail-card" style="cursor:pointer" onclick="openModal('recharge')"><div class="member-cell"><div class="member-avatar">陈</div><div><b>陈静</b><small>138 0013 8000 · No.008621</small></div><span class="tag green" style="margin-left:auto">选择</span></div></div>
-    <div class="detail-card" style="cursor:pointer" onclick="openModal('recharge')"><div class="member-cell"><div class="member-avatar">周</div><div><b>周明</b><small>139 1122 3344 · No.008620</small></div><span class="tag green" style="margin-left:auto">选择</span></div></div>
-    <button class="btn block" onclick="openModal('newMember')">${ico('plus')}未找到？立即新建会员</button>`);
-}
-function openContainer(){
-  setModal('独立登记容器领还',`${selectedMember()}
-    <div class="form-grid">
-      <div class="form-group"><label>容器类型</label><select class="input"><option>18.9L 周转桶</option><option>7.5L 袋装容器</option></select></div>
-      <div class="form-group"><label>关联水单（选填）</label><input class="input" placeholder="如 WS202610240018"></div>
-      <div class="form-group"><label>满桶领出 (N)</label><input class="input" type="number" value="0" min="0"></div>
-      <div class="form-group"><label>空桶收回 (M)</label><input class="input" type="number" value="1" min="0"></div>
-    </div>
-    <div class="form-note">${ico('info')}独立登记仅更新容器台账（持有变化 = N − M），不扣水票、不自动退押金。</div>`,
-    `<button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="closeModal();toast('容器领还流水已保存')">确认登记</button>`);
-}
-function openPlan(){
-  setModal('优惠方案设置',`
-    <div class="form-grid">
-      <div class="form-group full"><label>方案名称</label><input class="input" value="小分子团弱碱活性水 · 配送畅享包"></div>
-      <div class="form-group"><label>充值金额（元）</label><input class="input" type="number" value="200"></div>
-      <div class="form-group"><label>领取方式</label><select class="input"><option>配送</option><option>自提</option></select></div>
-      <div class="form-group"><label>适用水品</label><select class="input"><option>18.9L 桶装水</option><option>7.5L 袋装水</option></select></div>
-      <div class="form-group"><label>状态</label><select class="input"><option>启用</option><option>停用</option></select></div>
-      <div class="form-group"><label>购买数量</label><input class="input" type="number" value="10"></div>
-      <div class="form-group"><label>赠送数量</label><input class="input" type="number" value="2"></div>
-    </div>`,`<button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="closeModal();toast('优惠方案已保存')">保存方案</button>`);
-}
-
 function filterMembers(v){$$('#memberTable tr').forEach(r=>r.classList.toggle('hide',!r.textContent.toLowerCase().includes(v.toLowerCase())))}
 function globalSearch(e){if(e.key==='Enter'){showPage('members');$('#memberSearch').value=e.target.value;filterMembers(e.target.value);e.target.value=''}}
 function filterOrders(btn,s){$$('#page-orders .tab').forEach(t=>t.classList.remove('active'));btn.classList.add('active');$$('#orderTable tr').forEach(r=>r.classList.toggle('hide',s!=='全部'&&r.dataset.status!==s))}
-
-function financeTab(btn,type){
-  btn.parentElement.querySelectorAll('.tab').forEach(b=>b.classList.remove('active')); btn.classList.add('active');
-  const head=$('#financeHead'), body=$('#financeBody');
-  if(type==='充值记录'){
-    head.innerHTML='<th>业务单号 / 时间</th><th>会员</th><th>优惠方案快照</th><th>水费实收</th><th>购水 / 赠水</th><th>收款方式</th><th>操作人</th><th>操作</th>';
-    body.innerHTML='<tr><td><span class="order-no">CZ202610240012</span><br><small>今天 09:38</small></td><td><b>陈静</b></td><td>配送畅享包</td><td><b>¥200.00</b></td><td>购 10 桶 + 赠 2 桶</td><td>现金登记</td><td>小林</td><td><button class="link" onclick="toast(\'已保存充值快照\')">查看快照</button></td></tr><tr><td><span class="order-no">CZ202610240011</span><br><small>今天 09:12</small></td><td><b>吴建国</b></td><td>自提实惠包</td><td><b>¥200.00</b></td><td>购 12 桶 + 赠 2 桶</td><td>微信收款码</td><td>小林</td><td><button class="link" onclick="toast(\'已保存充值快照\')">查看快照</button></td></tr>';
-  }else if(type==='押金记录'){
-    head.innerHTML='<th>业务单号 / 时间</th><th>会员</th><th>业务类型</th><th>容器与数量</th><th>押金金额</th><th>可退额度</th><th>操作人</th><th>操作</th>';
-    body.innerHTML='<tr><td><span class="order-no">YJ202610240015</span><br><small>今天 09:30</small></td><td><b>吴建国</b></td><td><span class="tag green">交押金</span></td><td>18.9L 周转桶 × 1</td><td><b>+¥50.00</b></td><td>¥50.00</td><td>小林</td><td><button class="link">查看凭证</button></td></tr><tr><td><span class="order-no">YJ202610240014</span><br><small>今天 09:02</small></td><td><b>许芳</b></td><td><span class="tag orange">退押金</span></td><td>7.5L 袋装容器 × 1</td><td><b>-¥30.00</b></td><td>¥0.00</td><td>小林</td><td><button class="link">查看凭证</button></td></tr>';
-  }else{
-    head.innerHTML='<th>申请单号 / 时间</th><th>会员</th><th>申请类型</th><th>容器持有核对</th><th>申请金额</th><th>可退金额</th><th>状态</th><th>操作</th>';
-    body.innerHTML='<tr><td><span class="order-no">TK202610240002</span><br><small>今天 09:20</small></td><td><b>许芳</b></td><td>退袋押金</td><td>已归还 1 个</td><td>¥30.00</td><td><b>¥30.00</b></td><td><span class="tag orange">待核对</span></td><td><button class="link" onclick="toast(\'容器归还及原收款单价核对通过\')">确认退款</button></td></tr><tr><td><span class="order-no">TK202610240001</span><br><small>今天 08:40</small></td><td><b>陈静</b></td><td>退桶押金</td><td>持有 2 个占用</td><td>¥100.00</td><td><b>¥0.00</b></td><td><span class="tag red">不可退</span></td><td><button class="link" onclick="toast(\'押金被持有容器占用，需先归还空桶\')">占用原因</button></td></tr>';
-  }
-}
-
-const settingsPlansHTML=$('#settingsContent').innerHTML;
-function settingsTab(btn,type){
-  btn.parentElement.querySelectorAll('.tab').forEach(b=>b.classList.remove('active')); btn.classList.add('active');
-  const el=$('#settingsContent');
-  if(type==='plans'){el.innerHTML=settingsPlansHTML;return}
-  if(type==='deposit'){
-    el.innerHTML=`<div class="setting-grid">
-      <div class="setting-card"><div class="setting-icon">${ico('box')}</div><h3>18.9L 周转桶押金标准</h3><p style="color:var(--muted);font-size:12.5px">按实际交押数量记账，退押金按原批次收款单价退还。</p><div class="setting-row"><span>当前押金单价</span><b>¥ 50.00 / 个</b></div><div class="setting-row"><span>站内可用 / 总量</span><b>86 / 1,200 个</b></div><div class="setting-row"><span>低库存预警</span><b>100 个</b></div><button class="btn sm" style="margin-top:14px" onclick="toast('修改单价只影响新收押金，不影响历史退款原价')">编辑标准</button></div>
-      <div class="setting-card"><div class="setting-icon" style="background:var(--gold-50);color:var(--gold-600)">${ico('box')}</div><h3>7.5L 袋装容器标准</h3><p style="color:var(--muted);font-size:12.5px">水袋配套周转筐/容器押金，回收方式按水站标准执行。</p><div class="setting-row"><span>当前押金单价</span><b>¥ 30.00 / 个</b></div><div class="setting-row"><span>站内可用 / 总量</span><b>162 / 500 个</b></div><div class="setting-row"><span>低库存预警</span><b>80 个</b></div><button class="btn sm" style="margin-top:14px" onclick="toast('修改单价只影响新收押金')">编辑标准</button></div>
-      <div class="setting-card"><div class="setting-icon">${ico('shield')}</div><h3>押金与容器核算规则</h3><p style="color:var(--muted);font-size:12.5px">等量换水不重复收押；新增领用超出覆盖时必须提示补交。</p><div class="setting-row"><span>等量换水重复收押</span><b>禁止</b></div><div class="setting-row"><span>新增领用押金校验</span><b>强制开启</b></div><div class="setting-row"><span>归还容器自动退押</span><b>关闭（需独立核退）</b></div></div>
-    </div>`;
-  }else if(type==='staff'){
-    el.innerHTML=`<div class="table-card"><div class="table-toolbar"><b>员工账号与权限模板</b><button class="btn primary sm" onclick="toast('已打开新建员工窗口')">${ico('plus')}添加员工</button></div><table><thead><tr><th>员工</th><th>角色模板</th><th>会员管理</th><th>充值 / 押金</th><th>水单与容器</th><th>报表导出</th><th>状态</th></tr></thead><tbody><tr><td><b>林晓峰（小林）</b><br><small>YG0012</small></td><td>店员</td><td>查询 / 新建</td><td>收款 / 退款申请</td><td>全部</td><td>禁止全量导出</td><td><span class="tag green">启用</span></td></tr><tr><td><b>王建国（王师傅）</b><br><small>YG0008</small></td><td>送水员</td><td>查询</td><td>押金补交收款</td><td>接单 / 交付 / 领还</td><td>禁止</td><td><span class="tag green">启用</span></td></tr><tr><td><b>林站长</b><br><small>YG0001</small></td><td>站长（管理员）</td><td>全部</td><td>全部</td><td>全部</td><td>全部</td><td><span class="tag green">启用</span></td></tr></tbody></table></div>`;
-  }else{
-    el.innerHTML=`<div class="setting-grid">
-      <div class="setting-card"><div class="setting-icon">${ico('check')}</div><h3>数据自动备份</h3><p style="color:var(--muted);font-size:12.5px">最近备份：今天 03:00，校验完整可用。</p><div class="setting-row"><span>自动备份时间</span><b>每日 03:00</b></div><div class="setting-row"><span>保留周期</span><b>最近 30 天</b></div><button class="btn primary sm" style="margin-top:14px" onclick="toast('手动备份任务已启动')">立即备份</button></div>
-      <div class="setting-card"><div class="setting-icon">${ico('store')}</div><h3>绿麒麟水站信息</h3><p style="color:var(--muted);font-size:12.5px">绿麒麟水站｜小分子团弱碱活性水</p><div class="setting-row"><span>营业时段</span><b>08:00–20:00</b></div><div class="setting-row"><span>会员取消规则</span><b>员工接单前可自助取消</b></div><div class="setting-row"><span>自提核验方式</span><b>6 位取水码 / 扫码</b></div></div>
-      <div class="setting-card"><div class="setting-icon">${ico('shield')}</div><h3>账务安全与幂等</h3><p style="color:var(--muted);font-size:12.5px">所有提交执行幂等校验，已完成单据通过关联原单纠错。</p><div class="setting-row"><span>审计日志</span><b>开启</b></div><div class="setting-row"><span>防重复提交</span><b>开启</b></div><div class="setting-row"><span>会员数据隔离</span><b>服务端强制过滤</b></div></div>
-    </div>`;
-  }
-}
-
-function exportCSV(){
-  const csv='\uFEFF绿麒麟水站经营日报,2026-10-24\n指标,数值\n今日实收合计,2486.00\n水费实收,2206.00\n押金实收,280.00\n今日核销桶装,64\n今日核销袋装,22\n会员持有周转桶,986\n会员持有水袋,298';
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='绿麒麟水站_经营日报_20261024.csv'; a.click(); URL.revokeObjectURL(a.href);
-  toast('绿麒麟水站报表已导出');
-}
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeDrawer()}});
+function settingsTab(btn,type){btn.parentElement.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));btn.classList.add('active');$('#settingsContent').innerHTML='<p>正在加载…</p>';}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeDrawer();}});
 </script>
 </body>
 </html>

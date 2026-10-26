@@ -72,7 +72,7 @@ public sealed class ReportIntegrationTests(TestHost factory)
         }
 
         // 5) AC-18: 管理员 YG0001 导出 4 类核心台账 (members / ticket-ledgers / deposit-ledgers / orders)
-        foreach (var dataset in new[] { "members", "ticket-ledgers", "deposit-ledgers", "orders" })
+        foreach (var dataset in new[] { "members", "ticket-ledgers", "deposit-ledgers", "orders", "recharges" })
         {
             var expResp = await _client.GetAsync($"/api/exports/{dataset}");
             Assert.Equal(HttpStatusCode.OK, expResp.StatusCode);

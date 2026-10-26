@@ -234,6 +234,22 @@ public static class ReportEndpoints
                     }
                     break;
                 }
+                case "container-ledgers":
+                {
+                    sb.AppendLine("流水号,会员ID,容器类型,满桶领出,空桶收回,持有变化,持有余额,操作人,时间");
+                    await using var cmd = TicketBatches.Command(conn, null, "SELECT ledger_no,member_id,container_type,full_out_qty,empty_in_qty,delta_held,held_after,operator_name,created_at FROM plugin_kunlun_waterstation.container_ledgers WHERE tenant_id=@tid ORDER BY id DESC", ("tid", tenantId));
+                    await using var r = await cmd.ExecuteReaderAsync(ct);
+                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{r.GetGuid(1)},{r.GetString(2)},{r.GetInt32(3)},{r.GetInt32(4)},{r.GetInt32(5)},{r.GetInt32(6)},{Csv(r.GetString(7))},{r.GetDateTime(8):O}");
+                    break;
+                }
+                case "recharges":
+                {
+                    sb.AppendLine("充值单号,会员ID,原套餐名称,实收金额,付费票,赠票,收款方式,操作人,时间");
+                    await using var cmd = TicketBatches.Command(conn, null, "SELECT recharge_no,member_id,plan_snapshot->>'name',paid_amount,buy_qty,gift_qty,pay_method,operator_name,created_at FROM plugin_kunlun_waterstation.recharge_orders WHERE tenant_id=@tid ORDER BY created_at DESC", ("tid", tenantId));
+                    await using var r = await cmd.ExecuteReaderAsync(ct);
+                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{r.GetGuid(1)},{Csv(r.IsDBNull(2) ? "" : r.GetString(2))},{r.GetDecimal(3):F2},{r.GetInt32(4)},{r.GetInt32(5)},{r.GetString(6)},{Csv(r.GetString(7))},{r.GetDateTime(8):O}");
+                    break;
+                }
                 default:
                     return Results.BadRequest(new { error = "UNSUPPORTED_EXPORT_DATASET", message = $"不支持的导出类型: {dataset}" });
             }
@@ -248,7 +264,7 @@ public static class ReportEndpoints
             await using var conn = await db.OpenConnectionAsync(ct);
             await using var cmd = new NpgsqlCommand("""
                 SELECT r.recharge_no, m.name, m.member_no, r.plan_snapshot->>'name',
-                       r.paid_amount, r.buy_qty, r.gift_qty, r.pay_method, r.operator_name, r.created_at
+                       r.paid_amount, r.buy_qty, r.gift_qty, r.pay_method, r.operator_name, r.created_at, r.plan_snapshot::text
                 FROM plugin_kunlun_waterstation.recharge_orders r
                 JOIN plugin_kunlun_waterstation.members m ON m.id = r.member_id
                 WHERE r.tenant_id = @tid
@@ -266,6 +282,7 @@ public static class ReportEndpoints
                     memberName = reader.GetString(1),
                     memberNo = reader.GetString(2),
                     planName = reader.IsDBNull(3) ? "优惠水票包" : reader.GetString(3),
+                    planSnapshot = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(reader.GetString(10)),
                     paidAmount = reader.GetDecimal(4),
                     buyQty = reader.GetInt32(5),
                     giftQty = reader.GetInt32(6),

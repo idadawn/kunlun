@@ -117,32 +117,18 @@
 </style>
 </head>
 <body>
-<div data-proto-bar="member"></div>
+
 
 <div class="mobile-showcase">
-  <div class="showcase-bar">
-    <div class="showcase-brand"><span class="dot"></span>绿麒麟 · 会员端微信小程序</div>
-    <div class="showcase-tabs">
-      <button class="active" data-top-member="home" onclick="memberNav('home')">会员首页</button>
-      <button onclick="openMemberOrder('配送')">预约送水</button>
-      <button onclick="openMemberOrder('自提')">到店自提</button>
-      <button data-top-member="orders" onclick="memberNav('orders')">我的水单</button>
-      <button data-top-member="assets" onclick="memberNav('assets')">押金与容器</button>
-      <button data-top-member="records" onclick="memberNav('records')">变动流水</button><button onclick="openWxAuth()">退出登录</button>
-    </div>
-  </div>
+
 
   <div class="phone">
-    <div class="phone-notch"></div>
+
     <div class="phone-screen">
-      <div class="status-bar"><span>09:45</span><span>5G · 100%</span></div>
+
       <div class="wx-navbar">
-        <div class="wx-title">绿麒麟水站 <span class="wx-badge">小程序</span></div>
-        <div class="wx-capsule" title="微信小程序胶囊按钮">
-          <button onclick="openWxAuth()" title="账号设置"><span class="wx-dots"><span></span><span></span><span></span></span></button>
-          <i></i>
-          <button onclick="location.href='index.html'" title="返回演示目录"><span class="wx-bullseye"></span></button>
-        </div>
+        <div class="wx-title">绿麒麟水站 </div>
+
       </div>
 
       <div class="h5-scroll" id="memberScroll">
@@ -192,12 +178,7 @@
             </div>
 
             <div class="h5-section-head"><h3>进行中的水单</h3><a href="javascript:memberNav('orders')">全部水单 ›</a></div>
-            <div class="h5-order" id="homeActiveOrder">
-              <div class="h5-order-top"><div><b>小分子团弱碱活性水 18.9L × 2</b><small>09:42</small></div><span class="tag orange dot">待接单</span></div>
-              <div class="h5-address"><svg class="icon"><use href="#i-location"/></svg>幸福里小区 3 栋 2 单元 501 室</div>
-              <div class="progress"><i style="width:28%"></i></div>
-              <div class="step-labels"><span class="active">已提交预占</span><span>员工接单</span><span>配送中</span><span>已送达</span></div>
-            </div>
+            <div class="h5-order" id="homeActiveOrder"><p>正在加载…</p></div>
 
             <div class="h5-section-head"><h3>我的容器与押金</h3><a href="javascript:memberNav('assets')">查看明细 ›</a></div>
             <div class="h5-card">
@@ -213,37 +194,7 @@
         <!-- 2. 水单 -->
         <div id="member-orders" class="h5-page">
           <div class="mobile-top"><h2>我的水单</h2><button class="btn primary sm" onclick="openMemberOrder('配送')"><svg class="icon sm"><use href="#i-plus"/></svg>预约用水</button></div>
-          <div class="h5-body">
-            <div class="choice-row">
-              <button class="choice-pill active" onclick="filterMemOrders(this,'all')">全部</button>
-              <button class="choice-pill" onclick="filterMemOrders(this,'active')">进行中</button>
-              <button class="choice-pill" onclick="filterMemOrders(this,'done')">已完成</button>
-            </div>
-
-            <div class="h5-order" data-mstatus="active">
-              <div class="h5-order-top"><div><b>18.9L 桶装水 × 2（配送）</b><small>WS202610240018</small></div><span class="tag orange dot">待接单</span></div>
-              <div class="h5-address"><svg class="icon"><use href="#i-location"/></svg>幸福里小区 3 栋 2 单元 501 室（地址快照）</div>
-              <div class="h5-order-foot">
-                <button class="btn sm danger" onclick="cancelMemberOrder(this)">取消水单</button>
-                <button class="btn sm" onclick="GQ.toast('已提醒绿麒麟水站尽快接单')">催单</button>
-              </div>
-            </div>
-
-            <div class="h5-order" data-mstatus="active">
-              <div class="h5-order-top"><div><b>7.5L 袋装水 × 2（到店自提）</b><small>WS202610240012</small></div><span class="tag aqua dot">待自提</span></div>
-              <div class="h5-address"><svg class="icon"><use href="#i-store"/></svg>绿麒麟水站 · 到店出示取水码核销</div>
-              <div class="h5-order-foot">
-                <small style="color:var(--muted)">取水码：<b style="color:var(--brand-700)">862419</b></small>
-                <button class="btn primary sm" onclick="showPickupQr('WS202610240012','862419')">出示取水码</button>
-              </div>
-            </div>
-
-            <div class="h5-order" data-mstatus="done">
-              <div class="h5-order-top"><div><b>18.9L 桶装水 × 2（配送）</b><small>WS202610220009</small></div><span class="tag gray">已完成</span></div>
-              <div class="h5-address"><svg class="icon"><use href="#i-check"/></svg>10月22日 15:26 送达 · 满桶领出 2 / 空桶收回 2</div>
-              <div class="h5-order-foot"><small style="color:var(--muted)">送水员：王师傅</small><button class="btn sm" onclick="openMemberOrder('配送')">再来一单</button></div>
-            </div>
-          </div>
+          <div class="h5-body"><p class="membership-note">正在加载…</p></div>
         </div>
 
         <!-- 3. 资产 -->
@@ -274,14 +225,7 @@
         <!-- 4. 变动记录 -->
         <div id="member-records" class="h5-page">
           <div class="mobile-top"><h2>业务变动流水</h2><button class="btn sm" onclick="memberNav('home')">返回</button></div>
-          <div class="h5-body">
-            <div class="h5-card">
-              <div class="record-item"><div class="record-icon"><svg class="icon"><use href="#i-wallet"/></svg></div><div class="record-main"><b>配送畅享包充值</b><small>今天 09:38 · 购 10 桶 + 赠 2 桶</small></div><div class="record-amount">+12 桶<small>实收 ¥200</small></div></div>
-              <div class="record-item"><div class="record-icon" style="background:var(--orange-50);color:var(--orange-500)"><svg class="icon"><use href="#i-drop"/></svg></div><div class="record-main"><b>下单预占 · 配送桶票</b><small>今天 09:42 · WS202610240018</small></div><div class="record-amount" style="color:var(--orange-500)">预占 2 桶<small>待接单</small></div></div>
-              <div class="record-item"><div class="record-icon"><svg class="icon"><use href="#i-truck"/></svg></div><div class="record-main"><b>配送完成核销</b><small>10月22日 15:26 · 领出2/收回2</small></div><div class="record-amount">-2 桶<small>持有不变</small></div></div>
-              <div class="record-item"><div class="record-icon" style="background:var(--gold-50);color:var(--gold-600)"><svg class="icon"><use href="#i-deposit"/></svg></div><div class="record-main"><b>交周转桶押金</b><small>09月12日 10:08 · ¥50 × 2</small></div><div class="record-amount">+¥100<small>桶押金 2 个</small></div></div>
-            </div>
-          </div>
+          <div class="h5-body"><p class="membership-note">正在加载…</p></div>
         </div>
 
         <!-- 5. 我的 -->
@@ -295,8 +239,8 @@
             <div class="profile-list">
               <div class="profile-row" onclick="openEditAddress()"><svg class="icon"><use href="#i-location"/></svg><span>默认配送地址</span><small id="profAddr">幸福里 3-2-501 ›</small></div>
               <div class="profile-row" onclick="memberNav('records')"><svg class="icon"><use href="#i-order"/></svg><span>充值与用水记录</span><svg class="icon"><use href="#i-chevron"/></svg></div>
-              <div class="profile-row" onclick="GQ.toast('正在拨打绿麒麟水站电话：400-800-8899')"><svg class="icon"><use href="#i-phone"/></svg><span>联系绿麒麟水站</span><small>400-800-8899</small></div>
-              <a class="profile-row" href="index.html"><svg class="icon"><use href="#i-refresh"/></svg><span>返回三端原型入口</span><svg class="icon"><use href="#i-chevron"/></svg></a>
+
+
             </div>
             <p style="text-align:center;color:var(--muted);font-size:11.5px;margin-top:18px;letter-spacing:1.5px">绿麒麟水站｜小分子团弱碱活性水<br><span style="color:var(--brand-600)">鲜活每一滴，好水到你家</span></p>
           </div>
@@ -324,19 +268,14 @@
 
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-let mQty=2, mMode='配送';
-
-document.addEventListener('DOMContentLoaded',()=>{
-  $$('.gq-logo').forEach(e=>e.innerHTML=GQ.logoSvg);
-});
-
+let mQty=1,mMode='配送';
+document.addEventListener('DOMContentLoaded',()=>$$('.gq-logo').forEach(e=>e.innerHTML=GQ.logoSvg));
 function memberNav(page){
   $$('.h5-page').forEach(p=>p.classList.toggle('active',p.id===`member-${page}`));
   $$('[data-member]').forEach(b=>b.classList.toggle('active',b.dataset.member===page));$$('[data-top-member]').forEach(b=>b.classList.toggle('active',b.dataset.topMember===page));
   $('#memberScroll').scrollTop=0;
 }
 function closeMSheet(){$('#mSheetMask').classList.remove('open')}
-
 function openMemberOrder(mode='配送'){
   mMode=mode; mQty=2;
   $('#mSheetTitle').textContent=mode==='配送'?'预约送水到家':'预约到店自提';
@@ -367,15 +306,6 @@ function updateMOrderSummary(){
   const w=$('#mWaterSel').value;
   $('#mResText').textContent=`${mMode}${w}票 ${mQty} ${w}`;
 }
-function submitMemberOrder(){
-  closeMSheet();
-  if(mMode==='自提'){
-    showPickupQr('WS202610240020','915308');
-  }else{
-    GQ.toast(`预约成功！已预占${mMode}桶票 ${mQty} 桶`);
-    memberNav('orders');
-  }
-}
 function showPickupQr(no,code){
   $('#mSheetTitle').textContent='到店自提 · 取水凭证';
   $('#mSheetBody').innerHTML=`
@@ -386,25 +316,6 @@ function showPickupQr(no,code){
     </div>
     <div style="font-size:12px;color:var(--muted);text-align:center">店员核验取水码并交付水品后，预占水票将自动核销</div>`;
   $('#mSheetFoot').innerHTML=`<button class="btn primary" onclick="closeMSheet()">我知道了</button>`;
-  $('#mSheetMask').classList.add('open');
-}
-function cancelMemberOrder(btn){
-  const card=btn.closest('.h5-order');
-  card.querySelector('.tag').className='tag gray';
-  card.querySelector('.tag').textContent='已取消';
-  card.querySelector('.h5-order-foot').innerHTML='<small style="color:var(--muted)">已取消 · 预占配送桶票 2 桶已释放回可用余额</small>';
-  GQ.toast('水单已取消，预占水票已释放');
-}
-function filterMemOrders(btn,status){
-  btn.parentElement.querySelectorAll('.choice-pill').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  $$('#member-orders .h5-order').forEach(c=>c.classList.toggle('hide',status!=='all'&&c.dataset.mstatus!==status));
-}
-function openWxAuth(){ KunlunLive.logoutMember(); }
-function openEditAddress(){
-  $('#mSheetTitle').textContent='修改默认配送地址';
-  $('#mSheetBody').innerHTML=`<div class="field"><label>收货地址（修改不影响已提交的历史水单地址快照）</label><input class="input" id="newAddrInput" value="幸福里小区 3 栋 2 单元 501 室"></div>`;
-  $('#mSheetFoot').innerHTML=`<button class="btn" onclick="closeMSheet()">取消</button><button class="btn primary" onclick="$('#profAddr').textContent=$('#newAddrInput').value+' ›';closeMSheet();GQ.toast('默认地址已更新')">保存</button>`;
   $('#mSheetMask').classList.add('open');
 }
 </script>

@@ -1,4 +1,4 @@
-/* 绿麒麟 · 共享品牌脚本：图标、Logo、Toast、原型导航条 */
+/* 绿麒麟 · 共享品牌脚本：图标、Logo、Toast */
 (function(){
   const SPRITE = `<svg xmlns="http://www.w3.org/2000/svg" style="display:none"><defs>
 <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 2.7s6.5 7.1 6.5 12A6.5 6.5 0 0 1 12 21a6.5 6.5 0 0 1-6.5-6.3C5.5 9.8 12 2.7 12 2.7Z"/><path d="M9 15.2c.4 1.5 1.4 2.2 3 2.4"/></symbol>
@@ -40,8 +40,6 @@
   document.addEventListener('DOMContentLoaded', () => {
     document.body.insertAdjacentHTML('afterbegin', SPRITE);
     document.body.insertAdjacentHTML('beforeend', '<div class="gq-toast" id="gqToast"><svg class="icon"><use href="#i-check"/></svg><span></span></div>');
-    const bar = document.querySelector('[data-proto-bar]');
-    if (bar) bar.outerHTML = GQ.protoBar(bar.dataset.protoBar);
   });
 
   const GQ = window.GQ = {
@@ -66,10 +64,6 @@
       el.classList.add('show');
       clearTimeout(GQ._t);
       GQ._t = setTimeout(() => el.classList.remove('show'), 2600);
-    },
-    protoBar(active){
-      const items = [['admin.html','管理端 PC','admin'],['staff.html','员工端小程序','staff'],['member.html','会员端小程序','member']];
-      return `<div class="gq-dock" title="演示端切换"><a href="index.html" class="home-link">演示目录</a>${items.map(([h,t,k]) => `<a href="${h}" class="${k===active?'active':''}">${t}</a>`).join('')}</div>`;
     }
   };
 })();
