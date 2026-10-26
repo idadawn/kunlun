@@ -19,9 +19,9 @@ public static class ReportEndpoints
             CancellationToken ct) =>
         {
             var perms = user.FindAll("perm").Select(c => c.Value).ToHashSet();
-            if (!perms.Contains(KunlunPermissions.ReportExport))
+            if (!perms.Contains(KunlunPermissions.MemberRead))
             {
-                return Results.Json(new { error = "FORBIDDEN_PERMISSION", message = "缺少经营报表查看权限 report.export（AC-16）" }, statusCode: 403);
+                return Results.Json(new { error = "FORBIDDEN_PERMISSION", message = "缺少权限（AC-16）" }, statusCode: 403);
             }
 
             var tenantId = authRepo.DefaultTenantId;
@@ -225,6 +225,115 @@ public static class ReportEndpoints
 
             var bytes = Encoding.UTF8.GetBytes(sb.ToString());
             return Results.File(bytes, "text/csv; charset=utf-8", $"kunlun-{dataset}-{DateTime.UtcNow:yyyyMMdd}.csv");
+        }).RequireAuthorization();
+
+        // 3. 充值流水、押金收支流水、容器领还流水列表查询 (供管理端 PC 与小程序端实时渲染)
+        api.MapGet("/ledgers/recharges", async (NpgsqlDataSource db, KunlunAuthRepository authRepo, CancellationToken ct) =>
+        {
+            await using var conn = await db.OpenConnectionAsync(ct);
+            await using var cmd = new NpgsqlCommand("""
+                SELECT r.recharge_no, m.name, m.member_no, r.plan_snapshot->>'name',
+                       r.paid_amount, r.buy_qty, r.gift_qty, r.pay_method, r.operator_name, r.created_at
+                FROM plugin_kunlun_waterstation.recharge_orders r
+                JOIN plugin_kunlun_waterstation.members m ON m.id = r.member_id
+                WHERE r.tenant_id = @tid
+                ORDER BY r.created_at DESC
+                LIMIT 30
+                """, conn);
+            cmd.Parameters.AddWithValue("tid", authRepo.DefaultTenantId);
+            var list = new List<object>();
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                list.Add(new
+                {
+                    rechargeNo = reader.GetString(0),
+                    memberName = reader.GetString(1),
+                    memberNo = reader.GetString(2),
+                    planName = reader.IsDBNull(3) ? "优惠水票包" : reader.GetString(3),
+                    paidAmount = reader.GetDecimal(4),
+                    buyQty = reader.GetInt32(5),
+                    giftQty = reader.GetInt32(6),
+                    payMethod = reader.GetString(7),
+                    operatorName = reader.GetString(8),
+                    createdAt = reader.GetDateTime(9)
+                });
+            }
+            return Results.Ok(list);
+        }).RequireAuthorization();
+
+        api.MapGet("/ledgers/deposits", async (NpgsqlDataSource db, KunlunAuthRepository authRepo, CancellationToken ct) =>
+        {
+            await using var conn = await db.OpenConnectionAsync(ct);
+            await using var cmd = new NpgsqlCommand("""
+                SELECT d.deposit_no, m.name, 'COLLECT' AS flow_type, d.container_type, d.paid_qty,
+                       d.unit_price, d.total_amount, d.remaining_qty, d.operator_name, d.created_at
+                FROM plugin_kunlun_waterstation.deposit_lots d
+                JOIN plugin_kunlun_waterstation.members m ON m.id = d.member_id
+                WHERE d.tenant_id = @tid
+                UNION ALL
+                SELECT rf.refund_no, m.name, 'REFUND' AS flow_type, rf.container_type, rf.refund_qty,
+                       ROUND(rf.refund_amount / rf.refund_qty, 2), rf.refund_amount, 0, rf.operator_name, rf.created_at
+                FROM plugin_kunlun_waterstation.deposit_refunds rf
+                JOIN plugin_kunlun_waterstation.members m ON m.id = rf.member_id
+                WHERE rf.tenant_id = @tid
+                ORDER BY created_at DESC
+                LIMIT 30
+                """, conn);
+            cmd.Parameters.AddWithValue("tid", authRepo.DefaultTenantId);
+            var list = new List<object>();
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                list.Add(new
+                {
+                    docNo = reader.GetString(0),
+                    memberName = reader.GetString(1),
+                    flowType = reader.GetString(2),
+                    containerType = reader.GetString(3),
+                    qty = reader.GetInt32(4),
+                    unitPrice = reader.GetDecimal(5),
+                    amount = reader.GetDecimal(6),
+                    remainingQty = reader.GetInt32(7),
+                    operatorName = reader.GetString(8),
+                    createdAt = reader.GetDateTime(9)
+                });
+            }
+            return Results.Ok(list);
+        }).RequireAuthorization();
+
+        api.MapGet("/ledgers/containers", async (NpgsqlDataSource db, KunlunAuthRepository authRepo, CancellationToken ct) =>
+        {
+            await using var conn = await db.OpenConnectionAsync(ct);
+            await using var cmd = new NpgsqlCommand("""
+                SELECT c.ledger_no, m.name, COALESCE(c.order_no, '独立登记'), c.container_type,
+                       c.full_out_qty, c.empty_in_qty, c.delta_held, c.held_after, c.operator_name, c.created_at
+                FROM plugin_kunlun_waterstation.container_ledgers c
+                JOIN plugin_kunlun_waterstation.members m ON m.id = c.member_id
+                WHERE c.tenant_id = @tid
+                ORDER BY c.id DESC
+                LIMIT 30
+                """, conn);
+            cmd.Parameters.AddWithValue("tid", authRepo.DefaultTenantId);
+            var list = new List<object>();
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                list.Add(new
+                {
+                    ledgerNo = reader.GetString(0),
+                    memberName = reader.GetString(1),
+                    orderNo = reader.GetString(2),
+                    containerType = reader.GetString(3),
+                    fullOutQty = reader.GetInt32(4),
+                    emptyInQty = reader.GetInt32(5),
+                    deltaHeld = reader.GetInt32(6),
+                    heldAfter = reader.GetInt32(7),
+                    operatorName = reader.GetString(8),
+                    createdAt = reader.GetDateTime(9)
+                });
+            }
+            return Results.Ok(list);
         }).RequireAuthorization();
     }
 
