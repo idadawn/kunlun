@@ -1,0 +1,13 @@
+{
+  "id": "kunlun.waterstation",
+  "name": "绿麒麟·水站会员管理插件",
+  "version": "0.1.0",
+  "scopes": [
+    "tenant",
+    "standalone"
+  ],
+  "database": {
+    "schema": "plugin_kunlun_waterstation",
+    "rls": true
+  }
+}

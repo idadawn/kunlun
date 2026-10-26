@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>绿麒麟·水站会员管理系统 | 客户演示中心</title>
+<link rel="stylesheet" href="assets/brand.css">
+<script src="assets/brand.js"></script>
+<style>
+body{min-height:100vh;background:
+  radial-gradient(900px 420px at 85% 0%,rgba(14,165,233,.10),transparent 65%),
+  radial-gradient(800px 420px at 10% 15%,rgba(16,152,128,.10),transparent 65%),
+  #f8fafc;color:var(--text)}
+.wrap{max-width:1180px;margin:0 auto;padding:44px 28px 60px}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:44px}
+.brand-row{display:flex;align-items:center;gap:13px}
+.brand-row b{display:block;font-size:19px;color:var(--ink);letter-spacing:1px}
+.brand-row small{color:var(--muted);font-size:12px}
+.signage-pill{display:inline-flex;align-items:center;gap:10px;padding:7px 15px;border-radius:999px;background:#fff;border:1px solid var(--line);box-shadow:var(--shadow-sm);font-size:12.5px;color:var(--ink);font-weight:500}
+.signage-pill i{width:1px;height:12px;background:var(--line)}
+.signage-pill em{font-style:normal;color:var(--brand-600);font-weight:600}
+
+.hero{background:#fff;border:1px solid var(--line);border-radius:24px;padding:42px 44px;box-shadow:var(--shadow-md);display:grid;grid-template-columns:1.25fr 1fr;gap:36px;align-items:center;margin-bottom:28px;position:relative;overflow:hidden}
+.hero:before{content:"";position:absolute;right:-80px;top:-80px;width:320px;height:320px;border-radius:50%;background:radial-gradient(circle,rgba(14,165,233,.10),transparent 70%);pointer-events:none}
+.eyebrow{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;background:var(--brand-50);color:var(--brand-600);font-size:12px;font-weight:600}
+.hero h1{margin:14px 0 12px;font-size:38px;line-height:1.22;color:var(--ink);letter-spacing:1.5px}
+.hero h1 span{background:var(--grad-aqua);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{margin:0;color:var(--muted);font-size:14.5px;line-height:1.7;max-width:520px}
+.hero-metrics{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.m-box{padding:16px 18px;border-radius:16px;background:var(--bg);border:1px solid var(--line-soft)}
+.m-box b{display:block;color:var(--ink);font-size:15px;margin-bottom:4px}
+.m-box small{color:var(--muted);font-size:12px;line-height:1.45;display:block}
+
+.ends{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.end-card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:24px;display:flex;flex-direction:column;box-shadow:var(--shadow-sm);transition:.2s}
+.end-card:hover{transform:translateY(-3px);box-shadow:var(--shadow-lg);border-color:var(--brand-300)}
+.end-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.end-icon{width:46px;height:46px;border-radius:13px;display:grid;place-items:center}
+.mode-tag{font-size:11.5px;padding:4px 10px;border-radius:999px;background:var(--line-soft);color:var(--muted);font-weight:600}
+.end-card h3{margin:0 0 6px;font-size:19px;color:var(--ink)}
+.end-card p{margin:0 0 16px;color:var(--muted);font-size:13px;line-height:1.6;flex:1}
+.end-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px}
+.end-tags span{font-size:11.5px;padding:3px 9px;border-radius:6px;background:var(--bg);border:1px solid var(--line-soft);color:var(--text)}
+.end-actions{display:flex;gap:8px;padding-top:14px;border-top:1px solid var(--line-soft)}
+.end-actions .btn{flex:1}
+
+.foot{display:flex;justify-content:space-between;align-items:center;margin-top:32px;color:var(--muted);font-size:12.5px}
+@media(max-width:920px){.hero,.ends{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="topbar">
+    <div class="brand-row">
+      <span class="gq-logo"></span>
+      <div><b>绿麒麟 · 水站会员管理系统</b><small>客户演示中心 · 三端独立交付预览</small></div>
+    </div>
+    <div class="signage-pill"><b>绿麒麟水站</b><i></i><em>小分子团弱碱活性水</em></div>
+  </header>
+
+  <section class="hero">
+    <div>
+      <span class="eyebrow"><svg class="icon sm"><use href="#i-drop"/></svg>品牌主张 Slogan</span>
+      <h1>鲜活每一滴，<br><span>好水到你家</span></h1>
+      <p>专为社区水站打造的数字化管理系统：将水费实收、四类水票、容器押金与桶袋库存彻底分账。PC 管理端采用全屏工作台展示，员工端与会员端采用微信小程序展示（支持微信手机号一键登录与扫码核销）。</p>
+    </div>
+    <div class="hero-metrics">
+      <div class="m-box"><b>四账独立核算</b><small>水费实收、水票、押金、桶袋流转分账留痕，告别糊涂账</small></div>
+      <div class="m-box"><b>四类水票分列</b><small>自提桶、配送桶、自提袋、配送袋独立管理，不串用不透支</small></div>
+      <div class="m-box"><b>满桶出 / 空桶回</b><small>交付登记领出 N 与收回 M，自动计算持有变化与押金覆盖</small></div>
+      <div class="m-box"><b>自提 6 位取水码</b><small>会员端自动生成取水凭证，店员扫码或输码核销交付</small></div>
+    </div>
+  </section>
+
+  <section class="ends">
+    <div class="end-card">
+      <div class="end-top">
+        <div class="end-icon" style="background:var(--brand-50);color:var(--brand-600)"><svg class="icon lg"><use href="#i-grid"/></svg></div>
+        <span class="mode-tag">PC 全屏桌面工作台</span>
+      </div>
+      <h3>管理端 PC</h3>
+      <p>面向站长与管理员：100% 全屏桌面视图，查看经营总览、会员 360° 档案、水单调度、充值押金对账与桶袋台账。</p>
+      <div class="end-tags"><span>经营总览</span><span>会员 360°</span><span>水单管理</span><span>充值与押金</span><span>桶袋台账</span><span>业务设置</span></div>
+      <div class="end-actions">
+        <a class="btn primary" href="admin.html">进入管理端演示 <svg class="icon sm"><use href="#i-arrow-right"/></svg></a>
+        <a class="btn" href="admin.html" target="_blank" title="新窗口打开">新窗口</a>
+      </div>
+    </div>
+
+    <div class="end-card">
+      <div class="end-top">
+        <div class="end-icon" style="background:var(--aqua-50);color:var(--aqua-600)"><svg class="icon lg"><use href="#i-truck"/></svg></div>
+        <span class="mode-tag">微信小程序样机 + 顶部切页</span>
+      </div>
+      <h3>员工端小程序</h3>
+      <p>面向店员与送水员：居中手机样机展示，支持顶部一键切换工作台、水费充值、独立交押金、取水码核销与交付登记。</p>
+      <div class="end-tags"><span>当班工作台</span><span>水费充值</span><span>独立交押金</span><span>取水码核销</span><span>确认交付</span></div>
+      <div class="end-actions">
+        <a class="btn primary" href="staff.html">进入员工端演示 <svg class="icon sm"><use href="#i-arrow-right"/></svg></a>
+        <a class="btn" href="staff.html" target="_blank">新窗口</a>
+      </div>
+    </div>
+
+    <div class="end-card">
+      <div class="end-top">
+        <div class="end-icon" style="background:var(--blue-50);color:var(--blue-500)"><svg class="icon lg"><use href="#i-user"/></svg></div>
+        <span class="mode-tag">微信小程序样机 + 顶部切页</span>
+      </div>
+      <h3>会员端小程序</h3>
+      <p>面向水站会员：清爽活水视觉，展示四类水票可用与预占，支持「送水到家」「到店自提」预约、出示取水码与资产查询。</p>
+      <div class="end-tags"><span>四类水票</span><span>送水到家</span><span>到店自提码</span><span>水单进度</span><span>押金明细</span></div>
+      <div class="end-actions">
+        <a class="btn primary" href="member.html">进入会员端演示 <svg class="icon sm"><use href="#i-arrow-right"/></svg></a>
+        <a class="btn" href="member.html" target="_blank">新窗口</a>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span>绿麒麟水站｜小分子团弱碱活性水 · V1.0 客户演示版</span>
+    <span><a href="docs/PRD.md">查看 PRD 文档</a></span>
+  </footer>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('.gq-logo').forEach(e=>e.innerHTML=GQ.logoSvg));
+</script>
+</body>
+</html>

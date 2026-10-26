@@ -1,0 +1,16 @@
+{
+  "name": "kunlun",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Kunlun (绿麒麟·水站会员管理系统) Monorepo",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "preview:prototypes": "python3 -m http.server 8765"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.2"
+  }
+}

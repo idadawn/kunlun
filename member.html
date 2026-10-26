@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>会员端小程序 | 绿麒麟·水站会员管理系统</title>
+<link rel="stylesheet" href="assets/brand.css">
+<script src="assets/brand.js"></script>
+<style>
+.h5-scroll{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:76px}
+.h5-page{display:none}.h5-page.active{display:block}
+
+/* 会员端顶部品牌视觉卡（清爽玉青渐变） */
+.member-hero{background:var(--grad-card);color:#fff;padding:12px 18px 54px;border-radius:0 0 28px 28px;position:relative;overflow:hidden}
+.member-hero:before{content:"";position:absolute;right:-50px;top:-40px;width:190px;height:190px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.18),transparent 68%)}
+.member-hero:after{content:"";position:absolute;left:-40px;bottom:-60px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(14,165,233,.25),transparent 70%)}
+.hero-top{display:flex;align-items:center;gap:11px;position:relative;z-index:1}
+.hero-top .gq-logo{width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.18);box-shadow:inset 0 0 0 1px rgba(255,255,255,.28)}
+.hero-top b{display:block;font-size:16px;letter-spacing:1.2px}
+.hero-top small{color:rgba(255,255,255,.82);font-size:11px;letter-spacing:.6px}
+.vip-badge{margin-left:auto;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.16);color:#fff;font-size:11px;font-weight:600;border:1px solid rgba(255,255,255,.25)}
+.hero-slogan{margin-top:14px;padding:9px 12px;border-radius:12px;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:space-between;position:relative;z-index:1;font-size:12px}
+.hero-slogan b{color:#fff;letter-spacing:2px}
+.hero-slogan span{color:rgba(255,255,255,.8);font-size:11px}
+
+.h5-body{padding:14px 16px}
+.h5-body.overlap{margin-top:-38px;position:relative;z-index:2}
+.h5-card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px 15px;margin-bottom:12px;box-shadow:var(--shadow-sm)}
+
+/* 四类水票资产卡 */
+.wallet-card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:15px 16px;margin-bottom:12px;box-shadow:var(--shadow-md)}
+.wallet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.wallet-head b{color:var(--ink);font-size:14.5px}
+.wallet-head a{font-size:12px;color:var(--brand-600);font-weight:500}
+.ticket-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.ticket-box{padding:10px 12px;border-radius:12px;background:var(--bg);border:1px solid var(--line-soft)}
+.ticket-box .num{font-size:24px;font-weight:700;color:var(--ink);line-height:1.1}
+.ticket-box .num small{font-size:12px;font-weight:500;color:var(--muted);margin-left:3px}
+.ticket-box .label{font-size:11.5px;color:var(--muted);margin-top:3px;display:flex;justify-content:space-between}
+.ticket-box .label em{font-style:normal;color:var(--orange-500)}
+
+/* 两大下单入口 */
+.member-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.member-action{border:0;border-radius:16px;padding:14px 13px;background:var(--grad-brand);color:#fff;display:flex;align-items:center;gap:10px;text-align:left;box-shadow:0 8px 20px rgba(18,146,95,.22)}
+.member-action.aqua{background:var(--grad-aqua);box-shadow:0 8px 20px rgba(25,169,189,.2)}
+.member-action b{display:block;font-size:14.5px;letter-spacing:.5px}
+.member-action small{font-size:11px;opacity:.88}
+
+.h5-section-head{display:flex;align-items:center;justify-content:space-between;margin:14px 2px 8px}
+.h5-section-head h3{margin:0;font-size:14.5px;color:var(--ink)}
+.h5-section-head a{font-size:12px;color:var(--muted)}
+
+.h5-order{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px 15px;margin-bottom:11px;box-shadow:var(--shadow-sm)}
+.h5-order-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.h5-order-top b{color:var(--ink);font-size:14.5px}
+.h5-order-top small{color:var(--muted);font-size:11.5px;margin-left:6px}
+.h5-address{display:flex;align-items:center;gap:6px;color:var(--text);font-size:12px;margin:6px 0 10px}
+.h5-address .icon{width:14px;height:14px;color:var(--brand-500)}
+.progress{height:5px;background:var(--line-soft);border-radius:999px;overflow:hidden}
+.progress i{display:block;height:100%;background:var(--grad-brand);border-radius:999px}
+.step-labels{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin-top:6px}
+.step-labels .active{color:var(--brand-600);font-weight:600}
+.h5-order-foot{display:flex;align-items:center;justify-content:space-between;margin-top:11px;padding-top:10px;border-top:1px solid var(--line-soft)}
+
+.asset-mini-grid{display:grid;grid-template-columns:repeat(3,1fr);text-align:center}
+.asset-mini-grid b{display:block;font-family:var(--font-num);font-size:19px;color:var(--ink)}
+.asset-mini-grid small{font-size:11px;color:var(--muted)}
+
+.mobile-top{display:flex;align-items:center;justify-content:space-between;padding:10px 16px 4px}
+.mobile-top h2{margin:0;font-size:19px;color:var(--ink)}
+.choice-row{display:flex;gap:7px;margin-bottom:12px}
+.choice-pill{flex:1;height:34px;border:1px solid var(--line);background:#fff;border-radius:999px;font-size:12.5px;color:var(--muted)}
+.choice-pill.active{background:var(--brand-500);border-color:var(--brand-500);color:#fff;font-weight:600}
+
+.detail-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px;color:var(--muted)}
+.detail-row:last-child{border-bottom:0}
+.detail-row b{color:var(--ink)}
+.record-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line-soft)}
+.record-item:last-child{border-bottom:0}
+.record-icon{width:34px;height:34px;border-radius:10px;background:var(--brand-50);color:var(--brand-600);display:grid;place-items:center;flex:none}
+.record-main{flex:1}
+.record-main b{display:block;font-size:13px;color:var(--ink)}
+.record-main small{color:var(--muted);font-size:11px}
+.record-amount{text-align:right;font-family:var(--font-num);font-weight:700;color:var(--ink)}
+.record-amount small{display:block;font-weight:400;color:var(--muted);font-size:10.5px}
+
+.profile-list{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-bottom:12px}
+.profile-row{display:flex;align-items:center;gap:11px;padding:13px 15px;border-bottom:1px solid var(--line-soft);font-size:13.5px;color:var(--ink);cursor:pointer}
+.profile-row:last-child{border-bottom:0}
+.profile-row .icon:first-child{color:var(--brand-600)}
+.profile-row span{flex:1}
+.profile-row small{color:var(--muted);font-size:12px}
+
+.h5-bottom{position:absolute;left:0;right:0;bottom:0;height:64px;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);z-index:20}
+.h5-nav{border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;color:var(--muted)}
+.h5-nav.active{color:var(--brand-600);font-weight:600}
+
+/* Sheet */
+.sheet-mask{position:absolute;inset:0;background:rgba(6,40,31,.48);z-index:40;display:none;align-items:flex-end}
+.sheet-mask.open{display:flex}
+.sheet{width:100%;max-height:85%;background:#fff;border-radius:22px 22px 0 0;display:flex;flex-direction:column;overflow:hidden}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line)}
+.sheet-head h3{margin:0;font-size:15.5px;color:var(--ink)}
+.sheet-close{border:0;background:var(--line-soft);width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:var(--muted)}
+.sheet-body{padding:14px 18px;overflow-y:auto;flex:1}
+.sheet-foot{display:flex;gap:10px;padding:12px 18px 18px;border-top:1px solid var(--line)}
+.sheet-foot .btn{flex:1;height:42px}
+.qty-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0}
+.qty-control{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:9px;overflow:hidden;height:34px}
+.qty-control button{width:34px;height:100%;border:0;background:var(--line-soft);font-size:15px}
+.qty-control input{width:44px;height:100%;border:0;text-align:center;font-weight:700}
+.qr-box{text-align:center;padding:14px;background:var(--brand-50);border-radius:14px;margin:8px 0}
+.qr-code{font-family:var(--font-num);font-size:28px;font-weight:700;letter-spacing:6px;color:var(--brand-700)}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<div data-proto-bar="member"></div>
+
+<div class="mobile-showcase">
+  <div class="showcase-bar">
+    <div class="showcase-brand"><span class="dot"></span>绿麒麟 · 会员端微信小程序</div>
+    <div class="showcase-tabs">
+      <button class="active" data-top-member="home" onclick="memberNav('home')">会员首页</button>
+      <button onclick="openMemberOrder('配送')">预约送水</button>
+      <button onclick="openMemberOrder('自提')">到店自提</button>
+      <button data-top-member="orders" onclick="memberNav('orders')">我的水单</button>
+      <button data-top-member="assets" onclick="memberNav('assets')">押金与容器</button>
+      <button data-top-member="records" onclick="memberNav('records')">变动流水</button><button onclick="openWxAuth()">微信一键登录</button>
+    </div>
+  </div>
+
+  <div class="phone">
+    <div class="phone-notch"></div>
+    <div class="phone-screen">
+      <div class="status-bar"><span>09:45</span><span>5G · 100%</span></div>
+      <div class="wx-navbar">
+        <div class="wx-title">绿麒麟水站 <span class="wx-badge">小程序</span></div>
+        <div class="wx-capsule" title="微信小程序胶囊按钮">
+          <button onclick="openWxAuth()" title="微信授权设置"><span class="wx-dots"><span></span><span></span><span></span></span></button>
+          <i></i>
+          <button onclick="location.href='index.html'" title="返回演示目录"><span class="wx-bullseye"></span></button>
+        </div>
+      </div>
+
+      <div class="h5-scroll" id="memberScroll">
+        <!-- 1. 首页 -->
+        <div id="member-home" class="h5-page active">
+          <div class="member-hero">
+            <div class="hero-top">
+              <div class="gq-logo"></div>
+              <div><b>绿麒麟水站</b><small>小分子团弱碱活性水</small></div>
+              <span class="vip-badge">麒麟会员 · 陈静</span>
+            </div>
+            <div class="hero-slogan"><b>鲜活每一滴，好水到你家</b><span>No.008621</span></div>
+          </div>
+
+          <div class="h5-body overlap">
+            <div class="wallet-card">
+              <div class="wallet-head"><b>我的水票资产</b><a href="javascript:memberNav('records')">变动流水 ›</a></div>
+              <div class="ticket-grid">
+                <div class="ticket-box">
+                  <div class="num" id="mDelivBucket">8<small>桶</small></div>
+                  <div class="label"><span>配送桶票可用</span><em id="mPreHold">预占 2</em></div>
+                </div>
+                <div class="ticket-box">
+                  <div class="num">10<small>桶</small></div>
+                  <div class="label"><span>自提桶票可用</span></div>
+                </div>
+                <div class="ticket-box">
+                  <div class="num">6<small>袋</small></div>
+                  <div class="label"><span>自提袋票可用</span></div>
+                </div>
+                <div class="ticket-box">
+                  <div class="num">0<small>袋</small></div>
+                  <div class="label"><span>配送袋票可用</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="member-actions">
+              <button class="member-action" onclick="openMemberOrder('配送')">
+                <svg class="icon xl"><use href="#i-truck"/></svg>
+                <span><b>送水到家</b><small>扣配送票 · 预约上门</small></span>
+              </button>
+              <button class="member-action aqua" onclick="openMemberOrder('自提')">
+                <svg class="icon xl"><use href="#i-store"/></svg>
+                <span><b>到店自提</b><small>扣自提票 · 取水码核销</small></span>
+              </button>
+            </div>
+
+            <div class="h5-section-head"><h3>进行中的水单</h3><a href="javascript:memberNav('orders')">全部水单 ›</a></div>
+            <div class="h5-order" id="homeActiveOrder">
+              <div class="h5-order-top"><div><b>小分子团弱碱活性水 18.9L × 2</b><small>09:42</small></div><span class="tag orange dot">待接单</span></div>
+              <div class="h5-address"><svg class="icon"><use href="#i-location"/></svg>幸福里小区 3 栋 2 单元 501 室</div>
+              <div class="progress"><i style="width:28%"></i></div>
+              <div class="step-labels"><span class="active">已提交预占</span><span>员工接单</span><span>配送中</span><span>已送达</span></div>
+            </div>
+
+            <div class="h5-section-head"><h3>我的容器与押金</h3><a href="javascript:memberNav('assets')">查看明细 ›</a></div>
+            <div class="h5-card">
+              <div class="asset-mini-grid">
+                <div><b>2</b><small>持有周转桶</small></div>
+                <div><b>1</b><small>持有水袋容器</small></div>
+                <div><b>¥130</b><small>已交押金</small></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 水单 -->
+        <div id="member-orders" class="h5-page">
+          <div class="mobile-top"><h2>我的水单</h2><button class="btn primary sm" onclick="openMemberOrder('配送')"><svg class="icon sm"><use href="#i-plus"/></svg>预约用水</button></div>
+          <div class="h5-body">
+            <div class="choice-row">
+              <button class="choice-pill active" onclick="filterMemOrders(this,'all')">全部</button>
+              <button class="choice-pill" onclick="filterMemOrders(this,'active')">进行中</button>
+              <button class="choice-pill" onclick="filterMemOrders(this,'done')">已完成</button>
+            </div>
+
+            <div class="h5-order" data-mstatus="active">
+              <div class="h5-order-top"><div><b>18.9L 桶装水 × 2（配送）</b><small>WS202610240018</small></div><span class="tag orange dot">待接单</span></div>
+              <div class="h5-address"><svg class="icon"><use href="#i-location"/></svg>幸福里小区 3 栋 2 单元 501 室（地址快照）</div>
+              <div class="h5-order-foot">
+                <button class="btn sm danger" onclick="cancelMemberOrder(this)">取消水单</button>
+                <button class="btn sm" onclick="GQ.toast('已提醒绿麒麟水站尽快接单')">催单</button>
+              </div>
+            </div>
+
+            <div class="h5-order" data-mstatus="active">
+              <div class="h5-order-top"><div><b>7.5L 袋装水 × 2（到店自提）</b><small>WS202610240012</small></div><span class="tag aqua dot">待自提</span></div>
+              <div class="h5-address"><svg class="icon"><use href="#i-store"/></svg>绿麒麟水站 · 到店出示取水码核销</div>
+              <div class="h5-order-foot">
+                <small style="color:var(--muted)">取水码：<b style="color:var(--brand-700)">862419</b></small>
+                <button class="btn primary sm" onclick="showPickupQr('WS202610240012','862419')">出示取水码</button>
+              </div>
+            </div>
+
+            <div class="h5-order" data-mstatus="done">
+              <div class="h5-order-top"><div><b>18.9L 桶装水 × 2（配送）</b><small>WS202610220009</small></div><span class="tag gray">已完成</span></div>
+              <div class="h5-address"><svg class="icon"><use href="#i-check"/></svg>10月22日 15:26 送达 · 满桶领出 2 / 空桶收回 2</div>
+              <div class="h5-order-foot"><small style="color:var(--muted)">送水员：王师傅</small><button class="btn sm" onclick="openMemberOrder('配送')">再来一单</button></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. 资产 -->
+        <div id="member-assets" class="h5-page">
+          <div class="mobile-top"><h2>押金与容器资产</h2><a href="javascript:memberNav('records')" style="font-size:12px">全部流水 ›</a></div>
+          <div class="h5-body">
+            <div class="h5-card" style="background:var(--grad-card);color:#fff">
+              <small style="opacity:.8">我的在池押金总额</small>
+              <div class="num" style="font-size:30px;font-weight:700;margin:4px 0">¥ 130.00</div>
+              <div style="display:flex;justify-content:space-between;font-size:11.5px;opacity:.88"><span>周转桶押金 ¥100（2个）</span><span>袋容器押金 ¥30（1个）</span></div>
+            </div>
+            <div class="h5-section-head"><h3>18.9L 周转桶</h3><span class="tag green">押金已覆盖</span></div>
+            <div class="h5-card">
+              <div class="detail-row"><span>已交押金（原单价 ¥50/个）</span><b>2 个 / ¥100.00</b></div>
+              <div class="detail-row"><span>当前实际持有</span><b>2 个</b></div>
+              <div class="detail-row"><span>当前可退押金（已交 − 持有）</span><b style="color:var(--brand-600)">0 个 / ¥0.00</b></div>
+            </div>
+            <div class="h5-section-head"><h3>7.5L 袋装配套容器</h3><span class="tag green">押金已覆盖</span></div>
+            <div class="h5-card">
+              <div class="detail-row"><span>已交押金（原单价 ¥30/个）</span><b>1 个 / ¥30.00</b></div>
+              <div class="detail-row"><span>当前实际持有</span><b>1 个</b></div>
+              <div class="detail-row"><span>当前可退押金</span><b style="color:var(--brand-600)">0 个 / ¥0.00</b></div>
+            </div>
+            <button class="btn block" onclick="GQ.toast('请先将空桶归还至绿麒麟水站或交由送水员登记收回，即可退还对应押金')">如何退押金？</button>
+          </div>
+        </div>
+
+        <!-- 4. 变动记录 -->
+        <div id="member-records" class="h5-page">
+          <div class="mobile-top"><h2>业务变动流水</h2><button class="btn sm" onclick="memberNav('home')">返回</button></div>
+          <div class="h5-body">
+            <div class="h5-card">
+              <div class="record-item"><div class="record-icon"><svg class="icon"><use href="#i-wallet"/></svg></div><div class="record-main"><b>配送畅享包充值</b><small>今天 09:38 · 购 10 桶 + 赠 2 桶</small></div><div class="record-amount">+12 桶<small>实收 ¥200</small></div></div>
+              <div class="record-item"><div class="record-icon" style="background:var(--orange-50);color:var(--orange-500)"><svg class="icon"><use href="#i-drop"/></svg></div><div class="record-main"><b>下单预占 · 配送桶票</b><small>今天 09:42 · WS202610240018</small></div><div class="record-amount" style="color:var(--orange-500)">预占 2 桶<small>待接单</small></div></div>
+              <div class="record-item"><div class="record-icon"><svg class="icon"><use href="#i-truck"/></svg></div><div class="record-main"><b>配送完成核销</b><small>10月22日 15:26 · 领出2/收回2</small></div><div class="record-amount">-2 桶<small>持有不变</small></div></div>
+              <div class="record-item"><div class="record-icon" style="background:var(--gold-50);color:var(--gold-600)"><svg class="icon"><use href="#i-deposit"/></svg></div><div class="record-main"><b>交周转桶押金</b><small>09月12日 10:08 · ¥50 × 2</small></div><div class="record-amount">+¥100<small>桶押金 2 个</small></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. 我的 -->
+        <div id="member-profile" class="h5-page">
+          <div class="mobile-top"><h2>个人中心</h2><span class="tag gold">麒麟会员</span></div>
+          <div class="h5-body">
+            <div class="h5-card" style="display:flex;align-items:center;gap:12px">
+              <div class="gq-logo" style="width:46px;height:46px"></div>
+              <div><b style="font-size:16px;color:var(--ink)">陈静</b><div style="color:var(--muted);font-size:12px;margin-top:2px">138 0013 8000 · No.008621</div></div>
+            </div>
+            <div class="profile-list">
+              <div class="profile-row" onclick="openEditAddress()"><svg class="icon"><use href="#i-location"/></svg><span>默认配送地址</span><small id="profAddr">幸福里 3-2-501 ›</small></div>
+              <div class="profile-row" onclick="memberNav('records')"><svg class="icon"><use href="#i-order"/></svg><span>充值与用水记录</span><svg class="icon"><use href="#i-chevron"/></svg></div>
+              <div class="profile-row" onclick="GQ.toast('正在拨打绿麒麟水站电话：400-800-8899')"><svg class="icon"><use href="#i-phone"/></svg><span>联系绿麒麟水站</span><small>400-800-8899</small></div>
+              <a class="profile-row" href="index.html"><svg class="icon"><use href="#i-refresh"/></svg><span>返回三端原型入口</span><svg class="icon"><use href="#i-chevron"/></svg></a>
+            </div>
+            <p style="text-align:center;color:var(--muted);font-size:11.5px;margin-top:18px;letter-spacing:1.5px">绿麒麟水站｜小分子团弱碱活性水<br><span style="color:var(--brand-600)">鲜活每一滴，好水到你家</span></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 底部弹窗 -->
+      <div class="sheet-mask" id="mSheetMask" onclick="if(event.target===this)closeMSheet()">
+        <div class="sheet">
+          <div class="sheet-head"><h3 id="mSheetTitle">预约用水</h3><button class="sheet-close" onclick="closeMSheet()"><svg class="icon sm"><use href="#i-close"/></svg></button></div>
+          <div class="sheet-body" id="mSheetBody"></div>
+          <div class="sheet-foot" id="mSheetFoot"></div>
+        </div>
+      </div>
+
+      <nav class="h5-bottom">
+        <button class="h5-nav active" data-member="home" onclick="memberNav('home')"><svg class="icon"><use href="#i-home"/></svg>首页</button>
+        <button class="h5-nav" data-member="orders" onclick="memberNav('orders')"><svg class="icon"><use href="#i-order"/></svg>水单</button>
+        <button class="h5-nav" data-member="assets" onclick="memberNav('assets')"><svg class="icon"><use href="#i-box"/></svg>资产</button>
+        <button class="h5-nav" data-member="profile" onclick="memberNav('profile')"><svg class="icon"><use href="#i-user"/></svg>我的</button>
+      </nav>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+let mQty=2, mMode='配送';
+
+document.addEventListener('DOMContentLoaded',()=>{
+  $$('.gq-logo').forEach(e=>e.innerHTML=GQ.logoSvg);
+});
+
+function memberNav(page){
+  $$('.h5-page').forEach(p=>p.classList.toggle('active',p.id===`member-${page}`));
+  $$('[data-member]').forEach(b=>b.classList.toggle('active',b.dataset.member===page));$$('[data-top-member]').forEach(b=>b.classList.toggle('active',b.dataset.topMember===page));
+  $('#memberScroll').scrollTop=0;
+}
+function closeMSheet(){$('#mSheetMask').classList.remove('open')}
+
+function openMemberOrder(mode='配送'){
+  mMode=mode; mQty=2;
+  $('#mSheetTitle').textContent=mode==='配送'?'预约送水到家':'预约到店自提';
+  $('#mSheetBody').innerHTML=`
+    <div class="field"><label>选择水品（绿麒麟·小分子团弱碱活性水）</label>
+      <select class="select" id="mWaterSel" onchange="updateMOrderSummary()">
+        <option value="桶">18.9L 桶装水（${mode}桶票可用 ${mode==='配送'?8:10} 桶）</option>
+        <option value="袋">7.5L 袋装水（自提袋票可用 6 袋）</option>
+      </select>
+    </div>
+    <div class="qty-row"><span>用水数量</span><div class="qty-control"><button onclick="stepMQty(-1)">−</button><input id="mOrdQty" value="2" readonly><button onclick="stepMQty(1)">+</button></div></div>
+    ${mode==='配送'?`<div class="field"><label>配送地址（下单后保存为本单快照）</label><input class="input" value="幸福里小区 3 栋 2 单元 501 室"></div>
+    <div class="field"><label>期望送达时段</label><select class="select"><option>尽快送达（约 45 分钟内）</option><option>今天 14:00–16:00</option><option>今天 16:00–18:00</option></select></div>`:
+    `<div class="field"><label>自提门店</label><input class="input" value="绿麒麟水站（营业时间 08:00–20:00）" readonly></div>`}
+    <div class="field"><label>备注（选填）</label><input class="input" placeholder="如：空桶放门口 / 到店自取"></div>
+    <div style="background:var(--brand-50);padding:10px 12px;border-radius:11px;font-size:12px;color:var(--brand-700)">
+      本次将预占 <b id="mResText">${mode}桶票 2 桶</b>；交付核销前您可在“待接单”状态随时取消并释放水票。
+    </div>`;
+  $('#mSheetFoot').innerHTML=`<button class="btn" onclick="closeMSheet()">取消</button><button class="btn primary" onclick="submitMemberOrder()">确认提交</button>`;
+  $('#mSheetMask').classList.add('open');
+}
+function stepMQty(d){
+  mQty=Math.max(1,Math.min(8,mQty+d));
+  $('#mOrdQty').value=mQty;
+  updateMOrderSummary();
+}
+function updateMOrderSummary(){
+  const w=$('#mWaterSel').value;
+  $('#mResText').textContent=`${mMode}${w}票 ${mQty} ${w}`;
+}
+function submitMemberOrder(){
+  closeMSheet();
+  if(mMode==='自提'){
+    showPickupQr('WS202610240020','915308');
+  }else{
+    GQ.toast(`预约成功！已预占${mMode}桶票 ${mQty} 桶`);
+    memberNav('orders');
+  }
+}
+function showPickupQr(no,code){
+  $('#mSheetTitle').textContent='到店自提 · 取水凭证';
+  $('#mSheetBody').innerHTML=`
+    <div class="qr-box">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">请向绿麒麟水站店员出示此取水码</div>
+      <div class="qr-code">${code}</div>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:6px">关联水单：${no}</div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);text-align:center">店员核验取水码并交付水品后，预占水票将自动核销</div>`;
+  $('#mSheetFoot').innerHTML=`<button class="btn primary" onclick="closeMSheet()">我知道了</button>`;
+  $('#mSheetMask').classList.add('open');
+}
+function cancelMemberOrder(btn){
+  const card=btn.closest('.h5-order');
+  card.querySelector('.tag').className='tag gray';
+  card.querySelector('.tag').textContent='已取消';
+  card.querySelector('.h5-order-foot').innerHTML='<small style="color:var(--muted)">已取消 · 预占配送桶票 2 桶已释放回可用余额</small>';
+  GQ.toast('水单已取消，预占水票已释放');
+}
+function filterMemOrders(btn,status){
+  btn.parentElement.querySelectorAll('.choice-pill').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  $$('#member-orders .h5-order').forEach(c=>c.classList.toggle('hide',status!=='all'&&c.dataset.mstatus!==status));
+}
+function openWxAuth(){
+  $('#mSheetTitle').textContent='微信小程序 · 手机号一键登录';
+  $('#mSheetBody').innerHTML=`
+    <div style="text-align:center;padding:8px 0 14px">
+      <div style="width:52px;height:52px;border-radius:14px;background:var(--grad-aqua);display:grid;place-items:center;margin:0 auto 10px;color:#fff;font-weight:700;font-size:20px">麒</div>
+      <b style="font-size:16px;color:var(--ink)">绿麒麟水站｜小分子团弱碱活性水</b>
+      <p style="margin:4px 0 0;color:var(--muted);font-size:12px">授权微信绑定手机号，自动关联门店已建档会员水票与押金资产</p>
+    </div>
+    <button class="wx-auth-btn" onclick="closeMSheet();GQ.toast('微信手机号 138****8000 授权成功，已绑定会员 No.008621')">微信手机号一键快捷登录</button>
+    <div style="text-align:center;font-size:11.5px;color:var(--muted);margin-top:10px">调用微信原生 getPhoneNumber 组件 · 防冒领安全校验</div>`;
+  $('#mSheetFoot').innerHTML='';
+  $('#mSheetMask').classList.add('open');
+}
+function openEditAddress(){
+  $('#mSheetTitle').textContent='修改默认配送地址';
+  $('#mSheetBody').innerHTML=`<div class="field"><label>收货地址（修改不影响已提交的历史水单地址快照）</label><input class="input" id="newAddrInput" value="幸福里小区 3 栋 2 单元 501 室"></div>`;
+  $('#mSheetFoot').innerHTML=`<button class="btn" onclick="closeMSheet()">取消</button><button class="btn primary" onclick="$('#profAddr').textContent=$('#newAddrInput').value+' ›';closeMSheet();GQ.toast('默认地址已更新')">保存</button>`;
+  $('#mSheetMask').classList.add('open');
+}
+</script>
+</body>
+</html>

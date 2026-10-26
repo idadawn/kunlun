@@ -1,0 +1,9 @@
+{
+  "name": "@kunlun/mini-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "绿麒麟水站 · 员工端与会员端微信小程序 (Taro 4 + React 18)",
+  "dependencies": {
+    "@kunlun/shared": "workspace:*"
+  }
+}

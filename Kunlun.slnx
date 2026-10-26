@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/services/">
+    <Project Path="services/Kunlun.WaterStation/Kunlun.WaterStation.csproj" />
+    <Project Path="services/Kunlun.WaterStation.Tests/Kunlun.WaterStation.Tests.csproj" />
+  </Folder>
+</Solution>

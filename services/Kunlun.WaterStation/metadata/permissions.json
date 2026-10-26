@@ -1,0 +1,59 @@
+{
+  "plugin": "kunlun.waterstation",
+  "permissions": [
+    {
+      "code": "kunlun.waterstation:member:read",
+      "title": "查询会员与360°档案"
+    },
+    {
+      "code": "kunlun.waterstation:member:write",
+      "title": "新建与修改会员"
+    },
+    {
+      "code": "kunlun.waterstation:recharge:create",
+      "title": "水费实收充值登记"
+    },
+    {
+      "code": "kunlun.waterstation:deposit:collect",
+      "title": "押金收款与补交登记"
+    },
+    {
+      "code": "kunlun.waterstation:deposit:refund_apply",
+      "title": "发起押金退款核对"
+    },
+    {
+      "code": "kunlun.waterstation:deposit:refund_approve",
+      "title": "押金退款复核确认",
+      "risk": "high"
+    },
+    {
+      "code": "kunlun.waterstation:order:create",
+      "title": "代开水单"
+    },
+    {
+      "code": "kunlun.waterstation:order:accept",
+      "title": "接单配送"
+    },
+    {
+      "code": "kunlun.waterstation:order:fulfill",
+      "title": "确认交付与登记满桶出/空桶回"
+    },
+    {
+      "code": "kunlun.waterstation:pickup:verify",
+      "title": "6位取水码自提核销"
+    },
+    {
+      "code": "kunlun.waterstation:container:register",
+      "title": "独立登记容器领还"
+    },
+    {
+      "code": "kunlun.waterstation:plan:manage",
+      "title": "优惠方案与押金单价设置"
+    },
+    {
+      "code": "kunlun.waterstation:report:export",
+      "title": "报表导出",
+      "risk": "high"
+    }
+  ]
+}

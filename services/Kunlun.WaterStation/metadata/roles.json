@@ -1,0 +1,38 @@
+{
+  "plugin": "kunlun.waterstation",
+  "roles": [
+    {
+      "code": "ADMIN",
+      "name": "水站站长",
+      "permissions": [
+        "kunlun.waterstation:*"
+      ]
+    },
+    {
+      "code": "CLERK",
+      "name": "驻店店员",
+      "permissions": [
+        "kunlun.waterstation:member:read",
+        "kunlun.waterstation:member:write",
+        "kunlun.waterstation:recharge:create",
+        "kunlun.waterstation:deposit:collect",
+        "kunlun.waterstation:deposit:refund_apply",
+        "kunlun.waterstation:order:create",
+        "kunlun.waterstation:order:accept",
+        "kunlun.waterstation:order:fulfill",
+        "kunlun.waterstation:pickup:verify",
+        "kunlun.waterstation:container:register"
+      ]
+    },
+    {
+      "code": "COURIER",
+      "name": "送水员",
+      "permissions": [
+        "kunlun.waterstation:member:read",
+        "kunlun.waterstation:order:accept",
+        "kunlun.waterstation:order:fulfill",
+        "kunlun.waterstation:deposit:collect"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@kunlun/admin-pc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "绿麒麟水站 · 管理端 PC (React + Vite + @idadawn/yue)",
+  "dependencies": {
+    "@kunlun/shared": "workspace:*"
+  }
+}
