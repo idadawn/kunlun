@@ -130,18 +130,25 @@
   async function renderPlans() {
     const root=document.getElementById('plansContent');
     const all=await live().req('/api/plans');
-    const plans=all.filter(p=>planStatusFilter==='ALL'||p.status===planStatusFilter).sort((a,b)=>a.waterType.localeCompare(b.waterType)||b.fulfillMode.localeCompare(a.fulfillMode)||a.price-b.price);
-    root.innerHTML=`<div class="module-toolbar"><label>套餐状态 <select class="select" id="planStatusFilter"><option value="ACTIVE">启用中</option><option value="DISABLED">已停用</option><option value="ALL">全部</option></select></label><div class="membership-actions"><button class="btn" data-poster>生成价目表图片</button><button class="btn primary" data-new-plan>新增套餐</button></div></div><div class="table-card module-table"><table><thead><tr><th>水品 / 套餐</th><th>领取方式</th><th>充值金额</th><th>固定到账</th><th>状态</th><th>操作</th></tr></thead><tbody>${plans.length?plans.map(p=>`<tr><td><b>${esc(productFor(p.waterType)?.name||p.waterType)}</b><br><small>${esc(p.name)}</small></td><td>${mode(p.fulfillMode)}</td><td>¥${money(p.price)}</td><td>${p.buyQty} ${unit(p.waterType)}</td><td><span class="tag ${p.status==='ACTIVE'?'green':'gray'}">${p.status==='ACTIVE'?'启用':'停用'}</span></td><td><button class="link" data-edit-plan="${p.id}">编辑</button></td></tr>`).join(''):'<tr><td colspan="6">暂无对应套餐</td></tr>'}</tbody></table></div>`;
+    const plans=all.filter(p=>planStatusFilter==='ALL'||p.status===planStatusFilter);
+    const groupOrder=[['BAG_7_5L','PICKUP'],['BUCKET_18_9L','PICKUP'],['BAG_7_5L','DELIVERY'],['BUCKET_18_9L','DELIVERY']];
+    const groups=groupOrder.map(([water,fulfillMode])=>({water,fulfillMode,product:productFor(water),items:plans.filter(p=>p.waterType===water&&p.fulfillMode===fulfillMode).sort((a,b)=>a.price-b.price||a.buyQty-b.buyQty)})).filter(g=>g.items.length);
+    const statusText=planStatusFilter==='ACTIVE'?'启用':planStatusFilter==='DISABLED'?'停用':'';
+    root.innerHTML=`<div class="plan-toolbar"><div class="plan-status-control"><label for="planStatusFilter" class="plan-filter-label">套餐状态</label><select class="select" id="planStatusFilter"><option value="ACTIVE">启用中</option><option value="DISABLED">已停用</option><option value="ALL">全部</option></select></div><div class="plan-toolbar-actions"><button class="btn plan-poster-button" data-poster>${window.GQ.icon('export')}生成价目表图片</button><button class="btn primary" data-new-plan>${window.GQ.icon('plus')}新增套餐</button></div></div><div class="plan-list-meta"><span>共 <b>${plans.length}</b> 个${statusText}套餐</span><span>${groups.length} 个水品与领取方式组合</span></div><div class="plans-grid">${groups.length?groups.map(g=>{
+      const delivery=g.fulfillMode==='DELIVERY';
+      const rule=delivery?`${g.product?.deliveryFee===0?'免费配送':`配送费 ¥${money(g.product?.deliveryFee||0)}`} · ${g.product?.deliveryMinimum||1}${unit(g.water)}起送`:'到店领取 · 使用自提水票';
+      return `<article class="plan-group ${delivery?'is-delivery':'is-pickup'}" aria-label="${esc((g.product?.name||g.water)+' · '+mode(g.fulfillMode))}"><header class="plan-group-head"><div class="plan-product-icon">${window.GQ.icon(g.water==='BAG_7_5L'?'drop':'box')}</div><div class="plan-product-heading"><h3>${esc(g.product?.name||g.water)}</h3><p>${esc(g.product?.packaging||'')}</p></div><span class="plan-mode">${delivery?'送水上门':'门店自提'}</span></header><div class="plan-group-columns"><span>充值金额</span><span>到账水票</span><span class="sr-only">操作</span></div><div class="plan-options">${g.items.map(p=>`<div class="plan-option ${p.status==='DISABLED'?'is-disabled':''}"><div class="plan-price-value"><span class="currency">¥</span>${Number.isInteger(p.price)?p.price:money(p.price)}</div><div class="plan-quota-value">${p.buyQty+p.giftQty}<span class="unit">${unit(p.waterType)}</span></div><button class="plan-edit" data-edit-plan="${p.id}" aria-label="编辑${esc(p.name)}" title="编辑套餐">${window.GQ.icon('edit')}</button><div class="plan-option-meta"><span class="plan-option-name" title="${esc(p.name)}">${esc(p.name)}${p.giftQty?` · 含赠 ${p.giftQty}${unit(p.waterType)}`:''}</span><span class="plan-option-status">${p.status==='ACTIVE'?'启用':'停用'}</span></div></div>`).join('')}</div><footer class="plan-group-foot">${window.GQ.icon(delivery?'truck':'store','sm')}<span>${esc(rule)}</span></footer></article>`;
+    }).join(''):'<div class="plan-empty">暂无对应套餐，可切换套餐状态查看。</div>'}</div>`;
     root.querySelector('#planStatusFilter').value=planStatusFilter;
     root.querySelector('#planStatusFilter').onchange=run(async e=>{planStatusFilter=e.target.value;await renderPlans();});
     root.querySelector('[data-new-plan]').onclick=run(()=>editPlan());
     root.querySelectorAll('[data-edit-plan]').forEach(b=>b.onclick=run(()=>editPlan(all.find(p=>p.id===b.dataset.editPlan))));
     root.querySelector('[data-poster]').onclick=run(async e=>{
-      const button=e.currentTarget;button.disabled=true;button.textContent='正在生成…';
+      const button=e.currentTarget,idleMarkup=button.innerHTML;button.disabled=true;button.setAttribute('aria-busy','true');button.textContent='正在生成…';
       try {
         const [plans,products]=await Promise.all([live().req('/api/plans'),live().req('/api/products')]);
         await window.KunlunPricePoster.preview({plans,products,store:window.GQ.store});
-      } finally {button.disabled=false;button.textContent='生成价目表图片';}
+      } finally {button.disabled=false;button.removeAttribute('aria-busy');button.innerHTML=idleMarkup;}
     });
   }
   async function renderCoupons() {

@@ -14,7 +14,7 @@ for (const app of ['admin-pc','mini-app']) {
     }
     for (const [,script] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Script(script,{filename:path});
   }
-  for (const file of ['brand.js','live-api.js','membership.js','price-poster.js']) {
+  for (const file of ['brand.js','live-api.js','membership.js','price-poster.js','admin-ui.js']) {
     const path=`apps/${app}/dist/assets/${file}`, code=readFileSync(path,'utf8');
     assert.ok(!forbidden.test(code),`${path} contains a prototype handler`);
     new Script(code,{filename:path});
