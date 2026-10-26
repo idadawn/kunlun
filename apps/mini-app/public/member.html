@@ -127,7 +127,7 @@
       <button onclick="openMemberOrder('自提')">到店自提</button>
       <button data-top-member="orders" onclick="memberNav('orders')">我的水单</button>
       <button data-top-member="assets" onclick="memberNav('assets')">押金与容器</button>
-      <button data-top-member="records" onclick="memberNav('records')">变动流水</button><button onclick="openWxAuth()">微信一键登录</button>
+      <button data-top-member="records" onclick="memberNav('records')">变动流水</button><button onclick="openWxAuth()">退出登录</button>
     </div>
   </div>
 
@@ -138,7 +138,7 @@
       <div class="wx-navbar">
         <div class="wx-title">绿麒麟水站 <span class="wx-badge">小程序</span></div>
         <div class="wx-capsule" title="微信小程序胶囊按钮">
-          <button onclick="openWxAuth()" title="微信授权设置"><span class="wx-dots"><span></span><span></span><span></span></span></button>
+          <button onclick="openWxAuth()" title="账号设置"><span class="wx-dots"><span></span><span></span><span></span></span></button>
           <i></i>
           <button onclick="location.href='index.html'" title="返回演示目录"><span class="wx-bullseye"></span></button>
         </div>
@@ -399,19 +399,7 @@ function filterMemOrders(btn,status){
   btn.classList.add('active');
   $$('#member-orders .h5-order').forEach(c=>c.classList.toggle('hide',status!=='all'&&c.dataset.mstatus!==status));
 }
-function openWxAuth(){
-  $('#mSheetTitle').textContent='微信小程序 · 手机号一键登录';
-  $('#mSheetBody').innerHTML=`
-    <div style="text-align:center;padding:8px 0 14px">
-      <div style="width:52px;height:52px;border-radius:14px;background:var(--grad-aqua);display:grid;place-items:center;margin:0 auto 10px;color:#fff;font-weight:700;font-size:20px">麒</div>
-      <b style="font-size:16px;color:var(--ink)">绿麒麟水站｜小分子团弱碱活性水</b>
-      <p style="margin:4px 0 0;color:var(--muted);font-size:12px">授权微信绑定手机号，自动关联门店已建档会员水票与押金资产</p>
-    </div>
-    <button class="wx-auth-btn" onclick="closeMSheet();GQ.toast('微信手机号 138****8000 授权成功，已绑定会员 No.008621')">微信手机号一键快捷登录</button>
-    <div style="text-align:center;font-size:11.5px;color:var(--muted);margin-top:10px">调用微信原生 getPhoneNumber 组件 · 防冒领安全校验</div>`;
-  $('#mSheetFoot').innerHTML='';
-  $('#mSheetMask').classList.add('open');
-}
+function openWxAuth(){ KunlunLive.logoutMember(); }
 function openEditAddress(){
   $('#mSheetTitle').textContent='修改默认配送地址';
   $('#mSheetBody').innerHTML=`<div class="field"><label>收货地址（修改不影响已提交的历史水单地址快照）</label><input class="input" id="newAddrInput" value="幸福里小区 3 栋 2 单元 501 室"></div>`;

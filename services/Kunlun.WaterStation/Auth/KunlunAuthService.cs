@@ -46,7 +46,8 @@ public static class KunlunPermissions
 }
 
 public sealed record StaffLoginRequest(string Account, string Password, bool RequireAdmin = false);
-public sealed record WeChatPhoneLoginRequest(string Phone, string? WxOpenId = null, string? Name = null);
+public sealed record AccountCredentialsRequest(string Username, string Password);
+public sealed record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 public sealed record UpdateStaffStatusRequest(string Status);
 
 public sealed record AuthTokenResponse(
@@ -63,21 +64,28 @@ public sealed record AuthTokenResponse(
 
 public static class PasswordHasher
 {
+    private const int Iterations = 600_000;
     public static string Hash(string password)
     {
         var salt = RandomNumberGenerator.GetBytes(16);
-        var hash = Rfc2898DeriveBytes.Pbkdf2(password, salt, 60_000, HashAlgorithmName.SHA256, 32);
-        return $"{Convert.ToBase64String(salt)}.{Convert.ToBase64String(hash)}";
+        var hash = Rfc2898DeriveBytes.Pbkdf2(password, salt, Iterations, HashAlgorithmName.SHA256, 32);
+        return $"v2.{Convert.ToBase64String(salt)}.{Convert.ToBase64String(hash)}";
     }
-
-    public static bool Verify(string password, string stored)
+    public static bool Verify(string? password, string? stored)
     {
-        var parts = stored.Split('.');
-        if (parts.Length != 2) return false;
-        var salt = Convert.FromBase64String(parts[0]);
-        var expected = Convert.FromBase64String(parts[1]);
-        var actual = Rfc2898DeriveBytes.Pbkdf2(password, salt, 60_000, HashAlgorithmName.SHA256, 32);
-        return CryptographicOperations.FixedTimeEquals(expected, actual);
+        if (string.IsNullOrEmpty(password) || password.Length > 128 || string.IsNullOrEmpty(stored)) return false;
+        try
+        {
+            var parts = stored.Split('.');
+            var modern = parts.Length == 3 && parts[0] == "v2";
+            if (!modern && parts.Length != 2) return false;
+            var salt = Convert.FromBase64String(parts[modern ? 1 : 0]);
+            var expected = Convert.FromBase64String(parts[modern ? 2 : 1]);
+            if (salt.Length != 16 || expected.Length != 32) return false;
+            var actual = Rfc2898DeriveBytes.Pbkdf2(password, salt, modern ? Iterations : 60_000, HashAlgorithmName.SHA256, 32);
+            return CryptographicOperations.FixedTimeEquals(expected, actual);
+        }
+        catch (FormatException) { return false; }
     }
 }
 
@@ -137,6 +145,14 @@ public sealed class KunlunAuthRepository(NpgsqlDataSource dataSource, IConfigura
                 UNIQUE (tenant_id, phone)
             );
 
+            ALTER TABLE staff ADD COLUMN IF NOT EXISTS username VARCHAR(32);
+            UPDATE staff SET username = lower(staff_no) WHERE username IS NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS staff_username ON staff (tenant_id, lower(username));
+            ALTER TABLE members ADD COLUMN IF NOT EXISTS username VARCHAR(32);
+            ALTER TABLE members ADD COLUMN IF NOT EXISTS password_hash TEXT;
+            ALTER TABLE members ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 1;
+            CREATE UNIQUE INDEX IF NOT EXISTS member_username ON members (tenant_id, lower(username));
+
             CREATE TABLE IF NOT EXISTS auth_audit_logs (
                 id BIGSERIAL PRIMARY KEY,
                 tenant_id UUID NOT NULL,
@@ -154,6 +170,31 @@ public sealed class KunlunAuthRepository(NpgsqlDataSource dataSource, IConfigura
             await cmd.ExecuteNonQueryAsync(ct);
         }
 
+        if (!config.GetValue<bool>("Kunlun:SeedDemoData"))
+        {
+            var username = config["Kunlun:Bootstrap:Username"];
+            var password = config["Kunlun:Bootstrap:Password"];
+            if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password))
+            {
+                if (!AuthEndpoints.ValidUsername(username) || password.Length < 12 || password.Length > 128)
+                    throw new InvalidOperationException("Bootstrap requires a valid username and a 12-128 character password.");
+                await using var bootstrap = new NpgsqlCommand("""
+                    INSERT INTO plugin_kunlun_waterstation.staff
+                      (id, tenant_id, staff_no, username, name, phone, password_hash, role, permissions)
+                    SELECT @id, @tid, @u, @u, '水站管理员', '', @hash, 'ADMIN', @perms::jsonb
+                    WHERE NOT EXISTS (SELECT 1 FROM plugin_kunlun_waterstation.staff WHERE tenant_id = @tid)
+                    """, conn, tx);
+                bootstrap.Parameters.AddWithValue("id", Guid.NewGuid());
+                bootstrap.Parameters.AddWithValue("tid", DefaultTenantId);
+                bootstrap.Parameters.AddWithValue("u", username.Trim().ToLowerInvariant());
+                bootstrap.Parameters.AddWithValue("hash", PasswordHasher.Hash(password));
+                bootstrap.Parameters.AddWithValue("perms", JsonSerializer.Serialize(KunlunPermissions.AdminAll));
+                await bootstrap.ExecuteNonQueryAsync(ct);
+            }
+            await tx.CommitAsync(ct);
+            return;
+        }
+
         // Seed 3 default staff (林站长 ADMIN, 小林 CLERK, 王师傅 COURIER)
         var staffSeeds = new[]
         {
@@ -162,14 +203,14 @@ public sealed class KunlunAuthRepository(NpgsqlDataSource dataSource, IConfigura
             (Id: Guid.Parse("10000000-0000-0000-0000-000000000008"), No: "YG0008", Name: "王建国（王师傅）", Phone: "13800000008", Role: "COURIER", Perms: KunlunPermissions.CourierDefault)
         };
 
-        var defaultPwdHash = PasswordHasher.Hash("Kunlun@2026");
+        var defaultPwdHash = PasswordHasher.Hash(config["Kunlun:SeedPassword"] ?? throw new InvalidOperationException("SeedPassword is required for demo data."));
         foreach (var s in staffSeeds)
         {
             const string upsertStaff = """
                 INSERT INTO plugin_kunlun_waterstation.staff
-                    (id, tenant_id, staff_no, name, phone, password_hash, role, permissions, status, token_version)
+                    (id, tenant_id, staff_no, username, name, phone, password_hash, role, permissions, status, token_version)
                 VALUES
-                    (@id, @tid, @no, @name, @phone, @pwd, @role, @perms::jsonb, 'ACTIVE', 1)
+                    (@id, @tid, @no, lower(@no), @name, @phone, @pwd, @role, @perms::jsonb, 'ACTIVE', 1)
                 ON CONFLICT (tenant_id, staff_no) DO NOTHING;
                 """;
             await using var cmd = new NpgsqlCommand(upsertStaff, conn, tx);
@@ -216,6 +257,15 @@ public sealed class KunlunAuthRepository(NpgsqlDataSource dataSource, IConfigura
             await cmd.ExecuteNonQueryAsync(ct);
         }
 
+        await using (var credentials = new NpgsqlCommand("""
+            UPDATE plugin_kunlun_waterstation.members SET username = lower(member_no), password_hash = @hash
+            WHERE tenant_id = @tid AND username IS NULL
+            """, conn, tx))
+        {
+            credentials.Parameters.AddWithValue("hash", defaultPwdHash);
+            credentials.Parameters.AddWithValue("tid", DefaultTenantId);
+            await credentials.ExecuteNonQueryAsync(ct);
+        }
         await tx.CommitAsync(ct);
     }
 
@@ -230,7 +280,7 @@ public sealed class KunlunAuthRepository(NpgsqlDataSource dataSource, IConfigura
         int tokenVersion)
     {
         var key = Encoding.UTF8.GetBytes(
-            config["Kunlun:Jwt:SigningKey"] ?? "kunlun-waterstation-default-dev-signing-key-2026-32bytes!");
+            config["Kunlun:Jwt:SigningKey"] ?? throw new InvalidOperationException("JWT signing key is required."));
         var creds = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256);
 
         var claims = new List<Claim>

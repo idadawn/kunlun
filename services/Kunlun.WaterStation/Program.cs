@@ -5,28 +5,11 @@ using System.Text.Json;
 using Kunlun.WaterStation.Auth;
 using Kunlun.WaterStation.Operations;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 
-// Automatically load .env.local if present in repo root or parent directories
-for (var dir = new DirectoryInfo(Directory.GetCurrentDirectory()); dir is not null; dir = dir.Parent)
-{
-    var envFile = Path.Combine(dir.FullName, ".env.local");
-    if (File.Exists(envFile))
-    {
-        foreach (var line in File.ReadAllLines(envFile))
-        {
-            if (string.IsNullOrWhiteSpace(line) || line.StartsWith('#')) continue;
-            var idx = line.IndexOf('=');
-            if (idx > 0 && string.IsNullOrEmpty(Environment.GetEnvironmentVariable(line[..idx])))
-            {
-                Environment.SetEnvironmentVariable(line[..idx], line[(idx + 1)..]);
-            }
-        }
-        break;
-    }
-}
-
+// Database and secrets must be supplied explicitly; never load a nearby .env.local.
 var builder = WebApplication.CreateBuilder(args);
 
 var connStr = builder.Configuration.GetConnectionString("Kunlun")
@@ -41,7 +24,7 @@ builder.Services.AddSingleton<KunlunOrderRepository>();
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
 var signingKey = Encoding.UTF8.GetBytes(
-    builder.Configuration["Kunlun:Jwt:SigningKey"] ?? "kunlun-waterstation-default-dev-signing-key-2026-32bytes!");
+    builder.Configuration["Kunlun:Jwt:SigningKey"] ?? throw new InvalidOperationException("JWT signing key is required."));
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -67,27 +50,37 @@ builder.Services
                 var subjectType = ctx.Principal?.FindFirstValue("subject_type");
                 var sub = ctx.Principal?.FindFirstValue(JwtRegisteredClaimNames.Sub);
                 var verStr = ctx.Principal?.FindFirstValue("token_version");
-                if (subjectType == "STAFF" && Guid.TryParse(sub, out var staffId) && int.TryParse(verStr, out var tokenVer))
-                {
-                    var ds = ctx.HttpContext.RequestServices.GetRequiredService<NpgsqlDataSource>();
-                    await using var conn = await ds.OpenConnectionAsync(ctx.HttpContext.RequestAborted);
-                    await using var cmd = new NpgsqlCommand(
-                        "SELECT status, token_version FROM plugin_kunlun_waterstation.staff WHERE id = @id", conn);
-                    cmd.Parameters.AddWithValue("id", staffId);
-                    await using var reader = await cmd.ExecuteReaderAsync(ctx.HttpContext.RequestAborted);
-                    if (!await reader.ReadAsync() || reader.GetString(0) != "ACTIVE" || reader.GetInt32(1) != tokenVer)
-                    {
-                        ctx.Fail("员工账号已停用或权限已变更，请重新登录。");
-                    }
-                }
+                var tenant = ctx.Principal?.FindFirstValue("tenant_id");
+                if (subjectType is not ("STAFF" or "MEMBER") || !Guid.TryParse(sub, out var id)
+                    || !Guid.TryParse(tenant, out var tenantId) || !int.TryParse(verStr, out var version))
+                { ctx.Fail("登录凭证无效"); return; }
+                var table = subjectType == "STAFF" ? "staff" : "members";
+                var ds = ctx.HttpContext.RequestServices.GetRequiredService<NpgsqlDataSource>();
+                await using var conn = await ds.OpenConnectionAsync(ctx.HttpContext.RequestAborted);
+                await using var cmd = new NpgsqlCommand($"SELECT status, token_version FROM plugin_kunlun_waterstation.{table} WHERE id = @id AND tenant_id = @tid", conn);
+                cmd.Parameters.AddWithValue("id", id);
+                cmd.Parameters.AddWithValue("tid", tenantId);
+                await using var reader = await cmd.ExecuteReaderAsync(ctx.HttpContext.RequestAborted);
+                if (!await reader.ReadAsync(ctx.HttpContext.RequestAborted) || reader.GetString(0) != "ACTIVE" || reader.GetInt32(1) != version)
+                    ctx.Fail("登录已失效，请重新登录");
             }
         };
     });
 
+if (signingKey.Length < 32) throw new InvalidOperationException("JWT signing key must contain at least 32 bytes.");
 builder.Services.AddAuthorization();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = 429;
+    options.AddPolicy("login", context => System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+        { PermitLimit = builder.Environment.IsEnvironment("Testing") ? 10000 : 15, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+});
 
 var app = builder.Build();
 app.UseCors();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -119,162 +112,7 @@ app.MapGet("/healthz", async (NpgsqlDataSource ds) =>
     });
 });
 
-// 1. 管理端 PC / 员工账号密码登录
-app.MapPost("/api/auth/staff/login", async (
-    StaffLoginRequest req,
-    NpgsqlDataSource ds,
-    KunlunAuthRepository repo,
-    CancellationToken ct) =>
-{
-    await using var conn = await ds.OpenConnectionAsync(ct);
-    await using var cmd = new NpgsqlCommand("""
-        SELECT id, staff_no, name, phone, password_hash, role, permissions::text, status, token_version
-        FROM plugin_kunlun_waterstation.staff
-        WHERE tenant_id = @tid AND (staff_no = @acc OR phone = @acc)
-        """, conn);
-    cmd.Parameters.AddWithValue("tid", repo.DefaultTenantId);
-    cmd.Parameters.AddWithValue("acc", req.Account.Trim());
-
-    await using var reader = await cmd.ExecuteReaderAsync(ct);
-    if (!await reader.ReadAsync(ct))
-        return Results.Json(new { error = "账号或密码错误" }, statusCode: StatusCodes.Status401Unauthorized);
-
-    var id = reader.GetGuid(0);
-    var staffNo = reader.GetString(1);
-    var name = reader.GetString(2);
-    var phone = reader.GetString(3);
-    var pwdHash = reader.GetString(4);
-    var role = reader.GetString(5);
-    var perms = JsonSerializer.Deserialize<string[]>(reader.GetString(6)) ?? [];
-    var status = reader.GetString(7);
-    var tokenVer = reader.GetInt32(8);
-    await reader.CloseAsync();
-
-    if (!PasswordHasher.Verify(req.Password, pwdHash))
-        return Results.Json(new { error = "账号或密码错误" }, statusCode: StatusCodes.Status401Unauthorized);
-
-    if (status != "ACTIVE")
-        return Results.Json(new { error = "该员工账号已停用，禁止登录" }, statusCode: StatusCodes.Status403Forbidden);
-
-    if (req.RequireAdmin && role != "ADMIN")
-        return Results.Json(new { error = "后台管理系统仅限管理员（ADMIN）登录，店员与送水员请使用员工端微信小程序" }, statusCode: StatusCodes.Status403Forbidden);
-
-    var token = repo.IssueJwt("STAFF", id, name, staffNo, phone, role, perms, tokenVer);
-
-    await using var auditCmd = new NpgsqlCommand("""
-        INSERT INTO plugin_kunlun_waterstation.auth_audit_logs (tenant_id, actor_type, actor_id, actor_name, action, detail)
-        VALUES (@tid, 'STAFF', @id, @name, 'STAFF_LOGIN', @detail)
-        """, conn);
-    auditCmd.Parameters.AddWithValue("tid", repo.DefaultTenantId);
-    auditCmd.Parameters.AddWithValue("id", id);
-    auditCmd.Parameters.AddWithValue("name", name);
-    auditCmd.Parameters.AddWithValue("detail", $"工号 {staffNo} ({role}) 登录成功");
-    await auditCmd.ExecuteNonQueryAsync(ct);
-
-    return Results.Ok(new AuthTokenResponse(token, "STAFF", id, name, staffNo, phone, role, perms, tokenVer));
-});
-
-// 2. 微信小程序手机号一键登录（自动识别员工白名单 / 绑定门店老会员 / 自动注册新会员）
-app.MapPost("/api/auth/wechat/phone-login", async (
-    WeChatPhoneLoginRequest req,
-    NpgsqlDataSource ds,
-    KunlunAuthRepository repo,
-    CancellationToken ct) =>
-{
-    var phone = req.Phone.Trim();
-    if (phone.Length != 11 || !phone.StartsWith('1'))
-        return Results.BadRequest(new { error = "请输入有效的 11 位微信授权手机号" });
-
-    await using var conn = await ds.OpenConnectionAsync(ct);
-
-    // 2.1 若手机号命中启用中的员工表，则支持作为员工端小程序身份登录
-    await using (var staffCmd = new NpgsqlCommand("""
-        SELECT id, staff_no, name, role, permissions::text, status, token_version
-        FROM plugin_kunlun_waterstation.staff
-        WHERE tenant_id = @tid AND phone = @phone
-        """, conn))
-    {
-        staffCmd.Parameters.AddWithValue("tid", repo.DefaultTenantId);
-        staffCmd.Parameters.AddWithValue("phone", phone);
-        await using var sr = await staffCmd.ExecuteReaderAsync(ct);
-        if (await sr.ReadAsync(ct))
-        {
-            var sid = sr.GetGuid(0);
-            var sno = sr.GetString(1);
-            var sname = sr.GetString(2);
-            var srole = sr.GetString(3);
-            var sperms = JsonSerializer.Deserialize<string[]>(sr.GetString(4)) ?? [];
-            var sstatus = sr.GetString(5);
-            var sver = sr.GetInt32(6);
-            await sr.CloseAsync();
-
-            if (sstatus != "ACTIVE")
-                return Results.Json(new { error = "该员工账号已停用" }, statusCode: StatusCodes.Status403Forbidden);
-
-            var stoken = repo.IssueJwt("STAFF", sid, sname, sno, phone, srole, sperms, sver);
-            return Results.Ok(new AuthTokenResponse(stoken, "STAFF", sid, sname, sno, phone, srole, sperms, sver));
-        }
-    }
-
-    // 2.2 匹配门店既有会员档案（解决 PRD 手机号认领与防冒领）
-    await using (var memCmd = new NpgsqlCommand("""
-        SELECT id, member_no, name, status
-        FROM plugin_kunlun_waterstation.members
-        WHERE tenant_id = @tid AND phone = @phone
-        """, conn))
-    {
-        memCmd.Parameters.AddWithValue("tid", repo.DefaultTenantId);
-        memCmd.Parameters.AddWithValue("phone", phone);
-        await using var mr = await memCmd.ExecuteReaderAsync(ct);
-        if (await mr.ReadAsync(ct))
-        {
-            var mid = mr.GetGuid(0);
-            var mno = mr.GetString(1);
-            var mname = mr.GetString(2);
-            var mstatus = mr.GetString(3);
-            await mr.CloseAsync();
-
-            if (mstatus != "ACTIVE")
-                return Results.Json(new { error = "该会员账号已停用" }, statusCode: StatusCodes.Status403Forbidden);
-
-            if (!string.IsNullOrWhiteSpace(req.WxOpenId))
-            {
-                await using var bindCmd = new NpgsqlCommand(
-                    "UPDATE plugin_kunlun_waterstation.members SET wx_openid = @oid WHERE id = @id", conn);
-                bindCmd.Parameters.AddWithValue("oid", req.WxOpenId);
-                bindCmd.Parameters.AddWithValue("id", mid);
-                await bindCmd.ExecuteNonQueryAsync(ct);
-            }
-
-            var mtoken = repo.IssueJwt("MEMBER", mid, mname, mno, phone, "MEMBER", [], 1);
-            return Results.Ok(new AuthTokenResponse(mtoken, "MEMBER", mid, mname, mno, phone, "MEMBER", [], 1, IsNewMember: false));
-        }
-    }
-
-    // 2.3 新手机号自动注册会员
-    var newId = Guid.NewGuid();
-    var newNo = $"No.{Random.Shared.Next(100000, 999999)}";
-    var newName = string.IsNullOrWhiteSpace(req.Name) ? $"微信会员{phone[^4..]}" : req.Name.Trim();
-
-    await using (var insCmd = new NpgsqlCommand("""
-        INSERT INTO plugin_kunlun_waterstation.members
-            (id, tenant_id, member_no, name, phone, wx_openid, status, source)
-        VALUES
-            (@id, @tid, @no, @name, @phone, @oid, 'ACTIVE', 'WX_MINIAPP')
-        """, conn))
-    {
-        insCmd.Parameters.AddWithValue("id", newId);
-        insCmd.Parameters.AddWithValue("tid", repo.DefaultTenantId);
-        insCmd.Parameters.AddWithValue("no", newNo);
-        insCmd.Parameters.AddWithValue("name", newName);
-        insCmd.Parameters.AddWithValue("phone", phone);
-        insCmd.Parameters.AddWithValue("oid", (object?)req.WxOpenId ?? DBNull.Value);
-        await insCmd.ExecuteNonQueryAsync(ct);
-    }
-
-    var token = repo.IssueJwt("MEMBER", newId, newName, newNo, phone, "MEMBER", [], 1);
-    return Results.Ok(new AuthTokenResponse(token, "MEMBER", newId, newName, newNo, phone, "MEMBER", [], 1, IsNewMember: true));
-});
+app.MapAuthEndpoints();
 
 // 3. 当前登录身份与权限自检
 app.MapGet("/api/auth/me", (ClaimsPrincipal user) =>
@@ -286,7 +124,7 @@ app.MapGet("/api/auth/me", (ClaimsPrincipal user) =>
     var phone = user.FindFirstValue("phone");
     var role = user.FindFirstValue("role");
     var perms = user.FindAll("perm").Select(c => c.Value).ToArray();
-    return Results.Ok(new { sub, subjectType, displayName, codeOrNo, phone, role, permissions = perms });
+    return Results.Ok(new { sub, subjectId = sub, subjectType, displayName, codeOrNo, phone, role, permissions = perms });
 }).RequireAuthorization();
 
 // 4. 会员端本人资产查询（强制服务端按当前登录会员过滤，或者员工拥有 member:read 权限）

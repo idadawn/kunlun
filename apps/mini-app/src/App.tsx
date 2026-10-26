@@ -19,6 +19,8 @@ export function App() {
   const [toast, setToast] = useState<{ text: string; err?: boolean } | null>(null);
 
   // Member ordering inputs
+  const [account, setAccount] = useState('');
+  const [password, setPassword] = useState('');
   const [orderQty, setOrderQty] = useState(1);
 
   // Staff verification inputs
@@ -33,9 +35,9 @@ export function App() {
     setTimeout(() => setToast(null), 4500);
   };
 
-  const loginAsMember = async (phone = '13800138000') => {
+  const loginAsMember = async () => {
     try {
-      const s = await api.wechatPhoneLogin(phone, `wx_openid_${phone}`, '微信授权用户');
+      const s = await api.memberLogin(account, password);
       setSession(s);
       setAppMode('MEMBER');
       const [p, ordList] = await Promise.all([
@@ -44,15 +46,15 @@ export function App() {
       ]);
       setProfile(p);
       setOrders(ordList);
-      notify(`微信手机号一键登录成功：已绑定会员 ${p.name} (${p.memberNo})`);
+      notify(`登录成功：已绑定会员 ${p.name} (${p.memberNo})`);
     } catch (e: any) {
       notify(e.message, true);
     }
   };
 
-  const loginAsStaff = async (account = 'YG0012') => {
+  const loginAsStaff = async () => {
     try {
-      const s = await api.staffLogin(account, 'Kunlun@2026');
+      const s = await api.staffLogin(account, password);
       setSession(s);
       setAppMode('STAFF');
       const ordList = await api.listOrders();
@@ -78,9 +80,11 @@ export function App() {
     }
   };
 
-  useEffect(() => {
-    loginAsMember('13800138000');
-  }, []);
+  if (!session) return <form onSubmit={e => { e.preventDefault(); appMode === 'MEMBER' ? loginAsMember() : loginAsStaff(); }}>
+    <h1>绿麒麟水站登录</h1><select value={appMode} onChange={e => setAppMode(e.target.value as 'MEMBER' | 'STAFF')}><option value="MEMBER">会员</option><option value="STAFF">员工</option></select>
+    <label>用户名<input autoComplete="username" required value={account} onChange={e => setAccount(e.target.value)} /></label>
+    <label>密码<input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} /></label>
+    {toast && <p role="alert">{toast.text}</p>}<button type="submit">登录</button></form>;
 
   return (
     <div className="stage">
@@ -88,24 +92,7 @@ export function App() {
         <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-primary-dark)' }}>
           {KUNLUN_BRAND.signage} · 微信小程序实库联调
         </span>
-        <button
-          className={`pill-btn ${appMode === 'MEMBER' ? 'active' : ''}`}
-          onClick={() => loginAsMember('13800138000')}
-        >
-          会员端小程序 (陈静 No.008621)
-        </button>
-        <button
-          className={`pill-btn ${appMode === 'STAFF' && session?.role === 'CLERK' ? 'active' : ''}`}
-          onClick={() => loginAsStaff('YG0012')}
-        >
-          员工端小程序 · 店员小林
-        </button>
-        <button
-          className={`pill-btn ${appMode === 'STAFF' && session?.role === 'COURIER' ? 'active' : ''}`}
-          onClick={() => loginAsStaff('YG0008')}
-        >
-          员工端小程序 · 送水员王师傅
-        </button>
+        <button onClick={() => { api.setToken(null); setSession(null); setPassword(''); }}>退出登录</button>
       </div>
 
       <div className="phone-frame">
@@ -135,7 +122,7 @@ export function App() {
                     <div style={{ fontSize: 12, opacity: 0.85 }}>会员卡号：{profile.memberNo} · {profile.phone}</div>
                   </div>
                   <span style={{ fontSize: 11, background: 'rgba(255,255,255,0.2)', padding: '3px 8px', borderRadius: 999 }}>
-                    微信已绑定
+                    已登录
                   </span>
                 </div>
                 <div style={{ marginTop: 10, fontSize: 12, opacity: 0.9 }}>

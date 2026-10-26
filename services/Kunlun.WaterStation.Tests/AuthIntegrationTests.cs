@@ -8,17 +8,17 @@ using Xunit;
 namespace Kunlun.WaterStation.Tests;
 
 [CollectionDefinition("KunlunIntegration")]
-public sealed class KunlunIntegrationCollection : ICollectionFixture<WebApplicationFactory<Program>>;
+public sealed class KunlunIntegrationCollection : ICollectionFixture<TestHost>;
 
 [Collection("KunlunIntegration")]
-public sealed class AuthIntegrationTests(WebApplicationFactory<Program> factory)
+public sealed class AuthIntegrationTests(TestHost factory)
 {
     private readonly HttpClient _client = factory.CreateClient();
 
     [Fact]
     public async Task Staff_Password_Login_And_Me_Should_Succeed()
     {
-        var resp = await _client.PostAsJsonAsync("/api/auth/staff/login", new StaffLoginRequest("YG0001", "Kunlun@2026"));
+        var resp = await _client.PostAsJsonAsync("/api/auth/staff/login", new StaffLoginRequest("YG0001", TestHost.Password));
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
 
         var tokenData = await resp.Content.ReadFromJsonAsync<AuthTokenResponse>();
@@ -34,11 +34,11 @@ public sealed class AuthIntegrationTests(WebApplicationFactory<Program> factory)
     }
 
     [Fact]
-    public async Task WeChat_Phone_Login_Should_Bind_Existing_Member_And_Enforce_AC15_Isolation()
+    public async Task Member_Password_Login_Should_Authenticate_Existing_Member_And_Enforce_AC15_Isolation()
     {
         // 陈静 13800138000 门店已建档 No.008621
-        var resp = await _client.PostAsJsonAsync("/api/auth/wechat/phone-login",
-            new WeChatPhoneLoginRequest("13800138000", "wx_openid_chenjing"));
+        var resp = await _client.PostAsJsonAsync("/api/auth/member/login",
+            new StaffLoginRequest("No.008621", TestHost.Password));
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
 
         var chen = await resp.Content.ReadFromJsonAsync<AuthTokenResponse>();
@@ -65,8 +65,8 @@ public sealed class AuthIntegrationTests(WebApplicationFactory<Program> factory)
     public async Task Courier_Without_StaffManage_Should_Be_Blocked_AC16_And_Disabled_Staff_Token_Revoked()
     {
         // 送水员王师傅 (13800000008) 微信手机号一键登录
-        var courierResp = await _client.PostAsJsonAsync("/api/auth/wechat/phone-login",
-            new WeChatPhoneLoginRequest("13800000008"));
+        var courierResp = await _client.PostAsJsonAsync("/api/auth/staff/login",
+            new StaffLoginRequest("YG0008", TestHost.Password));
         var courier = await courierResp.Content.ReadFromJsonAsync<AuthTokenResponse>();
         Assert.NotNull(courier);
         Assert.Equal("COURIER", courier.Role);
@@ -81,7 +81,7 @@ public sealed class AuthIntegrationTests(WebApplicationFactory<Program> factory)
         Assert.Equal(HttpStatusCode.Forbidden, forbiddenResp.StatusCode);
 
         // 站长登录并停用王师傅账号 -> 王师傅原有 Token 立即失效 (401)
-        var adminResp = await _client.PostAsJsonAsync("/api/auth/staff/login", new StaffLoginRequest("YG0001", "Kunlun@2026"));
+        var adminResp = await _client.PostAsJsonAsync("/api/auth/staff/login", new StaffLoginRequest("YG0001", TestHost.Password));
         var admin = await adminResp.Content.ReadFromJsonAsync<AuthTokenResponse>();
         Assert.NotNull(admin);
 

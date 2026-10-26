@@ -10,13 +10,13 @@ using Xunit;
 namespace Kunlun.WaterStation.Tests;
 
 [Collection("KunlunIntegration")]
-public sealed class ReportIntegrationTests(WebApplicationFactory<Program> factory)
+public sealed class ReportIntegrationTests(TestHost factory)
 {
     private readonly HttpClient _client = factory.CreateClient();
 
     private async Task<string> LoginStaffAsync(string staffNo)
     {
-        var resp = await _client.PostAsJsonAsync("/api/auth/staff/login", new StaffLoginRequest(staffNo, "Kunlun@2026"));
+        var resp = await _client.PostAsJsonAsync("/api/auth/staff/login", new StaffLoginRequest(staffNo, TestHost.Password));
         var data = await resp.Content.ReadFromJsonAsync<AuthTokenResponse>();
         return data!.AccessToken;
     }
