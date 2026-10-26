@@ -1,23 +1,26 @@
 import { useState } from 'react';
-import { containerLabel, modeLabel, money, payMethodLabel, shortDateTime, waterFallbackLabel, withinDate, type DateFilter, type RechargeLedgerRow } from '@kunlun/shared';
-import { Dialog, Icon, useDialogs } from '@kunlun/ui';
-import { DateFilterSelect, EmptyRow, textMatch, useExport, useOperations } from '../common';
+import {
+  KUNLUN_PERMISSIONS as P, containerLabel, dateFilterFrom, modeLabel, money, payMethodLabel, shortDateTime, waterFallbackLabel,
+  type DateFilter, type DepositLedgerRow, type LedgerQuery, type Paged, type RechargeLedgerRow,
+} from '@kunlun/shared';
+import { Dialog, Icon, useAuth, useDialogs } from '@kunlun/ui';
+import { DateFilterSelect, EmptyRow, PAGE_SIZE, Pager, emptyPage, useDebounced, useExport, useOperations, usePagedTable } from '../common';
 import { useAdminData } from '../data';
 
 const FLOW_LABELS: Record<string, string> = { COLLECT: '交押金', REFUND: '退押金', DEDUCT: '报废扣押金' };
+const FOOTNOTE = '押金不计入水费实收；退押金严格按原收取批次单价计算';
 
 export function Finance() {
-  const { finance, overview, recharges, deposits } = useAdminData();
-  const dialogs = useDialogs();
+  const { finance, overview } = useAdminData();
   const ops = useOperations();
   const exportCsv = useExport();
   const [tab, setTab] = useState<'recharges' | 'deposits'>('recharges');
   const [query, setQuery] = useState('');
   const [date, setDate] = useState<DateFilter>('ALL');
+  const q = useDebounced(query.trim());
+  const filter: LedgerQuery = { q, from: dateFilterFrom(date) };
   const revenue = Number(finance?.rechargeRevenueTotal ?? 0);
   const depositIn = Number(finance?.depositCollectedTotal ?? 0), depositOut = Number(finance?.depositRefundedTotal ?? 0);
-  const rechargeRows = recharges.filter(r => withinDate(r.createdAt, date) && textMatch(query, r.rechargeNo, r.memberName, r.memberNo, r.planName, r.operatorName));
-  const depositRows = deposits.filter(d => withinDate(d.createdAt, date) && textMatch(query, d.docNo, d.memberName, d.operatorName));
 
   return <>
     <div className="page-head">
@@ -43,49 +46,80 @@ export function Finance() {
       <div className="filter-spacer" />
       <button type="button" className="btn" onClick={() => exportCsv(tab === 'recharges' ? 'recharges' : 'deposit-ledgers')}><Icon name="export" />导出明细</button>
     </div>
+    {tab === 'recharges' ? <RechargeTable filter={filter} /> : <DepositTable filter={filter} />}
+  </>;
+}
+
+/** Ledger tables need the report permission, as the summary cards above do. */
+function useLedger<T>(load: (query: LedgerQuery) => Promise<Paged<T>>, filter: LedgerQuery) {
+  const { can } = useAuth();
+  const reports = can(P.ReportExport);
+  return usePagedTable(page => reports ? load({ ...filter, page, pageSize: PAGE_SIZE }) : Promise.resolve(emptyPage<T>()), [filter, reports]);
+}
+
+function emptyText(table: { data: unknown; error: string }, filter: LedgerQuery, none: string, kind: string) {
+  return table.error || (!table.data ? '正在加载…' : filter.q || filter.from ? `没有符合条件的${kind}` : none);
+}
+
+function RechargeTable({ filter }: { filter: LedgerQuery }) {
+  const { api } = useAuth();
+  const dialogs = useDialogs();
+  const table = useLedger<RechargeLedgerRow>(query => api.rechargeLedger(query), filter);
+  const rows = table.data?.rows ?? [];
+  return (
     <div className="table-card">
       <div style={{ overflowX: 'auto' }}>
-        {tab === 'recharges' ? (
-          <table>
-            <thead><tr><th>业务单号 / 时间</th><th>会员</th><th>优惠方案快照</th><th>水费实收</th><th>购水 / 赠水</th><th>收款方式</th><th>操作人</th><th>操作</th></tr></thead>
-            <tbody>
-              {rechargeRows.length === 0 ? <EmptyRow colSpan={8}>{recharges.length ? '没有符合条件的充值记录' : '暂无水费充值流水，请点击右上角「水费充值登记」办理'}</EmptyRow> : rechargeRows.map(r => (
-                <tr key={r.rechargeNo}>
-                  <td><span className="order-no">{r.rechargeNo}</span><br /><small style={{ color: 'var(--muted)' }}>{shortDateTime(r.createdAt)}</small></td>
-                  <td><b>{r.memberName}</b> <small style={{ color: 'var(--muted)' }}>({r.memberNo})</small></td>
-                  <td>{r.planName}</td>
-                  <td><b>¥ {money(r.paidAmount)}</b></td>
-                  <td>购 {r.buyQty} + 赠 {r.giftQty}</td>
-                  <td>{payMethodLabel(r.payMethod)}</td>
-                  <td>{r.operatorName}</td>
-                  <td><button type="button" className="link" onClick={() => dialogs.open(close => <RechargeDetailDialog row={r} onClose={close} />)}>查看快照</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <table>
-            <thead><tr><th>业务单号 / 时间</th><th>会员</th><th>业务类型</th><th>容器与数量</th><th>批次单价</th><th>押金金额</th><th>未退余量</th><th>操作人</th></tr></thead>
-            <tbody>
-              {depositRows.length === 0 ? <EmptyRow colSpan={8}>{deposits.length ? '没有符合条件的押金记录' : '暂无押金流水'}</EmptyRow> : depositRows.map(d => (
-                <tr key={d.docNo}>
-                  <td><span className="order-no">{d.docNo}</span><br /><small style={{ color: 'var(--muted)' }}>{shortDateTime(d.createdAt)}</small></td>
-                  <td><b>{d.memberName}</b></td>
-                  <td><span className={`tag ${d.flowType === 'COLLECT' ? 'green' : 'orange'}`}>{FLOW_LABELS[d.flowType] ?? d.flowType}</span></td>
-                  <td>{containerLabel(d.containerType)} × {d.qty}</td>
-                  <td>¥ {money(d.unitPrice)}</td>
-                  <td><b>{d.flowType === 'COLLECT' ? '+' : '-'}¥ {money(d.amount)}</b></td>
-                  <td>{d.remainingQty} 个</td>
-                  <td>{d.operatorName}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <table>
+          <thead><tr><th>业务单号 / 时间</th><th>会员</th><th>优惠方案快照</th><th>水费实收</th><th>购水 / 赠水</th><th>收款方式</th><th>操作人</th><th>操作</th></tr></thead>
+          <tbody>
+            {rows.length === 0 ? <EmptyRow colSpan={8}>{emptyText(table, filter, '暂无水费充值流水，请点击右上角「水费充值登记」办理', '充值记录')}</EmptyRow> : rows.map(r => (
+              <tr key={r.rechargeNo}>
+                <td><span className="order-no">{r.rechargeNo}</span><br /><small style={{ color: 'var(--muted)' }}>{shortDateTime(r.createdAt)}</small></td>
+                <td><b>{r.memberName}</b> <small style={{ color: 'var(--muted)' }}>({r.memberNo})</small></td>
+                <td>{r.planName}</td>
+                <td><b>¥ {money(r.paidAmount)}</b></td>
+                <td>购 {r.buyQty} + 赠 {r.giftQty}</td>
+                <td>{payMethodLabel(r.payMethod)}</td>
+                <td>{r.operatorName}</td>
+                <td><button type="button" className="link" onClick={() => dialogs.open(close => <RechargeDetailDialog row={r} onClose={close} />)}>查看快照</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      <div className="table-footer"><span>押金不计入水费实收；退押金严格按原收取批次单价计算</span><div className="pagination" /></div>
+      <div className="table-footer"><span>共 {table.total} 条 · {FOOTNOTE}</span><Pager page={table.page} total={table.total} onChange={table.setPage} /></div>
     </div>
-  </>;
+  );
+}
+
+function DepositTable({ filter }: { filter: LedgerQuery }) {
+  const { api } = useAuth();
+  const table = useLedger<DepositLedgerRow>(query => api.depositLedger(query), filter);
+  const rows = table.data?.rows ?? [];
+  return (
+    <div className="table-card">
+      <div style={{ overflowX: 'auto' }}>
+        <table>
+          <thead><tr><th>业务单号 / 时间</th><th>会员</th><th>业务类型</th><th>容器与数量</th><th>批次单价</th><th>押金金额</th><th>未退余量</th><th>操作人</th></tr></thead>
+          <tbody>
+            {rows.length === 0 ? <EmptyRow colSpan={8}>{emptyText(table, filter, '暂无押金流水', '押金记录')}</EmptyRow> : rows.map(d => (
+              <tr key={d.docNo}>
+                <td><span className="order-no">{d.docNo}</span><br /><small style={{ color: 'var(--muted)' }}>{shortDateTime(d.createdAt)}</small></td>
+                <td><b>{d.memberName}</b></td>
+                <td><span className={`tag ${d.flowType === 'COLLECT' ? 'green' : 'orange'}`}>{FLOW_LABELS[d.flowType] ?? d.flowType}</span></td>
+                <td>{containerLabel(d.containerType)} × {d.qty}</td>
+                <td>¥ {money(d.unitPrice)}</td>
+                <td><b>{d.flowType === 'COLLECT' ? '+' : '-'}¥ {money(d.amount)}</b></td>
+                <td>{d.remainingQty} 个</td>
+                <td>{d.operatorName}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="table-footer"><span>共 {table.total} 条 · {FOOTNOTE}</span><Pager page={table.page} total={table.total} onChange={table.setPage} /></div>
+    </div>
+  );
 }
 
 function RechargeDetailDialog({ row: r, onClose }: { row: RechargeLedgerRow; onClose: () => void }) {

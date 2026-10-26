@@ -125,6 +125,11 @@ kunlun/
 配送水单提交 `addressId`（省略时使用默认地址），没有可用地址时拒绝下单；`address_snapshot` 记录地址 ID、联系人、手机号、收货地址、门牌号和完整地址文本，之后修改或删除地址不影响已下单水单。升级前只有单行文本地址的会员在启动时自动迁移为一条默认地址，门牌号留空，提示会员或员工补充。
 
 
+## 5.2 列表分页与筛选
+
+`GET /api/members`、`GET /api/orders` 与 `GET /api/ledgers/recharges|deposits|containers` 接受 `page`、`pageSize`（1–100，默认 20）。传入任一参数时返回 `{ rows, total, page, pageSize }`（与 `/api/containers/holdings|circulation|damages` 相同），`page`/`pageSize` 为服务端实际采用的值；都不传时仍返回旧的数组（会员、水单最新 50 条，流水最新 30 条），兼容会员选择器等调用方。筛选在服务端完成：会员 `q`（编号/姓名/手机号）、`status`、`water`（持有该类水票）；水单 `q`（单号、取水码、地址快照联系人/手机号/地址、会员姓名/手机号）、`status`、`mode`、`memberId`、`pickupCode`；充值与押金流水 `q`；水单与这两类流水另有 `from`（含）/`to`（不含）时间区间；容器流水 `containerType`。`q` 中的 `%`、`_` 按字面匹配。管理端会员管理、水单管理、充值与押金、桶袋台账的表格和员工端会员查询均按页加载，`KunlunApi` 的 `membersPage`、`ordersPage` 及三个流水方法始终带 `page`。
+
+
 ## 6. 袋桶库存、周转与报废扣押
 
 `ContainerInventory` 只接收 `RECEIVE` / `SCRAP`；库存操作保留 before/after 快照，现存总量恒等于可用、在途、会员持有、待检、异常和破损之和，累计报废独立累计。

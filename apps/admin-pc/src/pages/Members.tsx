@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { money, type DepositSummaryRow, type MemberProfile } from '@kunlun/shared';
-import { AddressBook, CredentialsDialog, Icon, useApi, useDialogs } from '@kunlun/ui';
-import { EmptyRow, useExport, useOperations } from '../common';
-import { useAdminData } from '../data';
+import { KUNLUN_PERMISSIONS as P, money, pageCount, type DepositSummaryRow, type MemberProfile } from '@kunlun/shared';
+import { AddressBook, CredentialsDialog, Icon, useAuth, useDialogs, useLoader } from '@kunlun/ui';
+import { EmptyRow, Pager, useExport, useOperations } from '../common';
+import { MEMBER_PAGE_SIZE, useAdminData, type MemberFilter } from '../data';
 
 const PALETTE = [
   undefined,
@@ -15,16 +15,19 @@ const bucketTickets = (m: MemberProfile) => m.bucketPickupTickets + m.bucketDeli
 const bagTickets = (m: MemberProfile) => m.bagPickupTickets + m.bagDeliveryTickets;
 
 export function Members() {
-  const { members, overview, memberQuery, setMemberQuery, setSelectedMemberId } = useAdminData();
+  const { members: rows, memberTotal, loaded, overview, memberQuery, setMemberQuery, memberFilter, setMemberFilter, memberPage, setMemberPage, setSelectedMemberId } = useAdminData();
   const ops = useOperations();
   const exportCsv = useExport();
-  const [water, setWater] = useState<'ALL' | 'BUCKET' | 'BAG'>('ALL');
-  const [status, setStatus] = useState<'ALL' | 'ACTIVE' | 'DISABLED'>('ALL');
   const [openId, setOpenId] = useState<string | null>(null);
-  const rows = members.filter(m => (water !== 'BUCKET' || bucketTickets(m) > 0) && (water !== 'BAG' || bagTickets(m) > 0) && (status === 'ALL' || m.status === status));
-  const open = members.find(m => m.id === openId);
-  const withTickets = members.filter(m => bucketTickets(m) + bagTickets(m) > 0).length;
-  const withContainers = members.filter(m => m.heldBuckets + m.heldBags > 0).length;
+  const open = rows.find(m => m.id === openId);
+  const withTickets = rows.filter(m => bucketTickets(m) + bagTickets(m) > 0).length;
+  const withContainers = rows.filter(m => m.heldBuckets + m.heldBags > 0).length;
+  const filtered = !!(memberQuery.trim() || memberFilter.status || memberFilter.water);
+  const filter = (key: keyof MemberFilter, value: string) => setMemberFilter({ ...memberFilter, [key]: value || undefined });
+  // The list can shrink under the current page (e.g. a member was disabled while filtering for 正常).
+  useEffect(() => {
+    if (loaded && memberPage > 1 && rows.length === 0) setMemberPage(pageCount(memberTotal, MEMBER_PAGE_SIZE));
+  }, [loaded, memberPage, rows.length, memberTotal, setMemberPage]);
 
   return <>
     <div className="page-head">
@@ -35,29 +38,29 @@ export function Members() {
       </div>
     </div>
     <div className="summary-strip">
-      <div className="summary-item"><small>会员总数</small><b>{overview?.memberCount ?? members.length}</b></div>
+      <div className="summary-item"><small>会员总数</small><b>{overview?.memberCount ?? (filtered ? '—' : memberTotal)}</b></div>
       <div className="summary-item"><small>本月新增</small><b>{overview?.newMembersMonth ?? '—'}</b></div>
       <div className="summary-item"><small>持有水票会员</small><b>{overview?.membersWithTickets ?? withTickets}</b></div>
       <div className="summary-item"><small>持有容器会员</small><b>{overview?.membersWithContainers ?? withContainers}</b></div>
     </div>
     <div className="filter-card">
       <label className="field-search"><Icon name="search" /><input placeholder="搜索姓名、手机号或会员编号" aria-label="搜索会员" value={memberQuery} onChange={e => setMemberQuery(e.target.value)} /></label>
-      <select className="select" aria-label="水品偏好" value={water} onChange={e => setWater(e.target.value as typeof water)}>
-        <option value="ALL">全部水品偏好</option><option value="BUCKET">15L 桶装水</option><option value="BAG">5L 袋装水</option>
+      <select className="select" aria-label="水品偏好" value={memberFilter.water ?? ''} onChange={e => filter('water', e.target.value)}>
+        <option value="">全部水品偏好</option><option value="BUCKET">15L 桶装水</option><option value="BAG">5L 袋装水</option>
       </select>
-      <select className="select" aria-label="会员状态" value={status} onChange={e => setStatus(e.target.value as typeof status)}>
-        <option value="ALL">全部状态</option><option value="ACTIVE">正常</option><option value="DISABLED">已停用</option>
+      <select className="select" aria-label="会员状态" value={memberFilter.status ?? ''} onChange={e => filter('status', e.target.value)}>
+        <option value="">全部状态</option><option value="ACTIVE">正常</option><option value="DISABLED">已停用</option>
       </select>
       <div className="filter-spacer" />
       <button type="button" className="btn" onClick={() => exportCsv('members')}><Icon name="export" />导出会员</button>
     </div>
     <div className="table-card">
-      <div className="table-toolbar"><div><b>会员列表</b><small>当前显示 {rows.length} 位会员 · 可按姓名、手机号或会员编号搜索</small></div></div>
+      <div className="table-toolbar"><div><b>会员列表</b><small>{filtered ? `符合条件 ${memberTotal} 位会员` : `共 ${memberTotal} 位会员`} · 可按姓名、手机号或会员编号搜索</small></div></div>
       <div style={{ overflowX: 'auto' }}>
         <table>
           <thead><tr><th>会员</th><th>联系电话</th><th>默认收货地址</th><th>自提/配送桶票</th><th>自提/配送袋票</th><th>押金余额</th><th>持有桶 / 袋</th><th>建档时间</th><th>操作</th></tr></thead>
           <tbody>
-            {rows.length === 0 ? <EmptyRow colSpan={9}>没有符合条件的会员</EmptyRow> : rows.map((m, i) => {
+            {rows.length === 0 ? <EmptyRow colSpan={9}>{loaded ? '没有符合条件的会员' : '正在加载会员…'}</EmptyRow> : rows.map((m, i) => {
               const reserved = m.reservedBucketDeliveryTickets + m.reservedBucketPickupTickets;
               return (
                 <tr key={m.id}>
@@ -76,18 +79,20 @@ export function Members() {
           </tbody>
         </table>
       </div>
-      <div className="table-footer"><span>当前显示 {rows.length} 条记录（最多 50 条）</span><div className="pagination" /></div>
+      <div className="table-footer"><span>共 {memberTotal} 条记录 · 每页 {MEMBER_PAGE_SIZE} 条</span><Pager page={memberPage} total={memberTotal} pageSize={MEMBER_PAGE_SIZE} onChange={setMemberPage} /></div>
     </div>
     {open && <MemberDrawer member={open} onClose={() => setOpenId(null)} />}
   </>;
 }
 
 function MemberDrawer({ member: m, onClose }: { member: MemberProfile; onClose: () => void }) {
-  const api = useApi();
+  const { api, can } = useAuth();
   const dialogs = useDialogs();
   const ops = useOperations();
-  const { recharges, refresh } = useAdminData();
+  const { version, refresh } = useAdminData();
   const [deposits, setDeposits] = useState<DepositSummaryRow[] | null>(null);
+  const reports = can(P.ReportExport);
+  const recharges = useLoader(() => reports ? api.rechargeLedger({ q: m.memberNo, pageSize: 5 }) : Promise.resolve(null), [api, reports, m.memberNo, version]);
 
   useEffect(() => {
     let alive = true;
@@ -101,7 +106,7 @@ function MemberDrawer({ member: m, onClose }: { member: MemberProfile; onClose: 
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const recent = recharges.filter(r => r.memberNo === m.memberNo).slice(0, 5);
+  const recent = recharges.data?.rows.filter(r => r.memberNo === m.memberNo) ?? [];
   const refundable = deposits ? deposits.reduce((sum, r) => sum + Number(r.refundableAmount), 0) : null;
   return (
     <div className="drawer-mask open" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>

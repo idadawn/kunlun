@@ -9,6 +9,7 @@ import type {
   ContainerType,
   CouponTemplate,
   CreateOrderRequest,
+  ContainerLedgerQuery,
   CreateOrderResult,
   CurrentUser,
   DepositLedgerRow,
@@ -18,9 +19,12 @@ import type {
   FulfillOrderRequest,
   InventoryOperation,
   InventoryRequest,
+  LedgerQuery,
   MemberAddress,
   MemberCoupon,
   MemberProfile,
+  MemberQuery,
+  OrderQuery,
   OverviewReport,
   Paged,
   PayMethod,
@@ -54,7 +58,18 @@ export interface KunlunApiOptions {
 }
 
 const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) });
-const query = (params: Record<string, string | number>) => new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString();
+
+/** `?a=1&b=2` from the given values, skipping empty ones. */
+const queryString = (params: object) => {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    const text = typeof value === 'string' ? value.trim() : value == null ? '' : String(value);
+    if (text) search.set(key, text);
+  }
+  return search.size ? `?${search}` : '';
+};
+/** Paged queries always send `page`; without paging params the server keeps answering with its legacy capped array. */
+const paged = (query: object & { page?: number }) => queryString({ ...query, page: query.page ?? 1 });
 
 /** Typed client for the Kunlun water-station API. All business rules remain server-side. */
 export class KunlunApi {
@@ -115,8 +130,12 @@ export class KunlunApi {
   }
 
   // Members & address books
+  /** The newest 50 matches, for pickers; tables use `membersPage`. */
   listMembers(q?: string) {
-    return this.request<MemberProfile[]>('/api/members' + (q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : ''));
+    return this.request<MemberProfile[]>('/api/members' + queryString({ q }));
+  }
+  membersPage(query: MemberQuery = {}) {
+    return this.request<Paged<MemberProfile>>('/api/members' + paged(query));
   }
   memberProfile(memberId: string) { return this.request<MemberProfile>(`/api/members/${memberId}/profile`); }
   createMember(body: { name: string; phone: string; defaultAddress?: string; doorNo?: string; remark?: string }) {
@@ -165,9 +184,12 @@ export class KunlunApi {
   }
 
   // Orders
-  listOrders(params: { memberId?: string; status?: string; pickupCode?: string } = {}) {
-    const search = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
-    return this.request<WaterOrder[]>('/api/orders' + (search.size ? `?${search}` : ''));
+  /** The newest 50 matches; tables use `ordersPage`. */
+  listOrders(params: Pick<OrderQuery, 'memberId' | 'status' | 'pickupCode'> = {}) {
+    return this.request<WaterOrder[]>('/api/orders' + queryString(params));
+  }
+  ordersPage(query: OrderQuery = {}) {
+    return this.request<Paged<WaterOrder>>('/api/orders' + paged(query));
   }
   createOrder(body: CreateOrderRequest) { return this.post<CreateOrderResult>('/api/orders', body); }
   acceptOrder(orderId: string) { return this.post<{ id: string; status: string }>(`/api/orders/${orderId}/accept`); }
@@ -200,13 +222,13 @@ export class KunlunApi {
     return this.request<Array<{ operation: InventoryOperation; memberName: string }>>('/api/containers/inventory-operations' + (containerType ? `?containerType=${containerType}` : ''));
   }
   containerHoldings(q: string, page: number) {
-    return this.request<Paged<ContainerHoldingRow>>('/api/containers/holdings?' + query({ q, page }));
+    return this.request<Paged<ContainerHoldingRow>>('/api/containers/holdings' + queryString({ q, page }));
   }
   containerCirculation(q: string, containerType: ContainerType | '', page: number) {
-    return this.request<Paged<CirculationRow>>('/api/containers/circulation?' + query({ q, containerType, page }));
+    return this.request<Paged<CirculationRow>>('/api/containers/circulation' + queryString({ q, containerType, page }));
   }
   containerDamages(q: string, containerType: ContainerType | '', status: string, page: number) {
-    return this.request<Paged<ContainerDamageRow>>('/api/containers/damages?' + query({ q, containerType, status, page }));
+    return this.request<Paged<ContainerDamageRow>>('/api/containers/damages' + queryString({ q, containerType, status, page }));
   }
   reportDamage(body: { memberId: string; containerType: ContainerType; quantity: number; reason: string; idempotencyKey: string }) {
     return this.post<{ damageNo: string }>('/api/containers/damages', body);
@@ -218,9 +240,9 @@ export class KunlunApi {
   // Reports
   financeSummary() { return this.request<FinanceSummaryReport>('/api/reports/finance-summary'); }
   overview() { return this.request<OverviewReport>('/api/reports/overview'); }
-  rechargeLedger() { return this.request<RechargeLedgerRow[]>('/api/ledgers/recharges'); }
-  depositLedger() { return this.request<DepositLedgerRow[]>('/api/ledgers/deposits'); }
-  containerLedger() { return this.request<ContainerLedgerRow[]>('/api/ledgers/containers'); }
+  rechargeLedger(query: LedgerQuery = {}) { return this.request<Paged<RechargeLedgerRow>>('/api/ledgers/recharges' + paged(query)); }
+  depositLedger(query: LedgerQuery = {}) { return this.request<Paged<DepositLedgerRow>>('/api/ledgers/deposits' + paged(query)); }
+  containerLedger(query: ContainerLedgerQuery = {}) { return this.request<Paged<ContainerLedgerRow>>('/api/ledgers/containers' + paged(query)); }
   async exportCsv(dataset: ExportDataset): Promise<Blob> {
     return (await this.send(`/api/exports/${dataset}`)).blob();
   }

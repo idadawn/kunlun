@@ -7,6 +7,9 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import net from 'node:net';
 import {WEB_ROUTES,resolveRoute,pathFor} from '../packages/shared/src/routes.ts';
 import {filterPlans} from '../packages/shared/src/plans.ts';
+import {pageCount,pageWindow} from '../packages/shared/src/paging.ts';
+import {dateFilterFrom} from '../packages/shared/src/format.ts';
+import {KunlunApi} from '../packages/shared/src/api.ts';
 const root=fileURLToPath(new URL('..',import.meta.url));
 const APPS={'admin-pc':['admin'],'mini-app':['member','staff']};
 const allPaths=area=>[`/${area}`,...WEB_ROUTES[area].pages.map(p=>`/${area}/${p}`),...Object.keys(WEB_ROUTES[area].aliases||{}).map(p=>`/${area}/${p}`)];
@@ -37,6 +40,43 @@ test('package classification and search never expose disabled packages',()=>{
  assert.deepEqual(filterPlans(plans,'BAG_7_5L:PICKUP','499').map(p=>p.id),['b']);
  assert.deepEqual(filterPlans(plans,'BUCKET_18_9L:DELIVERY').map(p=>p.id),['c']);
  assert.equal(filterPlans(plans,'ALL','停用').length,0);
+});
+
+test('pager shows first, last and neighbouring pages; date filters start at station midnight',()=>{
+ assert.equal(pageCount(0,20),1);assert.equal(pageCount(40,20),2);assert.equal(pageCount(41,20),3);
+ assert.deepEqual(pageWindow(1,1),[1]);
+ assert.deepEqual(pageWindow(1,10),[1,2,null,10]);
+ assert.deepEqual(pageWindow(4,10),[1,2,3,4,5,null,10]);
+ assert.deepEqual(pageWindow(5,10),[1,null,4,5,6,null,10]);
+ assert.deepEqual(pageWindow(10,10),[1,null,9,10]);
+ const morning=new Date('2026-10-27T01:30:00Z'),justAfterMidnight=new Date('2026-10-26T16:30:00Z');
+ assert.equal(dateFilterFrom('ALL',morning),undefined);
+ assert.equal(dateFilterFrom('TODAY',morning),'2026-10-26T16:00:00.000Z');
+ assert.equal(dateFilterFrom('TODAY',justAfterMidnight),'2026-10-26T16:00:00.000Z');
+ assert.equal(dateFilterFrom('WEEK',morning),'2026-10-20T16:00:00.000Z');
+ assert.equal(dateFilterFrom('MONTH',morning),'2026-09-30T16:00:00.000Z');
+});
+
+test('paged client calls always send page and drop empty filters; legacy list calls stay unpaged',async()=>{
+ const urls=[],real=globalThis.fetch;
+ globalThis.fetch=async url=>{urls.push(url);return new Response('{}',{status:200});};
+ try{
+  const api=new KunlunApi();
+  await api.membersPage({q:' 陈 ',status:undefined,water:'BUCKET',pageSize:50});
+  await api.ordersPage({mode:'PICKUP',from:'2026-10-26T16:00:00.000Z',q:'',page:3});
+  await api.rechargeLedger();
+  await api.containerLedger({containerType:'BAG'});
+  await api.listMembers('  ');
+  await api.listOrders({memberId:'m1'});
+ }finally{globalThis.fetch=real;}
+ assert.deepEqual(urls,[
+  '/api/members?q=%E9%99%88&water=BUCKET&pageSize=50&page=1',
+  '/api/orders?mode=PICKUP&from=2026-10-26T16%3A00%3A00.000Z&page=3',
+  '/api/ledgers/recharges?page=1',
+  '/api/ledgers/containers?containerType=BAG&page=1',
+  '/api/members',
+  '/api/orders?memberId=m1',
+ ]);
 });
 
 async function freePort(){const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const port=s.address().port;await new Promise(r=>s.close(r));return port;}

@@ -34,12 +34,12 @@ export const stationDay = (date: Date = new Date()) =>
   new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
 
 export type DateFilter = 'ALL' | 'TODAY' | 'WEEK' | 'MONTH';
-export function withinDate(time: string, filter: DateFilter): boolean {
-  if (filter === 'ALL') return true;
-  const day = stationDay();
-  let start = new Date(`${filter === 'MONTH' ? day.slice(0, 8) + '01' : day}T00:00:00+08:00`);
-  if (filter === 'WEEK') start = new Date(start.getTime() - 6 * 86400000);
-  return new Date(time) >= start;
+/** Start of the window in the station's time zone as ISO 8601, for a list query's `from`; undefined for 全部时间. */
+export function dateFilterFrom(filter: DateFilter, now: Date = new Date()): string | undefined {
+  if (filter === 'ALL') return undefined;
+  const day = stationDay(now);
+  const start = new Date(`${filter === 'MONTH' ? day.slice(0, 8) + '01' : day}T00:00:00+08:00`);
+  return new Date(filter === 'WEEK' ? start.getTime() - 6 * 86400000 : start.getTime()).toISOString();
 }
 
 /** Joins 收货地址 and 门牌号 exactly as the server stores the display text. */
