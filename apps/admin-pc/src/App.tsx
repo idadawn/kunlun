@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
-import { KUNLUN_BRAND, pathFor, resolveRoute } from '@kunlun/shared';
+import { KUNLUN_BRAND, containerLabel, pathFor, resolveRoute } from '@kunlun/shared';
 import { ChangePasswordDialog, DialogProvider, Icon, Logo, useAuth, useDialogs, useToast, type IconName } from '@kunlun/ui';
 import { PAGE_NAMES, useGo } from './common';
 import { AdminDataProvider, useAdminData } from './data';
 import { Dashboard } from './pages/Dashboard';
 import { Members } from './pages/Members';
 import { Orders } from './pages/Orders';
-import { Finance } from './pages/Finance';
+import { Recharges } from './pages/Recharges';
+import { Deposits } from './pages/Deposits';
+import { Refunds } from './pages/Refunds';
 import { Inventory } from './pages/Inventory';
 import { Assets } from './pages/Assets';
 import { Products } from './pages/Products';
@@ -24,7 +26,9 @@ export function App() {
             <Route index element={<Dashboard />} />
             <Route path="members" element={<Members />} />
             <Route path="orders" element={<Orders />} />
-            <Route path="finance" element={<Finance />} />
+            <Route path="recharges" element={<Recharges />} />
+            <Route path="deposits" element={<Deposits />} />
+            <Route path="refunds" element={<Refunds />} />
             <Route path="inventory" element={<Inventory />} />
             <Route path="assets" element={<Assets />} />
             <Route path="products" element={<Products />} />
@@ -33,6 +37,7 @@ export function App() {
             <Route path="staff-accounts" element={<StaffAccounts />} />
             <Route path="settings" element={<Navigate to={pathFor('admin', 'settings')} replace />} />
             <Route path="deposit-settings" element={<Navigate to={pathFor('admin', 'deposit-settings')} replace />} />
+            <Route path="finance" element={<Navigate to={pathFor('admin', 'finance')} replace />} />
           </Route>
           <Route path="*" element={<Navigate to={pathFor('admin')} replace />} />
         </Routes>
@@ -41,11 +46,17 @@ export function App() {
   );
 }
 
-const NAV: Array<{ label: string; items: Array<[string, IconName]> }> = [
-  { label: '经营管理', items: [['dashboard', 'grid'], ['members', 'users'], ['orders', 'order'], ['finance', 'wallet'], ['inventory', 'box'], ['assets', 'box']] },
-  { label: '商品与营销', items: [['products', 'drop'], ['plans', 'wallet'], ['coupons', 'deposit']] },
+/** Grouped the way the station is run: daily work, money, containers, catalogue, marketing, then settings. Every item has its own icon so the collapsed bar stays readable. */
+const NAV: Array<{ label?: string; items: Array<[string, IconName]> }> = [
+  { items: [['dashboard', 'grid']] },
+  { label: '日常业务', items: [['orders', 'order'], ['members', 'users']] },
+  { label: '财务管理', items: [['recharges', 'wallet'], ['deposits', 'deposit'], ['refunds', 'check']] },
+  { label: '袋桶管理', items: [['inventory', 'box'], ['assets', 'ledger']] },
+  { label: '商品管理', items: [['products', 'drop'], ['plans', 'tag']] },
+  { label: '营销管理', items: [['coupons', 'ticket']] },
   { label: '系统设置', items: [['staff-accounts', 'shield']] },
 ];
+const GROUP_OF: Record<string, string | undefined> = Object.fromEntries(NAV.flatMap(group => group.items.map(([id]) => [id, group.label])));
 const COLLAPSE_KEY = 'kunlun.sidebar.collapsed';
 const readCollapsed = () => { try { return localStorage.getItem(COLLAPSE_KEY) === 'true'; } catch { return false; } };
 
@@ -70,12 +81,20 @@ function useSidebarCollapsed() {
 function AdminLayout() {
   const location = useLocation();
   const page = resolveRoute(location.pathname)?.page ?? 'dashboard';
-  const { orders, overview, refresh } = useAdminData();
+  const { orders, overview, containers, pendingRefunds, refresh } = useAdminData();
   const [collapsed, toggle] = useSidebarCollapsed();
   const toast = useToast();
   const go = useGo();
   const pending = overview ? overview.pendingDelivery + overview.pendingPickup + overview.dispatched
     : orders.filter(o => o.status === 'PENDING' || o.status === 'DISPATCHED').length;
+  const scrapPending = containers.reduce((sum, c) => sum + c.damagedQty, 0);
+  const lowStock = containers.filter(c => c.lowStockWarning).map(c => containerLabel(c.containerType));
+  // Work waiting on a page: shown on its menu item so it is visible from anywhere in the console.
+  const badges: Record<string, { text: string; hint: string; warn?: boolean }> = {};
+  if (pending > 0) badges.orders = { text: String(pending), hint: `待处理水单 ${pending} 单` };
+  if (pendingRefunds) badges.refunds = { text: String(pendingRefunds), hint: `待审核退款 ${pendingRefunds} 笔` };
+  if (lowStock.length) badges.inventory = { text: '预警', hint: `${lowStock.join('、')}站内可用低于预警值`, warn: true };
+  if (scrapPending > 0) badges.assets = { text: String(scrapPending), hint: `待确认报废 ${scrapPending} 个` };
 
   // Every page shows live data: entering another page reloads the shared snapshot, as the original console did.
   const firstPage = useRef(true);
@@ -90,22 +109,20 @@ function AdminLayout() {
       <aside className="sidebar" id="adminSidebar" aria-label="主导航">
         <div className="brand"><Logo /><div className="brand-copy"><h1>{KUNLUN_BRAND.brand}</h1><small>水站会员管理系统</small></div></div>
         {NAV.map(group => (
-          <div key={group.label} style={{ display: 'contents' }}>
-            <div className="nav-label">{group.label}</div>
-            {group.items.map(([id, icon]) => (
-              <button key={id} type="button" className={`nav-item${page === id ? ' active' : ''}`} aria-label={PAGE_NAMES[id]} title={PAGE_NAMES[id]} aria-current={page === id ? 'page' : undefined} onClick={() => go(id)}>
-                <Icon name={icon} /><span className="nav-text">{PAGE_NAMES[id]}</span>
-                {id === 'orders' && pending > 0 && <span className="nav-badge">{pending}</span>}
-              </button>
-            ))}
+          <div key={group.label ?? 'home'} style={{ display: 'contents' }}>
+            {group.label && <div className="nav-label">{group.label}</div>}
+            {group.items.map(([id, icon]) => {
+              const badge = badges[id];
+              const label = badge ? `${PAGE_NAMES[id]} · ${badge.hint}` : PAGE_NAMES[id];
+              return (
+                <button key={id} type="button" className={`nav-item${page === id ? ' active' : ''}`} aria-label={label} title={label} aria-current={page === id ? 'page' : undefined} onClick={() => go(id)}>
+                  <Icon name={icon} /><span className="nav-text">{PAGE_NAMES[id]}</span>
+                  {badge && <span className={`nav-badge${badge.warn ? ' warn' : ''}`}>{badge.text}</span>}
+                </button>
+              );
+            })}
           </div>
         ))}
-        <div className="sidebar-bottom">
-          <div className="station" title={KUNLUN_BRAND.store}>
-            <div className="station-avatar"><Icon name="store" /></div>
-            <div className="station-copy"><b>{KUNLUN_BRAND.store}</b><small>{KUNLUN_BRAND.product} · 营业中</small></div>
-          </div>
-        </div>
       </aside>
       <main className="main-wrap">
         <Topbar page={page} collapsed={collapsed} toggle={toggle} />
@@ -129,7 +146,7 @@ function Topbar({ page, collapsed, toggle }: { page: string; collapsed: boolean;
       <button type="button" className="sidebar-toggle" aria-label={label} title={label} aria-controls="adminSidebar" aria-expanded={!collapsed} onClick={toggle}>
         <svg className="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M9 4v16" /><path className="sidebar-toggle-arrow" d="m16 9-3 3 3 3" /></svg>
       </button>
-      <div className="breadcrumb">{KUNLUN_BRAND.store} / <b>{PAGE_NAMES[page]}</b> <span className="pill">{KUNLUN_BRAND.product}</span></div>
+      <div className="breadcrumb">{KUNLUN_BRAND.store} / {GROUP_OF[page] && <>{GROUP_OF[page]} / </>}<b>{PAGE_NAMES[page]}</b> <span className="pill">{KUNLUN_BRAND.product}</span></div>
       <div className="top-actions">
         <label className="search-mini"><Icon name="search" />
           <input placeholder="搜索会员姓名、手机号、会员编号" aria-label="搜索会员" value={search} onChange={e => setSearch(e.target.value)}

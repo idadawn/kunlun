@@ -10,11 +10,7 @@
 .nav-item:hover{background:var(--line-soft);color:var(--ink)}
 .nav-item.active{background:var(--brand-50);color:var(--brand-600);font-weight:600}
 .nav-item .nav-badge{margin-left:auto;background:var(--orange-500);color:#fff;border-radius:999px;font-size:10.5px;min-width:20px;text-align:center;padding:1px 6px;font-weight:700}
-.sidebar-bottom{margin-top:auto;padding:14px 6px 0;border-top:1px solid var(--line)}
-.station{display:flex;align-items:center;gap:10px;padding:10px 11px;border-radius:12px;background:var(--bg);border:1px solid var(--line-soft)}
-.station-avatar{width:34px;height:34px;background:var(--brand-50);border-radius:9px;display:grid;place-items:center;color:var(--brand-600);flex:none}
-.station b{display:block;color:var(--ink);font-size:13px}
-.station small{font-size:11px;color:var(--muted)}
+.nav-item .nav-badge.warn{background:var(--gold-500)}
 
 .main-wrap{overflow:auto;min-width:0;background:var(--bg)}
 .topbar{height:64px;padding:0 30px;display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.88);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:9;backdrop-filter:blur(12px)}
@@ -125,6 +121,11 @@ td b{color:var(--ink)}
 .member-cell small{display:block;color:var(--muted);font-size:11.5px;margin-top:1px}
 .link{color:var(--brand-600);border:0;background:none;padding:0;font-weight:500}
 .link:hover{text-decoration:underline}
+.ledger-table td small{color:var(--muted);font-size:11.5px}.ledger-reason{white-space:normal;min-width:140px;max-width:260px}
+.amount-in{color:var(--brand-600)!important}.amount-out{color:var(--orange-500)!important}
+.ledger-hint{display:flex;align-items:center;gap:8px;margin:-4px 0 18px;padding:10px 14px;border-radius:var(--r-md);background:var(--brand-50);color:var(--brand-700);font-size:12.5px}
+.detail-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}.detail-card-head h4{margin:0}
+.ledger-hint span{flex:1;min-width:0}.ledger-hint .text-btn{white-space:nowrap}
 .table-footer{display:flex;align-items:center;justify-content:space-between;padding:13px 20px;color:var(--muted);font-size:12px;border-top:1px solid var(--line)}
 .pagination{display:flex;gap:5px}
 .page-btn{min-width:28px;height:28px;padding:0 6px;border:1px solid var(--line);background:#fff;border-radius:7px;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { KUNLUN_PERMISSIONS as P, money, pageCount, type DepositSummaryRow, type MemberProfile } from '@kunlun/shared';
+import { KUNLUN_PERMISSIONS as P, containerLabel, money, pageCount, shortDateTime, type DepositSummaryRow, type MemberProfile } from '@kunlun/shared';
 import { AddressBook, CredentialsDialog, Icon, useAuth, useDialogs, useLoader } from '@kunlun/ui';
 import { EmptyRow, Pager, useExport, useOperations } from '../common';
 import { MEMBER_PAGE_SIZE, useAdminData, type MemberFilter } from '../data';
@@ -92,7 +92,7 @@ function MemberDrawer({ member: m, onClose }: { member: MemberProfile; onClose: 
   const { version, refresh } = useAdminData();
   const [deposits, setDeposits] = useState<DepositSummaryRow[] | null>(null);
   const reports = can(P.ReportExport);
-  const recharges = useLoader(() => reports ? api.rechargeLedger({ q: m.memberNo, pageSize: 5 }) : Promise.resolve(null), [api, reports, m.memberNo, version]);
+  const recharges = useLoader(() => reports ? api.rechargeLedger({ q: m.memberNo, pageSize: 3 }) : Promise.resolve(null), [api, reports, m.memberNo, version]);
 
   useEffect(() => {
     let alive = true;
@@ -108,6 +108,7 @@ function MemberDrawer({ member: m, onClose }: { member: MemberProfile; onClose: 
 
   const recent = recharges.data?.rows.filter(r => r.memberNo === m.memberNo) ?? [];
   const refundable = deposits ? deposits.reduce((sum, r) => sum + Number(r.refundableAmount), 0) : null;
+  const pendingDamage = deposits?.reduce((sum, r) => sum + r.pendingDamageQty, 0) ?? 0;
   return (
     <div className="drawer-mask open" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="drawer" role="dialog" aria-modal="true" aria-label="会员 360° 档案">
@@ -125,9 +126,9 @@ function MemberDrawer({ member: m, onClose }: { member: MemberProfile; onClose: 
             <div><b>{m.heldBuckets} / {m.heldBags}</b><small>持有桶/袋</small></div>
           </div>
           <div className="drawer-actions">
-            <button type="button" className="btn primary" onClick={() => ops.recharge(m.id)}>水费充值</button>
-            <button type="button" className="btn" onClick={() => ops.deposit(m.id)}>押金收退</button>
-            <button type="button" className="btn" onClick={() => ops.order(m.id)}>点单</button>
+            <button type="button" className="btn primary" onClick={() => ops.order(m.id)}>点单</button>
+            <button type="button" className="btn" onClick={() => ops.recharge(m.id)}>水费充值</button>
+            <button type="button" className="btn" onClick={() => ops.deposit('collect', m.id)}>收押金</button>
             <button type="button" className="btn" onClick={() => ops.movement(m.id)}>登记领还</button>
           </div>
           <div className="detail-card">
@@ -142,17 +143,21 @@ function MemberDrawer({ member: m, onClose }: { member: MemberProfile; onClose: 
             <AddressBook key={m.id} owner={m} onChanged={refresh} compact />
           </div>
           <div className="detail-card">
-            <h4>四类水票与押金明细</h4>
+            <div className="detail-card-head"><h4>水票与充值</h4><button type="button" className="text-btn" onClick={() => ops.assets(m)}>水票批次 / 优惠券 / 退款 ›</button></div>
             <div className="detail-row"><span>自提桶票 / 配送桶票</span><b>{m.bucketPickupTickets} 桶 / {m.bucketDeliveryTickets} 桶（预占 {m.reservedBucketDeliveryTickets + m.reservedBucketPickupTickets}）</b></div>
             <div className="detail-row"><span>自提袋票 / 配送袋票</span><b>{m.bagPickupTickets} 袋 / {m.bagDeliveryTickets} 袋（预占 {m.reservedBagPickupTickets + m.reservedBagDeliveryTickets}）</b></div>
-            <div className="detail-row"><span>实际持有桶 / 袋</span><b>{m.heldBuckets} 桶 / {m.heldBags} 袋</b></div>
-            <div className="detail-row"><span>在池押金 / 当前可退</span><b style={{ color: 'var(--brand-600)' }}>¥{money(m.depositAmount)} / {refundable === null ? '可退金额查询中' : `可退 ¥${money(refundable)}`}</b></div>
+            {reports && (recent.length
+              ? recent.map(r => <div key={r.rechargeNo} className="detail-row"><span>{shortDateTime(r.createdAt)} 充值</span><b>{r.planName} · ¥{money(r.paidAmount)}{r.refundNo ? '（已退）' : ''}</b></div>)
+              : <p className="membership-note">暂无充值记录</p>)}
           </div>
           <div className="detail-card">
-            <h4>最近充值流水</h4>
-            {recent.length ? recent.map(r => <p key={r.rechargeNo} style={{ fontSize: 12.5, margin: '6px 0' }}>{r.planName} · 实收 ¥{money(r.paidAmount)} · 付费 {r.buyQty} + 赠票 {r.giftQty}</p>) : <p className="membership-note">暂无充值记录</p>}
+            <div className="detail-card-head"><h4>押金与容器</h4><button type="button" className="text-btn" onClick={() => ops.deposit('refund', m.id)}>申请退押金 ›</button></div>
+            {deposits ? deposits.map(r => (
+              <div key={r.containerType} className="detail-row"><span>{containerLabel(r.containerType)}</span><b>已交 {r.paidQty} 个 ¥{money(r.paidAmount)} · 持有 {r.heldQty} · 可退 {r.refundableQty}{r.pendingRefundQty > 0 ? ` · 审核中 ${r.pendingRefundQty}` : ''}</b></div>
+            )) : <p className="membership-note">押金明细查询中…</p>}
+            <div className="detail-row"><span>在池押金 / 当前可退</span><b style={{ color: 'var(--brand-600)' }}>¥{money(m.depositAmount)} / {refundable === null ? '查询中' : `¥${money(refundable)}`}</b></div>
+            {pendingDamage > 0 && <p className="membership-note">另有 {pendingDamage} 个待报废容器占用押金，确认报废后按原批次扣除。</p>}
           </div>
-          <button type="button" className="btn primary block" onClick={() => ops.assets(m)}>水票批次 / 优惠券 / 退款</button>
         </div>
       </div>
     </div>

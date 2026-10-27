@@ -33,7 +33,8 @@ public sealed record RefundDepositRequest(
     Guid MemberId,
     string ContainerType, // BUCKET | BAG
     int Quantity,
-    string IdempotencyKey);
+    string IdempotencyKey,
+    string? PayMethod = null); // 实际退款方式；旧客户端不传时记为未登记
 
 public sealed record RegisterContainerMovementRequest(
     Guid MemberId,
@@ -152,6 +153,7 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 UNIQUE (tenant_id, idempotency_key)
             );
+            ALTER TABLE deposit_refunds ADD COLUMN IF NOT EXISTS pay_method VARCHAR(24);
             """;
 
         await using (var cmd = new NpgsqlCommand(ddl, conn, tx))

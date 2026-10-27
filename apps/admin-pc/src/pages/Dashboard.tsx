@@ -10,7 +10,7 @@ const EMPTY_CONTAINER: ContainerSummaryItem = {
 
 export function Dashboard() {
   const { user } = useAuth();
-  const { orders, overview, finance, containers } = useAdminData();
+  const { orders, overview, finance, containers, pendingRefunds } = useAdminData();
   const go = useGo();
   const exportCsv = useExport();
   const ops = useOperations();
@@ -23,8 +23,6 @@ export function Dashboard() {
   const dispatched = overview?.dispatched ?? orders.filter(o => o.status === 'DISPATCHED').length;
   const pending = pendingDelivery + pendingPickup + dispatched;
   const doneQty = (water: WaterOrder['waterType']) => completed.filter(o => o.waterType === water).reduce((s, o) => s + (o.actualQty ?? o.orderQty), 0);
-  const recharge = Number(finance?.rechargeRevenueTotal ?? 0), rechargeRefunded = Number(finance?.rechargeRefundedTotal ?? 0);
-  const depositIn = Number(finance?.depositCollectedTotal ?? 0), depositOut = Number(finance?.depositRefundedTotal ?? 0);
 
   return <>
     <div className="hero-banner">
@@ -44,9 +42,9 @@ export function Dashboard() {
 
     <div className="stats-grid">
       <div className="stat-card">
-        <div className="stat-top"><span>累计净收款（元）</span><span className="stat-icon"><Icon name="wallet" /></span></div>
-        <div className="stat-value">{finance ? `¥ ${money(recharge - rechargeRefunded + depositIn - depositOut)}` : '—'}</div>
-        <div className="stat-foot">{finance ? `水费净收 ¥${money(recharge - rechargeRefunded)} · 押金净收 ¥${money(depositIn - depositOut)}` : '需要报表权限'}</div>
+        <div className="stat-top"><span>水费净收（元）</span><span className="stat-icon"><Icon name="wallet" /></span></div>
+        <div className="stat-value">{finance ? `¥ ${money(finance.rechargeNetReceived)}` : '—'}</div>
+        <div className="stat-foot">{finance ? `不含押金 · 在池押金 ¥${money(finance.unrefundedDepositPoolTotal)} 另行核算` : '需要报表权限'}</div>
       </div>
       <div className="stat-card">
         <div className="stat-top"><span>已核销用水</span><span className="stat-icon blue"><Icon name="drop" /></span></div>
@@ -78,7 +76,7 @@ export function Dashboard() {
         <div className="todo-list">
           <div className="todo-item"><div className="todo-symbol"><Icon name="truck" /></div><div className="todo-text"><b>待接单配送</b><small>请及时指派或提醒送水员接单</small></div><span className="todo-num">{pendingDelivery}</span><button type="button" className="text-btn" onClick={() => go('orders')}>处理</button></div>
           <div className="todo-item"><div className="todo-symbol green"><Icon name="store" /></div><div className="todo-text"><b>待确认自提</b><small>会员到店出示取水码后核销</small></div><span className="todo-num">{pendingPickup}</span><button type="button" className="text-btn" onClick={() => go('orders')}>处理</button></div>
-          <div className="todo-item"><div className="todo-symbol blue"><Icon name="deposit" /></div><div className="todo-text"><b>可退押金</b><small>核对容器持有与原收款批次单价</small></div><span className="todo-num">{overview ? `¥${money(overview.refundableDeposit)}` : '—'}</span><button type="button" className="text-btn" onClick={() => go('finance')}>处理</button></div>
+          <div className="todo-item"><div className="todo-symbol blue"><Icon name="check" /></div><div className="todo-text"><b>待审核退款</b><small>押金与水费退款须管理员审核后才退</small></div><span className="todo-num">{pendingRefunds ?? '—'}</span><button type="button" className="text-btn" onClick={() => go('refunds')}>审核</button></div>
           <div className="todo-item"><div className="todo-symbol"><Icon name="box" /></div><div className="todo-text"><b>15L 周转桶库存{bucket.lowStockWarning ? '偏低' : ''}</b><small>当前门店可用 {bucket.inStationQty} 个，预警值 {bucket.warnThreshold}</small></div><button type="button" className="text-btn" onClick={() => go('assets')}>查看</button></div>
         </div>
       </div>

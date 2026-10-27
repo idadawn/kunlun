@@ -106,14 +106,23 @@ public static class ReportEndpoints
             }
 
             decimal rechargeRefundedTotal;
-            await using (var refunds = new NpgsqlCommand("SELECT COALESCE(sum(amount),0) FROM plugin_kunlun_waterstation.recharge_refunds WHERE tenant_id=@tid", conn))
+            long rechargeRefundCount;
+            await using (var refunds = TicketBatches.Command(conn, null, "SELECT count(*),COALESCE(sum(amount),0) FROM plugin_kunlun_waterstation.recharge_refunds WHERE tenant_id=@tid", ("tid", tenantId)))
+            await using (var r = await refunds.ExecuteReaderAsync(ct))
             {
-                refunds.Parameters.AddWithValue("tid", tenantId);
-                rechargeRefundedTotal = Convert.ToDecimal(await refunds.ExecuteScalarAsync(ct));
+                await r.ReadAsync(ct);
+                rechargeRefundCount = r.GetInt64(0);
+                rechargeRefundedTotal = r.GetDecimal(1);
             }
             decimal depositDeductedTotal;
-            await using (var deductions = TicketBatches.Command(conn, null, "SELECT COALESCE(sum(deposit_amount),0) FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED'", ("tid",tenantId)))
-                depositDeductedTotal = Convert.ToDecimal(await deductions.ExecuteScalarAsync(ct));
+            long depositDeductCount;
+            await using (var deductions = TicketBatches.Command(conn, null, "SELECT count(*),COALESCE(sum(deposit_amount),0) FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED' AND NOT deposit_waived", ("tid",tenantId)))
+            await using (var r = await deductions.ExecuteReaderAsync(ct))
+            {
+                await r.ReadAsync(ct);
+                depositDeductCount = r.GetInt64(0);
+                depositDeductedTotal = r.GetDecimal(1);
+            }
             var netDepositFromFlows = depositCollectedTotal - depositRefundedTotal - depositDeductedTotal;
 
             return Results.Ok(new
@@ -121,6 +130,7 @@ public static class ReportEndpoints
                 brand = "绿麒麟水站｜小分子团弱碱活性水",
                 rechargeRevenueTotal,
                 rechargeRefundedTotal,
+                rechargeRefundCount,
                 rechargeNetReceived = rechargeRevenueTotal - rechargeRefundedTotal,
                 rechargeOrderCount,
                 ticketsSoldBuyQty,
@@ -130,6 +140,7 @@ public static class ReportEndpoints
                 depositRefundedTotal,
                 depositRefundCount,
                 depositDeductedTotal,
+                depositDeductCount,
                 unrefundedDepositPoolTotal = unrefundedDepositPoolFromLots,
                 netDepositFromFlows,
                 reconciledZeroDiff = unrefundedDepositPoolFromLots == netDepositFromFlows,
@@ -198,28 +209,28 @@ public static class ReportEndpoints
                 }
                 case "deposit-ledgers":
                 {
-                    sb.AppendLine("单据号,流转类型,会员ID,容器类型,数量,批次单价(元),金额(元),剩余未退数量,操作人,时间");
+                    sb.AppendLine("单据号,流转类型,会员ID,容器类型,数量,批次单价(元),金额(元),剩余未退数量,操作人,时间,收付方式");
                     await using var cmd = new NpgsqlCommand("""
                         SELECT deposit_no AS doc_no, 'COLLECT' AS flow_type, member_id, container_type, paid_qty AS qty,
-                               unit_price, total_amount AS amount, remaining_qty, operator_name, created_at
+                               unit_price, total_amount AS amount, remaining_qty, operator_name, created_at, pay_method
                         FROM plugin_kunlun_waterstation.deposit_lots
                         WHERE tenant_id = @tid
                         UNION ALL
                         SELECT refund_no AS doc_no, 'REFUND' AS flow_type, member_id, container_type, refund_qty AS qty,
-                               ROUND(refund_amount / refund_qty, 2) AS unit_price, refund_amount AS amount, 0 AS remaining_qty, operator_name, created_at
+                               ROUND(refund_amount / refund_qty, 2) AS unit_price, refund_amount AS amount, 0 AS remaining_qty, operator_name, created_at, pay_method
                         FROM plugin_kunlun_waterstation.deposit_refunds
                         WHERE tenant_id = @tid
                         UNION ALL
                         SELECT scrap_no AS doc_no,'DEDUCT' AS flow_type,member_id,container_type,quantity AS qty,
-                               ROUND(deposit_amount/quantity,2) AS unit_price,deposit_amount AS amount,0 AS remaining_qty,scrap_operator AS operator_name,scrapped_at AS created_at
-                        FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED'
+                               ROUND(deposit_amount/quantity,2) AS unit_price,deposit_amount AS amount,0 AS remaining_qty,scrap_operator AS operator_name,scrapped_at AS created_at,NULL
+                        FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED' AND NOT deposit_waived
                         ORDER BY created_at DESC
                         """, conn);
                     cmd.Parameters.AddWithValue("tid", tenantId);
                     await using var r = await cmd.ExecuteReaderAsync(ct);
                     while (await r.ReadAsync(ct))
                     {
-                        sb.AppendLine($"{Csv(r.GetString(0))},{r.GetString(1)},{r.GetGuid(2)},{r.GetString(3)},{r.GetInt32(4)},{r.GetDecimal(5):F2},{r.GetDecimal(6):F2},{r.GetInt32(7)},{Csv(r.GetString(8))},{r.GetDateTime(9):O}");
+                        sb.AppendLine($"{Csv(r.GetString(0))},{r.GetString(1)},{r.GetGuid(2)},{r.GetString(3)},{r.GetInt32(4)},{r.GetDecimal(5):F2},{r.GetDecimal(6):F2},{r.GetInt32(7)},{Csv(r.GetString(8))},{r.GetDateTime(9):O},{(r.IsDBNull(10) ? "" : r.GetString(10))}");
                     }
                     break;
                 }
@@ -266,6 +277,20 @@ public static class ReportEndpoints
                     while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{r.GetGuid(1)},{Csv(r.IsDBNull(2) ? "" : r.GetString(2))},{r.GetDecimal(3):F2},{r.GetInt32(4)},{r.GetInt32(5)},{r.GetString(6)},{Csv(r.GetString(7))},{r.GetDateTime(8):O}");
                     break;
                 }
+                case "recharge-refunds":
+                {
+                    sb.AppendLine("退款单号,原充值单号,会员ID,原套餐名称,退款金额,退付费票,收回赠票,退款方式,退款原因,操作人,时间");
+                    await using var cmd = TicketBatches.Command(conn, null, """
+                        SELECT rf.refund_no,COALESCE(ro.recharge_no,''),rf.member_id,ro.plan_snapshot->>'name',rf.amount,rf.refund_buy_qty,rf.revoked_gift_qty,rf.pay_method,rf.reason,rf.operator_name,rf.created_at
+                        FROM plugin_kunlun_waterstation.recharge_refunds rf
+                        JOIN plugin_kunlun_waterstation.ticket_batches b ON b.id=rf.batch_id
+                        LEFT JOIN plugin_kunlun_waterstation.recharge_orders ro ON ro.id=b.recharge_id
+                        WHERE rf.tenant_id=@tid ORDER BY rf.created_at DESC
+                        """, ("tid", tenantId));
+                    await using var r = await cmd.ExecuteReaderAsync(ct);
+                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{Csv(r.GetString(1))},{r.GetGuid(2)},{Csv(r.IsDBNull(3) ? "" : r.GetString(3))},{r.GetDecimal(4):F2},{r.GetInt32(5)},{r.GetInt32(6)},{r.GetString(7)},{Csv(r.GetString(8))},{Csv(r.GetString(9))},{r.GetDateTime(10):O}");
+                    break;
+                }
                 default:
                     return Results.BadRequest(new { error = "UNSUPPORTED_EXPORT_DATASET", message = $"不支持的导出类型: {dataset}" });
             }
@@ -274,27 +299,32 @@ public static class ReportEndpoints
             return Results.File(bytes, "text/csv; charset=utf-8", $"kunlun-{dataset}-{DateTime.UtcNow:yyyyMMdd}.csv");
         }).RequireAuthorization();
 
-        // 3. 充值流水、押金收支流水、容器领还流水列表查询 (供管理端 PC 与小程序端实时渲染)，可按单号/会员、业务时间、容器类型筛选并分页
-        api.MapGet("/ledgers/recharges", async (string? q, DateTimeOffset? from, DateTimeOffset? to, int? page, int? pageSize,
+        // 3. 充值流水、充值退款流水、押金收支流水、容器领还流水列表查询 (供管理端 PC 与小程序端实时渲染)，可按单号/会员、业务时间、收付方式、业务类型、容器类型筛选并分页
+        api.MapGet("/ledgers/recharges", async (string? q, DateTimeOffset? from, DateTimeOffset? to, string? payMethod, int? page, int? pageSize,
             NpgsqlDataSource db, KunlunAuthRepository authRepo, CancellationToken ct) =>
         {
             await using var conn = await db.OpenConnectionAsync(ct);
             return await Paging.From(page, pageSize, legacyLimit: 30).Query(conn, """
                 r.recharge_no, m.name, m.member_no, r.plan_snapshot->>'name',
-                r.paid_amount, r.buy_qty, r.gift_qty, r.pay_method, r.operator_name, r.created_at, r.plan_snapshot::text
+                r.paid_amount, r.buy_qty, r.gift_qty, r.pay_method, r.operator_name, r.created_at, r.plan_snapshot::text,
+                r.coupon_snapshot->'coupon'->>'name', rf.refund_no, rf.amount, rf.created_at
                 """, """
                 plugin_kunlun_waterstation.recharge_orders r
                 JOIN plugin_kunlun_waterstation.members m ON m.id = r.member_id
+                LEFT JOIN plugin_kunlun_waterstation.ticket_batches b ON b.recharge_id = r.id
+                LEFT JOIN plugin_kunlun_waterstation.recharge_refunds rf ON rf.batch_id = b.id
                 WHERE r.tenant_id = @tid
                   AND (@from IS NULL OR r.created_at >= @from)
                   AND (@to IS NULL OR r.created_at < @to)
-                  AND (@q IS NULL OR r.recharge_no ILIKE @q OR m.name ILIKE @q OR m.member_no ILIKE @q
+                  AND (@pay IS NULL OR r.pay_method = @pay)
+                  AND (@q IS NULL OR r.recharge_no ILIKE @q OR m.name ILIKE @q OR m.member_no ILIKE @q OR m.phone ILIKE @q
                        OR r.plan_snapshot->>'name' ILIKE @q OR r.operator_name ILIKE @q)
                 """, "r.created_at DESC, r.id", p =>
             {
                 p.AddWithValue("tid", authRepo.DefaultTenantId);
                 p.Add(Paging.Time("from", from));
                 p.Add(Paging.Time("to", to));
+                p.Add(Paging.Text("pay", payMethod));
                 p.Add(Paging.Like("q", q));
             }, reader => new
             {
@@ -308,52 +338,107 @@ public static class ReportEndpoints
                 giftQty = reader.GetInt32(6),
                 payMethod = reader.GetString(7),
                 operatorName = reader.GetString(8),
-                createdAt = reader.GetDateTime(9)
+                createdAt = reader.GetDateTime(9),
+                couponName = reader.IsDBNull(11) ? null : reader.GetString(11),
+                refundNo = reader.IsDBNull(12) ? null : reader.GetString(12),
+                refundAmount = reader.IsDBNull(13) ? (decimal?)null : reader.GetDecimal(13),
+                refundedAt = reader.IsDBNull(14) ? (DateTime?)null : reader.GetDateTime(14)
             }, ct);
         }).RequireAuthorization();
 
-        api.MapGet("/ledgers/deposits", async (string? q, DateTimeOffset? from, DateTimeOffset? to, int? page, int? pageSize,
+        // 退清剩余权益的水费退款，与押金退款分开列示
+        api.MapGet("/ledgers/recharge-refunds", async (string? q, DateTimeOffset? from, DateTimeOffset? to, string? payMethod, int? page, int? pageSize,
+            NpgsqlDataSource db, KunlunAuthRepository authRepo, CancellationToken ct) =>
+        {
+            await using var conn = await db.OpenConnectionAsync(ct);
+            return await Paging.From(page, pageSize, legacyLimit: 30).Query(conn, """
+                rf.refund_no, COALESCE(ro.recharge_no, ''), m.name, m.member_no, ro.plan_snapshot->>'name', b.water_type, b.fulfill_mode,
+                rf.amount, rf.refund_buy_qty, rf.revoked_gift_qty, rf.pay_method, rf.reason, rf.operator_name, rf.created_at
+                """, """
+                plugin_kunlun_waterstation.recharge_refunds rf
+                JOIN plugin_kunlun_waterstation.members m ON m.id = rf.member_id
+                JOIN plugin_kunlun_waterstation.ticket_batches b ON b.id = rf.batch_id
+                LEFT JOIN plugin_kunlun_waterstation.recharge_orders ro ON ro.id = b.recharge_id
+                WHERE rf.tenant_id = @tid
+                  AND (@from IS NULL OR rf.created_at >= @from)
+                  AND (@to IS NULL OR rf.created_at < @to)
+                  AND (@pay IS NULL OR rf.pay_method = @pay)
+                  AND (@q IS NULL OR rf.refund_no ILIKE @q OR ro.recharge_no ILIKE @q OR m.name ILIKE @q OR m.member_no ILIKE @q
+                       OR m.phone ILIKE @q OR rf.reason ILIKE @q OR rf.operator_name ILIKE @q)
+                """, "rf.created_at DESC, rf.id", p =>
+            {
+                p.AddWithValue("tid", authRepo.DefaultTenantId);
+                p.Add(Paging.Time("from", from));
+                p.Add(Paging.Time("to", to));
+                p.Add(Paging.Text("pay", payMethod));
+                p.Add(Paging.Like("q", q));
+            }, reader => new
+            {
+                refundNo = reader.GetString(0),
+                rechargeNo = reader.GetString(1),
+                memberName = reader.GetString(2),
+                memberNo = reader.GetString(3),
+                planName = reader.IsDBNull(4) ? "历史余额" : reader.GetString(4),
+                waterType = reader.GetString(5),
+                fulfillMode = reader.GetString(6),
+                amount = reader.GetDecimal(7),
+                refundBuyQty = reader.GetInt32(8),
+                revokedGiftQty = reader.GetInt32(9),
+                payMethod = reader.GetString(10),
+                reason = reader.GetString(11),
+                operatorName = reader.GetString(12),
+                createdAt = reader.GetDateTime(13)
+            }, ct);
+        }).RequireAuthorization();
+
+        api.MapGet("/ledgers/deposits", async (string? q, DateTimeOffset? from, DateTimeOffset? to, string? flowType, string? containerType, int? page, int? pageSize,
             NpgsqlDataSource db, KunlunAuthRepository authRepo, CancellationToken ct) =>
         {
             await using var conn = await db.OpenConnectionAsync(ct);
             return await Paging.From(page, pageSize, legacyLimit: 30).Query(conn,
-                "doc_no, member_name, flow_type, container_type, qty, unit_price, amount, remaining_qty, operator_name, created_at", """
-                (SELECT d.deposit_no AS doc_no, m.name AS member_name, 'COLLECT' AS flow_type, d.container_type, d.paid_qty AS qty,
-                        d.unit_price, d.total_amount AS amount, d.remaining_qty, d.operator_name, d.created_at
+                "doc_no, member_name, flow_type, container_type, qty, unit_price, amount, remaining_qty, operator_name, created_at, member_no, pay_method", """
+                (SELECT d.deposit_no AS doc_no, m.name AS member_name, m.member_no, m.phone, 'COLLECT' AS flow_type, d.container_type, d.paid_qty AS qty,
+                        d.unit_price, d.total_amount AS amount, d.remaining_qty, d.operator_name, d.created_at, d.pay_method
                  FROM plugin_kunlun_waterstation.deposit_lots d
                  JOIN plugin_kunlun_waterstation.members m ON m.id = d.member_id
                  WHERE d.tenant_id = @tid
                  UNION ALL
-                 SELECT rf.refund_no, m.name, 'REFUND', rf.container_type, rf.refund_qty,
-                        ROUND(rf.refund_amount / rf.refund_qty, 2), rf.refund_amount, 0, rf.operator_name, rf.created_at
+                 SELECT rf.refund_no, m.name, m.member_no, m.phone, 'REFUND', rf.container_type, rf.refund_qty,
+                        ROUND(rf.refund_amount / rf.refund_qty, 2), rf.refund_amount, 0, rf.operator_name, rf.created_at, rf.pay_method
                  FROM plugin_kunlun_waterstation.deposit_refunds rf
                  JOIN plugin_kunlun_waterstation.members m ON m.id = rf.member_id
                  WHERE rf.tenant_id = @tid
                  UNION ALL
-                 SELECT d.scrap_no, m.name, 'DEDUCT', d.container_type, d.quantity,
-                        ROUND(d.deposit_amount / d.quantity, 2), d.deposit_amount, 0, d.scrap_operator, d.scrapped_at
+                 SELECT d.scrap_no, m.name, m.member_no, m.phone, 'DEDUCT', d.container_type, d.quantity,
+                        ROUND(d.deposit_amount / d.quantity, 2), d.deposit_amount, 0, d.scrap_operator, d.scrapped_at, NULL
                  FROM plugin_kunlun_waterstation.container_damages d
                  JOIN plugin_kunlun_waterstation.members m ON m.id = d.member_id AND m.tenant_id = d.tenant_id
-                 WHERE d.tenant_id = @tid AND d.status = 'SCRAPPED') flows
+                 WHERE d.tenant_id = @tid AND d.status = 'SCRAPPED' AND NOT d.deposit_waived) flows
                 WHERE (@from IS NULL OR created_at >= @from)
                   AND (@to IS NULL OR created_at < @to)
-                  AND (@q IS NULL OR doc_no ILIKE @q OR member_name ILIKE @q OR operator_name ILIKE @q)
+                  AND (@flow IS NULL OR flow_type = @flow)
+                  AND (@ctype IS NULL OR container_type = @ctype)
+                  AND (@q IS NULL OR doc_no ILIKE @q OR member_name ILIKE @q OR member_no ILIKE @q OR phone ILIKE @q OR operator_name ILIKE @q)
                 """, "created_at DESC, doc_no", p =>
             {
                 p.AddWithValue("tid", authRepo.DefaultTenantId);
                 p.Add(Paging.Time("from", from));
                 p.Add(Paging.Time("to", to));
+                p.Add(Paging.Text("flow", flowType));
+                p.Add(Paging.Text("ctype", containerType));
                 p.Add(Paging.Like("q", q));
             }, reader => new
             {
                 docNo = reader.GetString(0),
                 memberName = reader.GetString(1),
+                memberNo = reader.GetString(10),
                 flowType = reader.GetString(2),
                 containerType = reader.GetString(3),
                 qty = reader.GetInt32(4),
                 unitPrice = reader.GetDecimal(5),
                 amount = reader.GetDecimal(6),
                 remainingQty = reader.GetInt32(7),
+                payMethod = reader.IsDBNull(11) ? null : reader.GetString(11),
                 operatorName = reader.GetString(8),
                 createdAt = reader.GetDateTime(9)
             }, ct);

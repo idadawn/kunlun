@@ -155,15 +155,12 @@ a{color:var(--brand-600);text-decoration:none}
 .sidebar-collapsed .admin-app{--sidebar-width:76px}
 .sidebar-collapsed .sidebar{padding:22px 12px 16px}
 .sidebar-collapsed .brand{justify-content:center;padding:0 0 20px}
-.sidebar-collapsed .brand-copy,.sidebar-collapsed .nav-text,.sidebar-collapsed .station-copy{display:none}
+.sidebar-collapsed .brand-copy,.sidebar-collapsed .nav-text{display:none}
 .sidebar-collapsed .nav-item{justify-content:center;gap:0;padding:12px 0;min-height:44px}
 .sidebar-collapsed .nav-item>.icon{width:21px;height:21px}
 .sidebar-collapsed .nav-label{padding:0;height:24px;font-size:0;position:relative}
 .sidebar-collapsed .nav-label:after{content:"";position:absolute;left:12px;right:12px;top:12px;border-top:1px solid var(--line)}
 .sidebar-collapsed .nav-item .nav-badge{position:absolute;top:2px;right:1px;margin:0;min-width:14px;padding:0 3px;font-size:9px;line-height:15px}
-.sidebar-collapsed .sidebar-bottom{padding:12px 0 0}
-.sidebar-collapsed .station{justify-content:center;padding:8px;border-radius:11px}
-.sidebar-collapsed .station-avatar{width:32px;height:32px}
 .sidebar-collapsed .sidebar-toggle-arrow{transform:rotate(180deg)}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 /* Recharge packages: four clear product/fulfillment groups. */
@@ -314,6 +311,17 @@ a{color:var(--brand-600);text-decoration:none}
 .deposit-due b{font-size:13.5px}.deposit-due small{font-size:11.5px;color:var(--muted);line-height:1.5}
 .deposit-due.owing{background:var(--gold-50);color:var(--gold-600);border:1px solid var(--gold-100)}
 .deposit-due .select{width:auto}
+.seg-switch{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;padding:4px;border-radius:12px;background:var(--line-soft)}
+.seg-switch button{height:34px;border:0;border-radius:9px;background:none;color:var(--muted);font-size:13.5px;font-weight:600;cursor:pointer}
+.seg-switch button[aria-pressed=true]{background:#fff;color:var(--brand-700);box-shadow:var(--shadow-sm)}
+.deposit-containers button{align-items:flex-start}.deposit-containers .icon{margin-top:2px}
+.deposit-containers small{display:block;line-height:1.6}.deposit-containers em{font-style:normal;color:var(--brand-600);font-weight:700}
+.deposit-qty{display:flex;gap:8px;align-items:center}.deposit-qty .input{flex:1}.deposit-qty .btn{flex:none;height:38px}
+.deposit-total{display:grid;grid-template-columns:auto 1fr;align-items:baseline;gap:2px 12px;padding:14px 16px;border-radius:12px;background:var(--brand-50);color:var(--brand-700)}
+.deposit-total>span{font-size:12.5px;font-weight:600}
+.deposit-total>b{font-family:var(--font-num);font-size:22px;text-align:right}
+.deposit-total>small{grid-column:1/-1;font-size:11.5px;color:var(--muted);line-height:1.6}
+.deposit-total.warn{background:var(--gold-50);color:var(--gold-600);border:1px solid var(--gold-100)}
 .order-done{display:flex;flex-direction:column;align-items:center;gap:10px;padding:22px 14px;background:#fff;border:1px solid var(--line);border-radius:18px;text-align:center}
 .order-done-icon{width:52px;height:52px;border-radius:50%;background:var(--brand-500);color:#fff;display:grid;place-items:center}
 .order-done h3{margin:0;font-size:17px;color:var(--ink)}

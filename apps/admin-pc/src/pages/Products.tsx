@@ -7,7 +7,7 @@ export function Products() {
   const { products, containers, refresh } = useAdminData();
   const dialogs = useDialogs();
   return <>
-    <div className="page-head"><div><h2>水品与押金</h2><p>统一维护水品规格、零售价、配送要求和桶袋押金</p></div></div>
+    <div className="page-head"><div><h2>水品与押金标准</h2><p>统一维护水品规格、零售价、配送要求和桶袋押金</p></div></div>
     <div className="product-config-grid">
       {products.length === 0 ? <p>正在加载…</p> : products.map(p => {
         const type = p.waterType === 'BUCKET_18_9L' ? 'BUCKET' : 'BAG';

@@ -309,7 +309,8 @@ public static class FinanceEndpoints
             return Results.Ok(new { ledgerNo, memberId = req.MemberId, currentHeld = nextHeld, holdingDelta = delta, depositAmountUnchanged = deposit, idempotentReplay = false });
         }).RequireAuthorization();
 
-        // 8. 退押金核对与登记（AC-11 被持有占用时阻止超额退款 + AC-12 按历史批次原收取单价计算退款金额）
+        // 8. 管理员直接登记退押金（AC-11 被持有占用时阻止超额退款 + AC-12 按历史批次原收取单价计算退款金额）。
+        // 店员只能提交退款申请（/api/refund-requests），由管理员审核通过后才退款；本接口仅限有审核权限的管理员，并记为已审核申请。
         app.MapPost("/api/deposits/refund", async (
             RefundDepositRequest req,
             ClaimsPrincipal user,
@@ -317,140 +318,100 @@ public static class FinanceEndpoints
             KunlunFinanceRepository finRepo,
             CancellationToken ct) =>
         {
-            if (!HasPerm(user, KunlunPermissions.DepositRefundApply) && !HasPerm(user, KunlunPermissions.DepositRefundApprove))
-                return Results.Json(new { error = "无押金退款权限 (AC-16)" }, statusCode: StatusCodes.Status403Forbidden);
+            if (!HasPerm(user, KunlunPermissions.DepositRefundApprove))
+                return Results.Json(new { error = "押金退款须由管理员审核，请提交退款申请" }, statusCode: StatusCodes.Status403Forbidden);
 
             var ctype = req.ContainerType.ToUpperInvariant();
-            var heldCol = ctype == "BUCKET" ? "held_buckets" : "held_bags";
-
             await using var conn = await ds.OpenConnectionAsync(ct);
             await using var tx = await conn.BeginTransactionAsync(ct);
             if (ctype is not ("BUCKET" or "BAG") || req.Quantity <= 0 || req.Quantity > 10000)
                 throw new BusinessRuleException("退款数量或容器类型无效");
+            if (req.PayMethod is not (null or "CASH" or "WECHAT" or "WX_OFFLINE" or "ALIPAY" or "BANK"))
+                throw new BusinessRuleException("退款方式无效");
             await TicketBatches.LockRequest(conn, tx, finRepo.TenantId, "deposit-refund", req.IdempotencyKey, ct);
             await TicketBatches.LockMember(conn, tx, finRepo.TenantId, req.MemberId, ct);
-            await using (var replay = TicketBatches.Command(conn, tx, "SELECT refund_no,member_id,container_type,refund_qty,refund_amount FROM plugin_kunlun_waterstation.deposit_refunds WHERE tenant_id=@tid AND idempotency_key=@key", ("tid", finRepo.TenantId), ("key", req.IdempotencyKey)))
+            await using (var replay = TicketBatches.Command(conn, tx, "SELECT refund_no,member_id,container_type,refund_qty,refund_amount,pay_method FROM plugin_kunlun_waterstation.deposit_refunds WHERE tenant_id=@tid AND idempotency_key=@key", ("tid", finRepo.TenantId), ("key", req.IdempotencyKey)))
             await using (var r = await replay.ExecuteReaderAsync(ct))
                 if (await r.ReadAsync(ct))
                 {
-                    if (r.GetGuid(1) != req.MemberId || r.GetString(2) != ctype || r.GetInt32(3) != req.Quantity) throw new BusinessRuleException("请求标识已用于其他退押操作", 409);
+                    if (r.GetGuid(1) != req.MemberId || r.GetString(2) != ctype || r.GetInt32(3) != req.Quantity || (r.IsDBNull(5) ? null : r.GetString(5)) != req.PayMethod) throw new BusinessRuleException("请求标识已用于其他退押操作", 409);
                     return Results.Ok(new { refundNo = r.GetString(0), refundAmount = r.GetDecimal(4), idempotentReplay = true });
                 }
 
-
-            // 读取当前持有容器数
-            int currentHeld;
-            await using (var mCmd = new NpgsqlCommand($"SELECT {heldCol} FROM plugin_kunlun_waterstation.members WHERE id = @mid FOR UPDATE", conn, tx))
-            {
-                mCmd.Parameters.AddWithValue("mid", req.MemberId);
-                var v = await mCmd.ExecuteScalarAsync(ct);
-                if (v is null) return Results.NotFound();
-                currentHeld = Convert.ToInt32(v);
-            }
-
-            // 读取未退押金批次（按 FIFO 顺序锁定）
-            var lots = new List<(Guid Id, string No, decimal UnitPrice, int Remaining)>();
-            await using (var lCmd = new NpgsqlCommand("""
-                SELECT id, deposit_no, unit_price, remaining_qty-reserved_damage_qty
-                FROM plugin_kunlun_waterstation.deposit_lots
-                WHERE tenant_id = @tid AND member_id = @mid AND container_type = @ct AND remaining_qty > reserved_damage_qty
-                ORDER BY created_at ASC,id
-                FOR UPDATE
-                """, conn, tx))
-            {
-                lCmd.Parameters.AddWithValue("tid", finRepo.TenantId);
-                lCmd.Parameters.AddWithValue("mid", req.MemberId);
-                lCmd.Parameters.AddWithValue("ct", ctype);
-                await using var r = await lCmd.ExecuteReaderAsync(ct);
-                while (await r.ReadAsync(ct))
-                {
-                    lots.Add((r.GetGuid(0), r.GetString(1), r.GetDecimal(2), r.GetInt32(3)));
-                }
-            }
-
-            var totalPaidRemaining = lots.Sum(x => x.Remaining);
-            var refundableQty = Math.Max(0, totalPaidRemaining - currentHeld);
-
-            // AC-11: 押金被持有容器占用时阻止超额退款并返回明确原因
-            if (req.Quantity > refundableQty)
-            {
-                return Results.BadRequest(new
-                {
-                    error = $"可退押金数量不足：可用押金 {totalPaidRemaining} 个（已排除待报废占用），当前实际持有占用 {currentHeld} 个，最多可退 {refundableQty} 个（请先登记归还容器）",
-                    totalPaidRemaining,
-                    currentHeld,
-                    refundableQty
-                });
-            }
-
-            // AC-12: 按历史原收款批次单价计算退款金额（不按修改后的当前单价）
-            var needToRefund = req.Quantity;
-            decimal refundAmount = 0m;
-            var breakdown = new List<object>();
-
-            foreach (var lot in lots)
-            {
-                if (needToRefund <= 0) break;
-                var take = Math.Min(lot.Remaining, needToRefund);
-                var subAmt = take * lot.UnitPrice;
-                refundAmount += subAmt;
-                needToRefund -= take;
-
-                await using var updLot = new NpgsqlCommand("""
-                    UPDATE plugin_kunlun_waterstation.deposit_lots
-                    SET refunded_qty = refunded_qty + @take, remaining_qty = remaining_qty - @take
-                    WHERE id = @id
-                    """, conn, tx);
-                updLot.Parameters.AddWithValue("take", take);
-                updLot.Parameters.AddWithValue("id", lot.Id);
-                await updLot.ExecuteNonQueryAsync(ct);
-
-                breakdown.Add(new { lotNo = lot.No, takeQty = take, originalUnitPrice = lot.UnitPrice, subAmount = subAmt });
-            }
-
-            var refundNo = await BusinessNumbers.DepositRefundNo(conn, tx, ct);
-            var operatorName = user.FindFirstValue("display_name") ?? "员工";
-
-            await using (var insRef = new NpgsqlCommand("""
-                INSERT INTO plugin_kunlun_waterstation.deposit_refunds
-                    (id, tenant_id, refund_no, idempotency_key, member_id, container_type, refund_qty, refund_amount, lot_breakdown, operator_name)
-                VALUES (@id, @tid, @no, @key, @mid, @ct, @qty, @amt, @bd::jsonb, @op)
-                """, conn, tx))
-            {
-                insRef.Parameters.AddWithValue("id", Guid.NewGuid());
-                insRef.Parameters.AddWithValue("tid", finRepo.TenantId);
-                insRef.Parameters.AddWithValue("no", refundNo);
-                insRef.Parameters.AddWithValue("key", req.IdempotencyKey);
-                insRef.Parameters.AddWithValue("mid", req.MemberId);
-                insRef.Parameters.AddWithValue("ct", ctype);
-                insRef.Parameters.AddWithValue("qty", req.Quantity);
-                insRef.Parameters.AddWithValue("amt", refundAmount);
-                insRef.Parameters.AddWithValue("bd", JsonSerializer.Serialize(breakdown));
-                insRef.Parameters.AddWithValue("op", operatorName);
-                await insRef.ExecuteNonQueryAsync(ct);
-            }
-
-            await using (var updMem = new NpgsqlCommand("""
-                UPDATE plugin_kunlun_waterstation.members
-                SET deposit_amount = GREATEST(0, deposit_amount - @amt)
-                WHERE id = @mid
-                """, conn, tx))
-            {
-                updMem.Parameters.AddWithValue("amt", refundAmount);
-                updMem.Parameters.AddWithValue("mid", req.MemberId);
-                await updMem.ExecuteNonQueryAsync(ct);
-            }
-
+            var actor = user.FindFirstValue("display_name") ?? "员工";
+            var refund = await ExecuteDepositRefund(conn, tx, finRepo.TenantId, req.MemberId, ctype, req.Quantity, req.PayMethod, req.IdempotencyKey, actor, ct);
+            await RefundRequests.RecordDirect(conn, tx, finRepo.TenantId, "DEPOSIT", req.MemberId, ctype, req.Quantity, null, req.PayMethod, "", refund.RefundNo, refund.Amount, actor, ct);
             await tx.CommitAsync(ct);
             return Results.Ok(new
             {
-                refundNo,
+                refundNo = refund.RefundNo,
                 containerType = ctype,
                 refundQty = req.Quantity,
-                refundAmount,
-                lotBreakdown = breakdown
+                refundAmount = refund.Amount,
+                lotBreakdown = refund.Breakdown
             });
         }).RequireAuthorization();
+    }
+
+    public sealed record DepositRefundResult(string RefundNo, decimal Amount, List<object> Breakdown);
+
+    /// <summary>
+    /// 在调用方事务内退押金：按 FIFO 从未退批次扣减，按原收款单价计算金额，并减少会员押金余额。
+    /// 只退未被实际持有和待报废占用的数量；调用方须先锁定会员。
+    /// </summary>
+    public static async Task<DepositRefundResult> ExecuteDepositRefund(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, string ctype,
+        int quantity, string? payMethod, string idempotencyKey, string operatorName, CancellationToken ct)
+    {
+        var heldCol = ctype == "BUCKET" ? "held_buckets" : "held_bags";
+        int currentHeld;
+        await using (var mCmd = TicketBatches.Command(conn, tx, $"SELECT {heldCol} FROM plugin_kunlun_waterstation.members WHERE tenant_id = @tid AND id = @mid FOR UPDATE", ("tid", tid), ("mid", mid)))
+        {
+            var v = await mCmd.ExecuteScalarAsync(ct) ?? throw new BusinessRuleException("会员不存在", 404);
+            currentHeld = Convert.ToInt32(v);
+        }
+
+        // 读取未退押金批次（按 FIFO 顺序锁定）
+        var lots = new List<(Guid Id, string No, decimal UnitPrice, int Remaining)>();
+        await using (var lCmd = TicketBatches.Command(conn, tx, """
+            SELECT id, deposit_no, unit_price, remaining_qty-reserved_damage_qty
+            FROM plugin_kunlun_waterstation.deposit_lots
+            WHERE tenant_id = @tid AND member_id = @mid AND container_type = @ct AND remaining_qty > reserved_damage_qty
+            ORDER BY created_at ASC,id
+            FOR UPDATE
+            """, ("tid", tid), ("mid", mid), ("ct", ctype)))
+        await using (var r = await lCmd.ExecuteReaderAsync(ct))
+            while (await r.ReadAsync(ct)) lots.Add((r.GetGuid(0), r.GetString(1), r.GetDecimal(2), r.GetInt32(3)));
+
+        var totalPaidRemaining = lots.Sum(x => x.Remaining);
+        var refundableQty = Math.Max(0, totalPaidRemaining - currentHeld);
+        // AC-11: 押金被持有容器占用时阻止超额退款并返回明确原因
+        if (quantity > refundableQty)
+            throw new BusinessRuleException($"可退押金数量不足：可用押金 {totalPaidRemaining} 个（已排除待报废占用），当前实际持有占用 {currentHeld} 个，最多可退 {refundableQty} 个（请先登记归还容器）");
+
+        // AC-12: 按历史原收款批次单价计算退款金额（不按修改后的当前单价）
+        var needToRefund = quantity;
+        decimal refundAmount = 0m;
+        var breakdown = new List<object>();
+        foreach (var lot in lots)
+        {
+            if (needToRefund <= 0) break;
+            var take = Math.Min(lot.Remaining, needToRefund);
+            var subAmt = take * lot.UnitPrice;
+            refundAmount += subAmt;
+            needToRefund -= take;
+            await TicketBatches.Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.deposit_lots SET refunded_qty = refunded_qty + @take, remaining_qty = remaining_qty - @take WHERE id = @id", ct, ("take", take), ("id", lot.Id));
+            breakdown.Add(new { lotNo = lot.No, takeQty = take, originalUnitPrice = lot.UnitPrice, subAmount = subAmt });
+        }
+
+        var refundNo = await BusinessNumbers.DepositRefundNo(conn, tx, ct);
+        await TicketBatches.Exec(conn, tx, """
+            INSERT INTO plugin_kunlun_waterstation.deposit_refunds
+                (id, tenant_id, refund_no, idempotency_key, member_id, container_type, refund_qty, refund_amount, lot_breakdown, operator_name, pay_method)
+            VALUES (@id, @tid, @no, @key, @mid, @ct, @qty, @amt, @bd::jsonb, @op, @pay)
+            """, ct, ("id", Guid.NewGuid()), ("tid", tid), ("no", refundNo), ("key", idempotencyKey), ("mid", mid), ("ct", ctype), ("qty", quantity),
+            ("amt", refundAmount), ("bd", JsonSerializer.Serialize(breakdown)), ("op", operatorName), ("pay", (object?)payMethod ?? DBNull.Value));
+        await TicketBatches.Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.members SET deposit_amount = GREATEST(0, deposit_amount - @amt) WHERE id = @mid", ct, ("amt", refundAmount), ("mid", mid));
+        return new DepositRefundResult(refundNo, refundAmount, breakdown);
     }
 
     private static bool HasPerm(ClaimsPrincipal user, string perm) =>

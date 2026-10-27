@@ -65,7 +65,10 @@ test('paged client calls always send page and drop empty filters; legacy list ca
   await api.membersPage({q:' 陈 ',status:undefined,water:'BUCKET',pageSize:50});
   await api.ordersPage({mode:'PICKUP',from:'2026-10-26T16:00:00.000Z',q:'',page:3});
   await api.rechargeLedger();
+  await api.rechargeRefundLedger({payMethod:'BANK',q:' '});
+  await api.depositLedger({flowType:'REFUND',containerType:'BAG',pageSize:20});
   await api.containerLedger({containerType:'BAG'});
+  await api.refundRequests({status:'PENDING',kind:undefined,q:' 陈 '});
   await api.listMembers('  ');
   await api.listOrders({memberId:'m1'});
  }finally{globalThis.fetch=real;}
@@ -73,7 +76,10 @@ test('paged client calls always send page and drop empty filters; legacy list ca
   '/api/members?q=%E9%99%88&water=BUCKET&pageSize=50&page=1',
   '/api/orders?mode=PICKUP&from=2026-10-26T16%3A00%3A00.000Z&page=3',
   '/api/ledgers/recharges?page=1',
+  '/api/ledgers/recharge-refunds?payMethod=BANK&page=1',
+  '/api/ledgers/deposits?flowType=REFUND&containerType=BAG&pageSize=20&page=1',
   '/api/ledgers/containers?containerType=BAG&page=1',
+  '/api/refund-requests?status=PENDING&q=%E9%99%88&page=1',
   '/api/members',
   '/api/orders?memberId=m1',
  ]);
