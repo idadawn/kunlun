@@ -31,7 +31,7 @@ export function Deposits() {
     <div className="page-head">
       <div><h2>押金管理</h2><p>桶、袋押金单独收退，退款按原收款批次单价计算；押金不计入水费实收，也不触发赠水</p></div>
       <div className="head-actions">
-        <button type="button" className="btn" onClick={() => ops.deposit('refund')}>退押金</button>
+        <button type="button" className="btn" onClick={() => ops.deposit('refund')}>申请退押金</button>
         <button type="button" className="btn primary" onClick={() => ops.deposit('collect')}><Icon name="plus" />收押金</button>
       </div>
     </div>

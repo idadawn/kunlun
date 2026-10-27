@@ -68,6 +68,7 @@ test('paged client calls always send page and drop empty filters; legacy list ca
   await api.rechargeRefundLedger({payMethod:'BANK',q:' '});
   await api.depositLedger({flowType:'REFUND',containerType:'BAG',pageSize:20});
   await api.containerLedger({containerType:'BAG'});
+  await api.refundRequests({status:'PENDING',kind:undefined,q:' 陈 '});
   await api.listMembers('  ');
   await api.listOrders({memberId:'m1'});
  }finally{globalThis.fetch=real;}
@@ -78,6 +79,7 @@ test('paged client calls always send page and drop empty filters; legacy list ca
   '/api/ledgers/recharge-refunds?payMethod=BANK&page=1',
   '/api/ledgers/deposits?flowType=REFUND&containerType=BAG&pageSize=20&page=1',
   '/api/ledgers/containers?containerType=BAG&page=1',
+  '/api/refund-requests?status=PENDING&q=%E9%99%88&page=1',
   '/api/members',
   '/api/orders?memberId=m1',
  ]);

@@ -107,6 +107,7 @@ using (var scope = app.Services.CreateScope())
     await ContainerCirculation.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>());
     await MemberAddresses.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>(), repo.DefaultTenantId);
     await BusinessNumbers.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>());
+    await RefundRequests.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>());
 }
 
 app.MapGet("/healthz", async (NpgsqlDataSource ds) =>
@@ -236,6 +237,7 @@ app.MapFinanceEndpoints();
 app.MapContainerInventory();
 app.MapContainerCirculation();
 app.MapMembershipEndpoints();
+app.MapRefundRequests();
 app.MapMemberAddresses();
 app.MapWaterProducts();
 app.MapOrderEndpoints();

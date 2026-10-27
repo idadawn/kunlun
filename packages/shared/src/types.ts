@@ -373,6 +373,8 @@ export interface TicketBatch {
   refundedAmount: number;
   refundNo: string;
   waterLabel: string;
+  /** A refund request for this batch that waits for review. */
+  pendingRequestNo: string | null;
 }
 
 export interface CouponTemplate {
@@ -422,6 +424,8 @@ export interface DepositSummaryRow {
   pendingDamageAmount: number;
   refundableQty: number;
   refundableAmount: number;
+  /** Already asked back in refund requests awaiting review; new requests can cover only the rest. */
+  pendingRefundQty: number;
 }
 
 export interface StaffAccount {
@@ -491,7 +495,7 @@ export interface ContainerHoldingRow {
   pendingDamageAmount: number;
 }
 
-export type CirculationBusinessType = 'TURNOVER' | 'DAMAGE_RETURN' | 'SCRAP';
+export type CirculationBusinessType = 'TURNOVER' | 'DAMAGE_RETURN' | 'SCRAP' | 'SCRAP_WAIVED';
 
 export interface CirculationRow {
   ledgerNo: string;
@@ -528,7 +532,54 @@ export interface ContainerDamageRow {
   lotBreakdown: Array<{ lotId: string; lotNo: string; quantity: number; unitPrice: number }>;
   scrapNo: string;
   scrapReason: string;
+  /** Scrapped without deducting the deposit; the reserved deposit went back to the member. */
+  depositWaived: boolean;
 }
+
+export type RefundKind = 'DEPOSIT' | 'RECHARGE';
+export type RefundRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+/** 退款申请：押金退款或退清充值剩余权益，管理员审核通过后才退款。 */
+export interface RefundRequestRow {
+  id: string;
+  requestNo: string;
+  kind: RefundKind;
+  status: RefundRequestStatus;
+  memberId: string;
+  memberName: string;
+  memberNo: string;
+  memberPhone: string;
+  containerType: ContainerType | null;
+  quantity: number | null;
+  batchId: string | null;
+  rechargeNo: string | null;
+  planName: string | null;
+  waterType: WaterType | null;
+  fulfillMode: FulfillMode | null;
+  remainingBuy: number | null;
+  remainingGift: number | null;
+  /** At application; the refunded amount is fixed at approval. */
+  estimatedAmount: number;
+  payMethod: PayMethod | null;
+  reason: string;
+  applicantName: string;
+  createdAt: string;
+  reviewerName: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  refundNo: string | null;
+  refundAmount: number | null;
+}
+
+export interface RefundRequestQuery extends PageQuery {
+  status?: RefundRequestStatus;
+  kind?: RefundKind;
+  q?: string;
+}
+
+export type ApplyRefundBody =
+  | { kind: 'DEPOSIT'; memberId: string; containerType: ContainerType; quantity: number; payMethod: PayMethod; reason?: string; idempotencyKey: string }
+  | { kind: 'RECHARGE'; memberId: string; batchId: string; payMethod: PayMethod; reason: string; idempotencyKey: string };
 
 export type ExportDataset =
   | 'members'

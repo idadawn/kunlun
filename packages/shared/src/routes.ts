@@ -10,7 +10,7 @@ export interface AreaRoutes {
 export const WEB_ROUTES: Record<AppArea, AreaRoutes> = {
   admin: {
     home: 'dashboard',
-    pages: ['dashboard', 'members', 'orders', 'recharges', 'deposits', 'inventory', 'assets', 'products', 'plans', 'coupons', 'staff-accounts'],
+    pages: ['dashboard', 'members', 'orders', 'recharges', 'deposits', 'refunds', 'inventory', 'assets', 'products', 'plans', 'coupons', 'staff-accounts'],
     // finance 是充值、押金分页前的合并页地址，旧链接落到水费充值。
     aliases: { settings: 'plans', 'deposit-settings': 'products', finance: 'recharges' },
   },

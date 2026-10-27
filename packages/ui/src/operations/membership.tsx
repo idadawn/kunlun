@@ -7,7 +7,7 @@ import { useApi, useAuth } from '../auth';
 import { Dialog, Field, FormDialog, useDialogs, useRun, useToast } from '../feedback';
 import { useIdempotencyKey } from '../hooks';
 import { PlanSelector } from '../plan-picker';
-import { MemberPicker, PayOptions, UnavailableDialog, errorText, usePickedMember, type Done } from './common';
+import { MemberPicker, PayOptions, ReasonChips, UnavailableDialog, errorText, usePickedMember, type Done } from './common';
 
 const couponFits = (c: MemberCoupon, plan: RechargePlan, now = new Date()) =>
   c.status === 'AVAILABLE' && c.snapshot.planId === plan.id && c.snapshot.price === plan.price && c.snapshot.fixedQty === plan.buyQty
@@ -106,27 +106,31 @@ export function IssueCouponDialog({ memberId, templateId, onClose, onDone }: { m
   );
 }
 
-export function RefundBatchDialog({ batch, onClose, onDone }: { batch: TicketBatch; onClose: () => void; onDone?: Done }) {
+const RECHARGE_REFUND_REASONS = ['不再订水', '搬家', '水质或服务不满意', '重复充值'] as const;
+
+/** 退清剩余权益只提交申请：管理员审核通过时才按剩余付费票退款并收回赠票。 */
+export function RefundBatchDialog({ memberId, batch, onClose, onDone }: { memberId: string; batch: TicketBatch; onClose: () => void; onDone?: Done }) {
   const api = useApi();
   const toast = useToast();
   const key = useIdempotencyKey();
   const [pay, setPay] = useState<PayMethod>('CASH');
   const [reason, setReason] = useState('');
   return (
-    <FormDialog title="退清本次充值剩余权益" submitLabel="确认已退款并登记" onClose={onClose} onSubmit={async () => {
-      const result = await api.refundBatch(batch.id, { idempotencyKey: key, payMethod: pay, reason });
+    <FormDialog title="申请退清剩余权益" description="提交后由管理员审核，审核通过才退款" submitLabel="提交退款申请" onClose={onClose} onSubmit={async () => {
+      const request = await api.applyRefund({ kind: 'RECHARGE', memberId, batchId: batch.id, payMethod: pay, reason: reason.trim(), idempotencyKey: key });
       await onDone?.();
-      toast(`退款登记成功：¥${money(result.refundAmount)}，赠票已收回`);
+      toast(`退款申请 ${request.requestNo} 已提交，待管理员审核`);
     }}>
       <div className="membership-summary">
         <b>{batch.name}</b>
         <p>原实付 ¥{money(batch.paidAmount)} ÷ 固定 {batch.fixedQty}{unitOf(batch.waterType)}</p>
         <p>退付费票 {batch.remainingBuy}，收回赠票 {batch.remainingGift}</p>
-        <strong>应退 ¥{money(batch.refundableAmount)}</strong>
+        <strong>预计退 ¥{money(batch.refundableAmount)}</strong>
       </div>
-      <Field label="实际退款方式" htmlFor="refundPay"><select id="refundPay" className="select" value={pay} onChange={e => setPay(e.target.value as PayMethod)}><PayOptions /></select></Field>
+      <Field label="会员希望的退款方式" htmlFor="refundPay"><select id="refundPay" className="select" value={pay} onChange={e => setPay(e.target.value as PayMethod)}><PayOptions /></select></Field>
       <Field label="退款原因" htmlFor="refundReason"><input id="refundReason" className="input" required maxLength={500} value={reason} onChange={e => setReason(e.target.value)} /></Field>
-      <p className="membership-note">本操作登记线下退款，不发起支付平台转账。桶押金独立结算。</p>
+      <ReasonChips options={RECHARGE_REFUND_REASONS} value={reason} onPick={setReason} />
+      <p className="membership-note">审核期间水票照常可用；审核通过时按当时剩余票数退款。本操作登记线下退款，不发起支付平台转账。桶押金独立结算。</p>
     </FormDialog>
   );
 }
@@ -136,17 +140,23 @@ export function BatchCards({ batches, onRefund }: { batches: TicketBatch[]; onRe
   return <>{batches.map(b => {
     const legacy = b.source === 'LEGACY';
     const reserved = b.reservedBuy + b.reservedGift;
+    const reviewing = b.status === 'ACTIVE' && !!b.pendingRequestNo;
     return (
       <article key={b.id} className="membership-card">
-        <div className="membership-card-head"><b>{b.name}</b><span className={`tag ${b.status === 'REFUNDED' ? 'gray' : 'green'}`}>{b.status === 'REFUNDED' ? '已退款' : modeLabel(b.fulfillMode)}</span></div>
+        <div className="membership-card-head">
+          <b>{b.name}</b>
+          {reviewing
+            ? <span className="tag orange" title={`申请单 ${b.pendingRequestNo}`}>退款审核中</span>
+            : <span className={`tag ${b.status === 'REFUNDED' ? 'gray' : 'green'}`}>{b.status === 'REFUNDED' ? '已退款' : modeLabel(b.fulfillMode)}</span>}
+        </div>
         <small>{b.rechargeNo || '历史余额'} · {b.waterLabel || waterFallbackLabel(b.waterType)}</small>
         <p>剩余付费 {legacy ? '待核对' : b.remainingBuy} · 剩余赠票 {legacy ? '待核对' : b.remainingGift} · 预占 {reserved}</p>
         {legacy
           ? <p className="membership-note">历史余量 {b.remainingBuy + b.remainingGift} 张；可继续使用，原价及购赠来源待核对。</p>
           : <p>原实付 ¥{money(b.paidAmount)} / 固定 {b.fixedQty}{unitOf(b.waterType)}{b.status === 'REFUNDED' ? ` · 已退 ¥${money(b.refundedAmount)}` : ''}</p>}
         {onRefund && b.source === 'PURCHASE' && b.status === 'ACTIVE' && b.remainingBuy + b.remainingGift > 0 && (
-          <button type="button" className="btn sm" disabled={reserved > 0} onClick={() => onRefund(b)}>
-            {reserved > 0 ? '订单占用中' : `退清剩余权益 · ¥${money(b.refundableAmount)}`}
+          <button type="button" className="btn sm" disabled={reserved > 0 || reviewing} onClick={() => onRefund(b)}>
+            {reviewing ? `退款审核中 · ${b.pendingRequestNo}` : reserved > 0 ? '订单占用中' : `申请退清剩余权益 · 约 ¥${money(b.refundableAmount)}`}
           </button>
         )}
       </article>
@@ -193,7 +203,7 @@ export function MemberAssetsDialog({ memberId, memberName, onClose, onDone }: { 
       )}
       {error && <p className="account-error" role="alert">{error}</p>}
       <h3>充值批次</h3>
-      {data ? <BatchCards batches={data.batches} onRefund={can(P.RechargeRefund) ? batch => run(() => dialogs.open(close => <RefundBatchDialog batch={batch} onClose={close} onDone={changed} />))() : undefined} /> : <p className="membership-note">正在加载…</p>}
+      {data ? <BatchCards batches={data.batches} onRefund={can(P.RechargeCreate) || can(P.RechargeRefund) ? batch => run(() => dialogs.open(close => <RefundBatchDialog memberId={memberId} batch={batch} onClose={close} onDone={changed} />))() : undefined} /> : <p className="membership-note">正在加载…</p>}
       <h3>我的优惠券</h3>
       {data ? <CouponCards coupons={data.coupons} /> : <p className="membership-note">正在加载…</p>}
     </Dialog>

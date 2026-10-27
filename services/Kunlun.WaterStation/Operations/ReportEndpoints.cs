@@ -116,7 +116,7 @@ public static class ReportEndpoints
             }
             decimal depositDeductedTotal;
             long depositDeductCount;
-            await using (var deductions = TicketBatches.Command(conn, null, "SELECT count(*),COALESCE(sum(deposit_amount),0) FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED'", ("tid",tenantId)))
+            await using (var deductions = TicketBatches.Command(conn, null, "SELECT count(*),COALESCE(sum(deposit_amount),0) FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED' AND NOT deposit_waived", ("tid",tenantId)))
             await using (var r = await deductions.ExecuteReaderAsync(ct))
             {
                 await r.ReadAsync(ct);
@@ -223,7 +223,7 @@ public static class ReportEndpoints
                         UNION ALL
                         SELECT scrap_no AS doc_no,'DEDUCT' AS flow_type,member_id,container_type,quantity AS qty,
                                ROUND(deposit_amount/quantity,2) AS unit_price,deposit_amount AS amount,0 AS remaining_qty,scrap_operator AS operator_name,scrapped_at AS created_at,NULL
-                        FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED'
+                        FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED' AND NOT deposit_waived
                         ORDER BY created_at DESC
                         """, conn);
                     cmd.Parameters.AddWithValue("tid", tenantId);
@@ -413,7 +413,7 @@ public static class ReportEndpoints
                         ROUND(d.deposit_amount / d.quantity, 2), d.deposit_amount, 0, d.scrap_operator, d.scrapped_at, NULL
                  FROM plugin_kunlun_waterstation.container_damages d
                  JOIN plugin_kunlun_waterstation.members m ON m.id = d.member_id AND m.tenant_id = d.tenant_id
-                 WHERE d.tenant_id = @tid AND d.status = 'SCRAPPED') flows
+                 WHERE d.tenant_id = @tid AND d.status = 'SCRAPPED' AND NOT d.deposit_waived) flows
                 WHERE (@from IS NULL OR created_at >= @from)
                   AND (@to IS NULL OR created_at < @to)
                   AND (@flow IS NULL OR flow_type = @flow)

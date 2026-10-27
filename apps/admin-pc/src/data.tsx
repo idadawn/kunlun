@@ -24,6 +24,8 @@ export interface AdminSnapshot {
   containers: ContainerSummaryItem[];
   finance: FinanceSummaryReport | null;
   overview: OverviewReport | null;
+  /** Refund requests waiting for review; null when this account cannot review any. */
+  pendingRefunds: number | null;
 }
 
 interface AdminData extends AdminSnapshot {
@@ -42,7 +44,7 @@ interface AdminData extends AdminSnapshot {
   refresh(): Promise<void>;
 }
 
-const EMPTY: AdminSnapshot = { members: [], memberTotal: 0, plans: [], products: [], orders: [], orderTotal: 0, containers: [], finance: null, overview: null };
+const EMPTY: AdminSnapshot = { members: [], memberTotal: 0, plans: [], products: [], orders: [], orderTotal: 0, containers: [], finance: null, overview: null, pendingRefunds: null };
 const AdminDataContext = createContext<AdminData | null>(null);
 
 export function useAdminData() {
@@ -68,7 +70,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     const mine = ++generation.current;
     const reports = can(P.ReportExport);
-    const [members, plans, orders, containers, finance, overview, products] = await Promise.all([
+    const reviews = can(P.DepositRefundApprove) || can(P.RechargeRefund);
+    const [members, plans, orders, containers, finance, overview, products, pendingRefunds] = await Promise.all([
       api.membersPage(memberParams.current),
       api.listPlans(),
       api.ordersPage({ pageSize: RECENT_ORDERS }),
@@ -76,9 +79,10 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       reports ? api.financeSummary() : Promise.resolve(null),
       reports ? api.overview() : Promise.resolve(null),
       api.listProducts(),
+      reviews ? api.refundRequests({ status: 'PENDING', pageSize: 1 }).then(p => p.total) : Promise.resolve(null),
     ]);
     if (mine !== generation.current) return;
-    setSnapshot({ members: members.rows, memberTotal: members.total, plans, products, orders: orders.rows, orderTotal: orders.total, containers, finance, overview });
+    setSnapshot({ members: members.rows, memberTotal: members.total, plans, products, orders: orders.rows, orderTotal: orders.total, containers, finance, overview, pendingRefunds });
     setLoaded(true);
     setVersion(v => v + 1);
   }, [api, can]);

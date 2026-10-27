@@ -129,6 +129,7 @@ export function MemberAssets({ profile }: MemberPageProps) {
               <div className="detail-row"><span>剩余押金（按原收款批次）</span><b>{r.paidQty} 个 / ¥{money(r.paidAmount)}</b></div>
               <div className="detail-row"><span>当前实际持有</span><b>{r.heldQty} 个</b></div>
               <div className="detail-row"><span>当前可退押金（已交 − 持有）</span><b style={{ color: 'var(--brand-600)' }}>{r.refundableQty} 个 / ¥{money(r.refundableAmount)}</b></div>
+              {r.pendingRefundQty > 0 && <p className="membership-note">退押申请审核中 {r.pendingRefundQty} 个，管理员审核通过后退款。</p>}
               {r.pendingDamageQty > 0 && <p className="membership-note">待报废 {r.pendingDamageQty} 个，占用押金 ¥{money(r.pendingDamageAmount)}，确认报废后扣除。</p>}
             </div>
           </div>

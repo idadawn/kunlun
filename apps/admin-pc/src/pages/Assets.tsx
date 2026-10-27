@@ -3,16 +3,16 @@ import {
   KUNLUN_PERMISSIONS as P, money,
   type CirculationBusinessType, type CirculationRow, type ContainerDamageRow, type ContainerHoldingRow, type ContainerType, type Paged,
 } from '@kunlun/shared';
-import { Field, FormDialog, MemberPicker, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
+import { Field, FormDialog, MemberPicker, ReasonChips, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
 import { EmptyRow, Pager, useExport, useOperations } from '../common';
 import { useAdminData } from '../data';
-import { CONTAINER_NAMES, ReasonField } from './Inventory';
+import { CONTAINER_NAMES, DAMAGE_REASONS, ReasonField } from './Inventory';
 
 type Tab = 'holdings' | 'movements' | 'damages';
 type Member = Pick<ContainerHoldingRow, 'id' | 'name' | 'memberNo' | 'heldBags' | 'heldBuckets' | 'depositAmount'>;
 type Ledger = ({ tab: 'holdings' } & Paged<ContainerHoldingRow>) | ({ tab: 'movements' } & Paged<CirculationRow>) | ({ tab: 'damages' } & Paged<ContainerDamageRow>);
 const TABS: Array<[Tab, string]> = [['holdings', '会员持有'], ['movements', '周转流水'], ['damages', '破损报废']];
-const BUSINESS: Record<CirculationBusinessType, string> = { TURNOVER: '领还周转', DAMAGE_RETURN: '破损归还', SCRAP: '报废扣押金' };
+const BUSINESS: Record<CirculationBusinessType, string> = { TURNOVER: '领还周转', DAMAGE_RETURN: '破损归还', SCRAP: '报废扣押金', SCRAP_WAIVED: '报废免扣押金' };
 const time = (value: string) => new Date(value).toLocaleString('zh-CN', { hour12: false });
 
 export function Assets() {
@@ -67,7 +67,7 @@ export function Assets() {
       <tr key={r.ledgerNo}>
         <td>{time(r.createdAt)}<br /><small>{r.ledgerNo}</small></td>
         <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>
-        <td>{CONTAINER_NAMES[r.containerType]}<br /><span className={`tag ${r.businessType === 'SCRAP' ? 'orange' : 'green'}`}>{BUSINESS[r.businessType] ?? '领还周转'}</span></td>
+        <td>{CONTAINER_NAMES[r.containerType]}<br /><span className={`tag ${r.businessType === 'SCRAP' ? 'orange' : r.businessType === 'SCRAP_WAIVED' ? 'gray' : 'green'}`}>{BUSINESS[r.businessType] ?? '领还周转'}</span></td>
         <td>{r.fullOutQty} / {r.emptyInQty} / {r.scrappedQty}</td>
         <td>{r.deltaHeld > 0 ? '+' : ''}{r.deltaHeld}<br /><small>持有 {r.heldAfter} 个</small></td>
         <td>{r.depositDeductedAmount ? `−¥${money(r.depositDeductedAmount)}` : '—'}</td>
@@ -83,11 +83,11 @@ export function Assets() {
         <td>{time(r.createdAt)}<br /><small>{r.damageNo}</small></td>
         <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>
         <td>{CONTAINER_NAMES[r.containerType]} × {r.quantity}</td>
-        <td>¥{money(r.depositAmount)}<br /><small>{r.status === 'PENDING' ? '待报废时扣除' : '已扣除'}</small></td>
-        <td><span className={`tag ${r.status === 'PENDING' ? 'orange' : 'gray'}`}>{r.status === 'PENDING' ? '待报废' : '已报废'}</span></td>
+        <td>¥{money(r.depositAmount)}<br /><small>{r.status === 'PENDING' ? '报废时决定是否扣除' : r.depositWaived ? '未扣，已退回可用押金' : '已扣除'}</small></td>
+        <td><span className={`tag ${r.status === 'PENDING' ? 'orange' : 'gray'}`}>{r.status === 'PENDING' ? '待报废' : r.depositWaived ? '已报废 · 未扣押金' : '已报废 · 已扣押金'}</span></td>
         <td className="inventory-reason">{r.reason}{r.scrapReason && <><br /><small>报废：{r.scrapReason}</small></>}</td>
         <td>{r.status === 'PENDING'
-          ? <button type="button" className="text-btn danger" disabled={!canScrap} onClick={() => confirmScrap(r)}>报废并扣押金</button>
+          ? <button type="button" className="text-btn danger" disabled={!canScrap} onClick={() => confirmScrap(r)}>确认报废</button>
           : <small className="container-reference" title={r.scrapNo}>{r.scrapNo}</small>}</td>
       </tr>
     )))}</tbody>
@@ -102,7 +102,7 @@ export function Assets() {
   const total = result?.total ?? 0;
   return <>
     <div className="page-head">
-      <div><h2>袋桶台账</h2><p>会员领还、破损归还与报废扣押金，全程记录</p></div>
+      <div><h2>袋桶台账</h2><p>会员领还、破损归还与报废（可选扣押金或水站承担），全程记录</p></div>
       <div className="head-actions">
         <button type="button" className="btn" onClick={() => exportCsv('container-ledgers')}>导出周转流水</button>
         <button type="button" className="btn" onClick={() => reportDamage()}>登记破损</button>
@@ -165,30 +165,45 @@ function DamageDialog({ member, onClose, onDone }: { member?: Member; onClose: (
       <Field label="已收回破损数量（个）" htmlFor="damageQuantity">
         <input id="damageQuantity" className="input" type="number" min={1} max={10000} step={1} required value={quantity} onChange={e => setQuantity(Number(e.target.value))} />
       </Field>
-      <ReasonField value={reason} onChange={setReason} />
+      <ReasonField value={reason} onChange={setReason} placeholder="如：桶身开裂漏水" />
+      <ReasonChips options={DAMAGE_REASONS[type]} value={reason} onPick={setReason} />
     </FormDialog>
   );
 }
 
+/** 报废时决定押金：默认按原实收批次扣除；人为以外的损坏（如自然老化）可选不扣，由水站承担，押金退回会员可用余额。 */
 function ScrapDialog({ row, onClose, onDone }: { row: ContainerDamageRow; onClose: () => void; onDone: () => Promise<void> }) {
   const api = useApi();
   const toast = useToast();
   const key = useIdempotencyKey();
   const [reason, setReason] = useState(row.reason);
+  const [deduct, setDeduct] = useState(true);
   const submit = async () => {
-    const receipt = await api.scrapDamage(row.id, { reason: reason.trim(), idempotencyKey: key });
+    const receipt = await api.scrapDamage(row.id, { reason: reason.trim(), idempotencyKey: key, deductDeposit: deduct });
     await onDone();
-    toast(`报废完成，已扣押金 ¥${money(receipt.deductedAmount)}`);
+    toast(receipt.depositWaived ? '报废完成，未扣押金，对应押金已退回会员可用余额' : `报废完成，已扣押金 ¥${money(receipt.deductedAmount)}`);
   };
   return (
-    <FormDialog title="确认报废并扣押金" className="inventory-dialog" submitLabel="确认报废并扣押金" onClose={onClose} onSubmit={submit}>
+    <FormDialog title="确认报废" className="inventory-dialog" submitLabel={deduct ? '确认报废并扣押金' : '确认报废，不扣押金'} onClose={onClose} onSubmit={submit}>
+      <div className="seg-switch" role="group" aria-label="押金处理">
+        <button type="button" aria-pressed={deduct} onClick={() => setDeduct(true)}>扣除押金</button>
+        <button type="button" aria-pressed={!deduct} onClick={() => setDeduct(false)}>不扣押金（水站承担）</button>
+      </div>
       <div className="scrap-confirmation">
         <b>{row.memberName} · {CONTAINER_NAMES[row.containerType]} {row.quantity} 个</b>
-        <p>本次扣除押金 <strong>¥{money(row.depositAmount)}</strong></p>
-        <small>按原实收批次结算：{row.lotBreakdown.map(l => `${l.quantity} 个 × ¥${money(l.unitPrice)}`).join(' + ')}</small>
+        {deduct
+          ? <>
+            <p>本次扣除押金 <strong>¥{money(row.depositAmount)}</strong></p>
+            <small>按原实收批次结算：{row.lotBreakdown.map(l => `${l.quantity} 个 × ¥${money(l.unitPrice)}`).join(' + ')}</small>
+          </>
+          : <>
+            <p>不扣押金 <strong>¥0.00</strong></p>
+            <small>占用的 ¥{money(row.depositAmount)} 押金退回会员可用余额，会员可申请退还或用于新领用。</small>
+          </>}
       </div>
-      <p className="membership-note">确认后减少现存库存，增加累计报废，并扣除会员押金余额；不会再减少会员持有数量。</p>
+      <p className="membership-note">确认后减少现存库存、增加累计报废；{deduct ? '并扣除会员押金余额' : '不动会员押金余额，也不计入报废扣押金'}。不会再减少会员持有数量。</p>
       <ReasonField value={reason} onChange={setReason} />
+      <ReasonChips options={DAMAGE_REASONS[row.containerType]} value={reason} onPick={setReason} />
     </FormDialog>
   );
 }

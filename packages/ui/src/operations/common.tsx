@@ -84,3 +84,14 @@ export function MemberPicker({ id, value, onChange, disabled }: { id: string; va
     </div>
   );
 }
+
+/** Common reasons as chips: picking one fills the reason field, which staff can still edit. */
+export function ReasonChips({ options, value, onPick, label = '常用原因' }: { options: readonly string[]; value: string; onPick: (reason: string) => void; label?: string }) {
+  return (
+    <div className="slot-chips reason-chips" role="group" aria-label={label}>
+      {options.map(option => (
+        <button key={option} type="button" className={value.trim() === option ? 'active' : ''} aria-pressed={value.trim() === option} onClick={() => onPick(option)}>{option}</button>
+      ))}
+    </div>
+  );
+}

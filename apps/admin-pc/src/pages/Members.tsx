@@ -151,9 +151,9 @@ function MemberDrawer({ member: m, onClose }: { member: MemberProfile; onClose: 
               : <p className="membership-note">暂无充值记录</p>)}
           </div>
           <div className="detail-card">
-            <div className="detail-card-head"><h4>押金与容器</h4><button type="button" className="text-btn" onClick={() => ops.deposit('refund', m.id)}>退押金 ›</button></div>
+            <div className="detail-card-head"><h4>押金与容器</h4><button type="button" className="text-btn" onClick={() => ops.deposit('refund', m.id)}>申请退押金 ›</button></div>
             {deposits ? deposits.map(r => (
-              <div key={r.containerType} className="detail-row"><span>{containerLabel(r.containerType)}</span><b>已交 {r.paidQty} 个 ¥{money(r.paidAmount)} · 持有 {r.heldQty} · 可退 {r.refundableQty}</b></div>
+              <div key={r.containerType} className="detail-row"><span>{containerLabel(r.containerType)}</span><b>已交 {r.paidQty} 个 ¥{money(r.paidAmount)} · 持有 {r.heldQty} · 可退 {r.refundableQty}{r.pendingRefundQty > 0 ? ` · 审核中 ${r.pendingRefundQty}` : ''}</b></div>
             )) : <p className="membership-note">押金明细查询中…</p>}
             <div className="detail-row"><span>在池押金 / 当前可退</span><b style={{ color: 'var(--brand-600)' }}>¥{money(m.depositAmount)} / {refundable === null ? '查询中' : `¥${money(refundable)}`}</b></div>
             {pendingDamage > 0 && <p className="membership-note">另有 {pendingDamage} 个待报废容器占用押金，确认报废后按原批次扣除。</p>}

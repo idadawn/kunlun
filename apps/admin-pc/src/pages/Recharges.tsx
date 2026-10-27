@@ -102,9 +102,9 @@ function RefundTable({ filter, filtered }: { filter: RechargeLedgerQuery; filter
     <div className="table-card ledger-table">
       <div style={{ overflowX: 'auto' }}>
         <table>
-          <thead><tr><th>退款单号 / 时间</th><th>会员</th><th>原充值</th><th>退款金额</th><th>退回水票</th><th>退款方式</th><th>退款原因</th><th>操作人</th></tr></thead>
+          <thead><tr><th>退款单号 / 时间</th><th>会员</th><th>原充值</th><th>退款金额</th><th>退回水票</th><th>退款方式</th><th>退款原因</th><th>审核人</th></tr></thead>
           <tbody>
-            {rows.length === 0 ? <EmptyRow colSpan={8}>{ledgerEmptyText(table, filtered, '暂无水费退款；在会员的水票批次中可退清剩余权益', '退款记录')}</EmptyRow> : rows.map(r => (
+            {rows.length === 0 ? <EmptyRow colSpan={8}>{ledgerEmptyText(table, filtered, '暂无水费退款；会员水票批次提交退款申请，经「退款审核」通过后记入此处', '退款记录')}</EmptyRow> : rows.map(r => (
               <tr key={r.refundNo}>
                 <td><span className="order-no">{r.refundNo}</span><br /><small>{shortDateTime(r.createdAt)}</small></td>
                 <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>

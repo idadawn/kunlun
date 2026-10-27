@@ -9,6 +9,7 @@ import { Members } from './pages/Members';
 import { Orders } from './pages/Orders';
 import { Recharges } from './pages/Recharges';
 import { Deposits } from './pages/Deposits';
+import { Refunds } from './pages/Refunds';
 import { Inventory } from './pages/Inventory';
 import { Assets } from './pages/Assets';
 import { Products } from './pages/Products';
@@ -27,6 +28,7 @@ export function App() {
             <Route path="orders" element={<Orders />} />
             <Route path="recharges" element={<Recharges />} />
             <Route path="deposits" element={<Deposits />} />
+            <Route path="refunds" element={<Refunds />} />
             <Route path="inventory" element={<Inventory />} />
             <Route path="assets" element={<Assets />} />
             <Route path="products" element={<Products />} />
@@ -48,7 +50,7 @@ export function App() {
 const NAV: Array<{ label?: string; items: Array<[string, IconName]> }> = [
   { items: [['dashboard', 'grid']] },
   { label: '日常业务', items: [['orders', 'order'], ['members', 'users']] },
-  { label: '财务管理', items: [['recharges', 'wallet'], ['deposits', 'deposit']] },
+  { label: '财务管理', items: [['recharges', 'wallet'], ['deposits', 'deposit'], ['refunds', 'check']] },
   { label: '袋桶管理', items: [['inventory', 'box'], ['assets', 'ledger']] },
   { label: '商品管理', items: [['products', 'drop'], ['plans', 'tag']] },
   { label: '营销管理', items: [['coupons', 'ticket']] },
@@ -79,7 +81,7 @@ function useSidebarCollapsed() {
 function AdminLayout() {
   const location = useLocation();
   const page = resolveRoute(location.pathname)?.page ?? 'dashboard';
-  const { orders, overview, containers, refresh } = useAdminData();
+  const { orders, overview, containers, pendingRefunds, refresh } = useAdminData();
   const [collapsed, toggle] = useSidebarCollapsed();
   const toast = useToast();
   const go = useGo();
@@ -90,6 +92,7 @@ function AdminLayout() {
   // Work waiting on a page: shown on its menu item so it is visible from anywhere in the console.
   const badges: Record<string, { text: string; hint: string; warn?: boolean }> = {};
   if (pending > 0) badges.orders = { text: String(pending), hint: `待处理水单 ${pending} 单` };
+  if (pendingRefunds) badges.refunds = { text: String(pendingRefunds), hint: `待审核退款 ${pendingRefunds} 笔` };
   if (lowStock.length) badges.inventory = { text: '预警', hint: `${lowStock.join('、')}站内可用低于预警值`, warn: true };
   if (scrapPending > 0) badges.assets = { text: String(scrapPending), hint: `待确认报废 ${scrapPending} 个` };
 

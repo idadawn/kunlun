@@ -1,10 +1,15 @@
 import { useState } from 'react';
 import { KUNLUN_PERMISSIONS as P, money, type ContainerSummaryItem, type ContainerType, type InventoryAction } from '@kunlun/shared';
-import { Field, FormDialog, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
+import { Field, FormDialog, ReasonChips, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
 import { EmptyRow, useExport } from '../common';
 import { useAdminData } from '../data';
 
 export const CONTAINER_NAMES: Record<ContainerType, string> = { BAG: '周转水袋', BUCKET: '周转桶' };
+/** Common ways a bucket or bag gets damaged, offered as one-tap reasons when registering damage or scrapping. */
+export const DAMAGE_REASONS: Record<ContainerType, readonly string[]> = {
+  BUCKET: ['桶身开裂漏水', '桶口破损', '提手断裂', '磕碰变形', '污染异味无法清洗', '自然老化'],
+  BAG: ['袋体破损漏水', '袋口/阀门损坏', '封口不严', '污染无法清洗', '自然老化'],
+};
 
 export function Inventory() {
   const { containers, version, refresh } = useAdminData();
@@ -94,6 +99,7 @@ function StockDialog({ config, action, onClose, onDone }: { config: ContainerSum
         <input id="stockQty" className="input" type="number" min={1} max={scrap ? config.inStationQty : 1000000} step={1} required value={quantity} onChange={e => setQuantity(Number(e.target.value))} />
       </Field>
       <ReasonField value={reason} onChange={setReason} placeholder={scrap ? '如：破损、老化无法使用' : '如：采购批次、供应商'} />
+      {scrap && <ReasonChips options={[...DAMAGE_REASONS[config.containerType], '盘点报损']} value={reason} onPick={setReason} />}
     </FormDialog>
   );
 }

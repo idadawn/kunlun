@@ -80,7 +80,7 @@ function MemberDetailDialog({ member, onClose }: { member: MemberProfile; onClos
           <p>持有桶/袋 <b>{member.heldBuckets}/{member.heldBags}</b></p>
           <div className="member-ledger-actions">
             <button type="button" className="btn sm" onClick={ops.collectDeposit}>收押金</button>
-            <button type="button" className="btn sm" onClick={ops.refundDeposit}>退押金</button>
+            <button type="button" className="btn sm" onClick={ops.refundDeposit}>申请退押金</button>
           </div>
         </section>
       </div>

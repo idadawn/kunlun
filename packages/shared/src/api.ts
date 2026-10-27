@@ -1,5 +1,6 @@
 import type {
   ActiveStatus,
+  ApplyRefundBody,
   AuthSession,
   CirculationRow,
   ContainerDamageRow,
@@ -33,6 +34,9 @@ import type {
   RechargeLedgerQuery,
   RechargeLedgerRow,
   RechargeRefundLedgerRow,
+  RefundRequestQuery,
+  RefundRequestRow,
+  RefundRequestStatus,
   RechargePlan,
   RoleCode,
   SaveCouponTemplateRequest,
@@ -182,8 +186,19 @@ export class KunlunApi {
   createRecharge(body: { memberId: string; planId: string; couponId: string | null; payMethod: PayMethod; idempotencyKey: string }) {
     return this.post<{ id: string; rechargeNo: string; paidAmount: number; buyQty: number; giftQty: number; totalTickets: number; planSnapshot?: PlanSnapshot; idempotentReplay: boolean }>('/api/recharges', body);
   }
-  refundBatch(batchId: string, body: { idempotencyKey: string; payMethod: PayMethod; reason: string }) {
-    return this.post<{ id: string; refundNo: string; refundAmount: number; refundBuyQty: number; revokedGiftQty: number; idempotentReplay: boolean }>(`/api/ticket-batches/${batchId}/refund`, body);
+
+  // Refunds: staff file a request, an administrator approves (which pays out) or rejects it
+  applyRefund(body: ApplyRefundBody) {
+    return this.post<{ id: string; requestNo: string; status: RefundRequestStatus; estimatedAmount: number; idempotentReplay: boolean }>('/api/refund-requests', body);
+  }
+  refundRequests(query: RefundRequestQuery = {}) {
+    return this.request<Paged<RefundRequestRow>>('/api/refund-requests' + paged(query));
+  }
+  approveRefund(id: string, body: { payMethod?: PayMethod; note?: string }) {
+    return this.post<{ id: string; status: RefundRequestStatus; refundNo: string; refundAmount: number; idempotentReplay: boolean }>(`/api/refund-requests/${id}/approve`, body);
+  }
+  rejectRefund(id: string, note: string) {
+    return this.post<{ id: string; status: RefundRequestStatus }>(`/api/refund-requests/${id}/reject`, { note });
   }
 
   // Orders
@@ -217,9 +232,6 @@ export class KunlunApi {
   collectDeposit(body: { memberId: string; containerType: ContainerType; quantity: number; payMethod: PayMethod; idempotencyKey: string }) {
     return this.post<{ depositNo: string; totalAmount: number }>('/api/deposits/collect', body);
   }
-  refundDeposit(body: { memberId: string; containerType: ContainerType; quantity: number; payMethod: PayMethod; idempotencyKey: string }) {
-    return this.post<{ refundNo: string; refundAmount: number }>('/api/deposits/refund', body);
-  }
   inventory(body: InventoryRequest) { return this.post<InventoryOperation>('/api/containers/inventory', body); }
   inventoryOperations(containerType?: ContainerType) {
     return this.request<Array<{ operation: InventoryOperation; memberName: string }>>('/api/containers/inventory-operations' + (containerType ? `?containerType=${containerType}` : ''));
@@ -236,8 +248,8 @@ export class KunlunApi {
   reportDamage(body: { memberId: string; containerType: ContainerType; quantity: number; reason: string; idempotencyKey: string }) {
     return this.post<{ damageNo: string }>('/api/containers/damages', body);
   }
-  scrapDamage(id: string, body: { reason: string; idempotencyKey: string }) {
-    return this.post<{ deductedAmount: number }>(`/api/containers/damages/${id}/scrap`, body);
+  scrapDamage(id: string, body: { reason: string; idempotencyKey: string; deductDeposit: boolean }) {
+    return this.post<{ deductedAmount: number; depositWaived: boolean }>(`/api/containers/damages/${id}/scrap`, body);
   }
 
   // Reports

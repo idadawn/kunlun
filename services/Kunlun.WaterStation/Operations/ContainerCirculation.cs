@@ -8,7 +8,8 @@ using static Kunlun.WaterStation.Operations.ContainerInventory;
 namespace Kunlun.WaterStation.Operations;
 
 public sealed record ReportContainerDamageRequest(Guid MemberId, string ContainerType, int Quantity, string Reason, string IdempotencyKey);
-public sealed record ScrapContainerDamageRequest(string Reason, string IdempotencyKey);
+// DeductDeposit=false 报废但不扣押金（如自然老化、配送损坏由水站承担）：暂占的押金退回会员可用余额。
+public sealed record ScrapContainerDamageRequest(string Reason, string IdempotencyKey, bool DeductDeposit = true);
 public sealed record DamageDepositLot(Guid LotId, string LotNo, int Quantity, decimal UnitPrice);
 
 public static class ContainerCirculation
@@ -39,6 +40,7 @@ public static class ContainerCirculation
               UNIQUE(tenant_id,idempotency_key),UNIQUE(tenant_id,scrap_key)
             );
             CREATE INDEX IF NOT EXISTS container_damages_member ON plugin_kunlun_waterstation.container_damages(tenant_id,member_id,status);
+            ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS deposit_waived BOOLEAN NOT NULL DEFAULT FALSE;
             """,ct);
         await tx.CommitAsync(ct);
     }
@@ -96,9 +98,9 @@ public static class ContainerCirculation
                   AND (@q='' OR m.name ILIKE @search OR m.phone ILIKE @search OR m.member_no ILIKE @search OR d.damage_no ILIKE @search)
                 """;
             await using var count=Command(conn,null,"SELECT count(*) "+from,args);var total=Convert.ToInt64(await count.ExecuteScalarAsync(ct));
-            await using var cmd=Command(conn,null,"SELECT d.id,d.damage_no,m.name,m.member_no,d.container_type,d.quantity,d.deposit_amount,d.status,d.reason,d.operator_name,d.created_at,d.lot_breakdown::text,COALESCE(d.scrap_no,''),COALESCE(d.scrap_reason,'') "+from+" ORDER BY d.created_at DESC,d.id LIMIT 20 OFFSET @offset",args);
+            await using var cmd=Command(conn,null,"SELECT d.id,d.damage_no,m.name,m.member_no,d.container_type,d.quantity,d.deposit_amount,d.status,d.reason,d.operator_name,d.created_at,d.lot_breakdown::text,COALESCE(d.scrap_no,''),COALESCE(d.scrap_reason,''),d.deposit_waived "+from+" ORDER BY d.created_at DESC,d.id LIMIT 20 OFFSET @offset",args);
             var rows=new List<object>();await using var r=await cmd.ExecuteReaderAsync(ct);
-            while(await r.ReadAsync(ct))rows.Add(new{id=r.GetGuid(0),damageNo=r.GetString(1),memberName=r.GetString(2),memberNo=r.GetString(3),containerType=r.GetString(4),quantity=r.GetInt32(5),depositAmount=r.GetDecimal(6),status=r.GetString(7),reason=r.GetString(8),operatorName=r.GetString(9),createdAt=r.GetDateTime(10),lotBreakdown=JsonSerializer.Deserialize<JsonElement>(r.GetString(11)),scrapNo=r.GetString(12),scrapReason=r.GetString(13)});
+            while(await r.ReadAsync(ct))rows.Add(new{id=r.GetGuid(0),damageNo=r.GetString(1),memberName=r.GetString(2),memberNo=r.GetString(3),containerType=r.GetString(4),quantity=r.GetInt32(5),depositAmount=r.GetDecimal(6),status=r.GetString(7),reason=r.GetString(8),operatorName=r.GetString(9),createdAt=r.GetDateTime(10),lotBreakdown=JsonSerializer.Deserialize<JsonElement>(r.GetString(11)),scrapNo=r.GetString(12),scrapReason=r.GetString(13),depositWaived=r.GetBoolean(14)});
             return Results.Ok(new{rows,total,page=page??1,pageSize=20});
         }).RequireAuthorization();
     }
@@ -159,7 +161,9 @@ public static class ContainerCirculation
     {
         if(!CanManage(user) || !user.HasClaim("perm",KunlunPermissions.DepositRefundApprove))return Results.Forbid();
         if(string.IsNullOrWhiteSpace(req.Reason) || req.Reason.Length>500)throw new BusinessRuleException("请填写报废原因");
-        var tid=repo.DefaultTenantId;var hash=Hash(new{id,reason=req.Reason.Trim(),req.IdempotencyKey});
+        var tid=repo.DefaultTenantId;var waive=!req.DeductDeposit;
+        // Deducting scraps keep the original hash shape so replays of requests sent before the waive option still match.
+        var hash=waive?Hash(new{id,reason=req.Reason.Trim(),req.IdempotencyKey,deductDeposit=false}):Hash(new{id,reason=req.Reason.Trim(),req.IdempotencyKey});
         await using var conn=await db.OpenConnectionAsync(ct);await using var tx=await conn.BeginTransactionAsync(ct);
         await LockRequest(conn,tx,tid,"damage-scrap",req.IdempotencyKey,ct);
         await using(var replay=Command(conn,tx,"SELECT scrap_hash,scrap_receipt::text FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND scrap_key=@key",("tid",tid),("key",req.IdempotencyKey)))
@@ -176,17 +180,19 @@ public static class ContainerCirculation
         await using(var read=Command(conn,tx,"SELECT container_type,quantity,deposit_amount,lot_breakdown::text,status FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND id=@id FOR UPDATE",("tid",tid),("id",id)))
         await using(var r=await read.ExecuteReaderAsync(ct))
         {
-            await r.ReadAsync(ct);if(r.GetString(4)!="PENDING")throw new BusinessRuleException("该记录已报废扣押金，请勿重复操作",409);
+            await r.ReadAsync(ct);if(r.GetString(4)!="PENDING")throw new BusinessRuleException("该记录已报废，请勿重复操作",409);
             type=r.GetString(0);qty=r.GetInt32(1);amount=r.GetDecimal(2);lots=JsonSerializer.Deserialize<List<DamageDepositLot>>(r.GetString(3),JsonOptions)!;
         }
         var before=await ReadBalance(conn,tx,tid,type,ct);
         if(before.DamagedQty<qty)throw new BusinessRuleException("待处理破损库存不足，请核对台账");
+        // Waived: only release the reservation, so the deposit stays with the member and becomes refundable or covers new containers.
+        var lotUpdate=waive
+            ?"UPDATE plugin_kunlun_waterstation.deposit_lots SET reserved_damage_qty=reserved_damage_qty-@qty WHERE id=@id AND tenant_id=@tid AND member_id=@mid AND reserved_damage_qty>=@qty"
+            :"UPDATE plugin_kunlun_waterstation.deposit_lots SET reserved_damage_qty=reserved_damage_qty-@qty,remaining_qty=remaining_qty-@qty,deducted_qty=deducted_qty+@qty WHERE id=@id AND tenant_id=@tid AND member_id=@mid AND reserved_damage_qty>=@qty AND remaining_qty>=@qty";
         foreach(var lot in lots)
-            if(await Exec(conn,tx,"""
-                UPDATE plugin_kunlun_waterstation.deposit_lots SET reserved_damage_qty=reserved_damage_qty-@qty,remaining_qty=remaining_qty-@qty,deducted_qty=deducted_qty+@qty
-                WHERE id=@id AND tenant_id=@tid AND member_id=@mid AND reserved_damage_qty>=@qty AND remaining_qty>=@qty
-                """,ct,("id",lot.LotId),("tid",tid),("mid",mid),("qty",lot.Quantity))!=1)throw new BusinessRuleException("原押金批次已变化，请核对后处理",409);
-        if(await Exec(conn,tx,"UPDATE plugin_kunlun_waterstation.members SET deposit_amount=deposit_amount-@amount WHERE tenant_id=@tid AND id=@mid AND deposit_amount>=@amount",ct,("amount",amount),("tid",tid),("mid",mid))!=1)
+            if(await Exec(conn,tx,lotUpdate,ct,("id",lot.LotId),("tid",tid),("mid",mid),("qty",lot.Quantity))!=1)throw new BusinessRuleException("原押金批次已变化，请核对后处理",409);
+        var deducted=waive?0m:amount;
+        if(!waive && await Exec(conn,tx,"UPDATE plugin_kunlun_waterstation.members SET deposit_amount=deposit_amount-@amount WHERE tenant_id=@tid AND id=@mid AND deposit_amount>=@amount",ct,("amount",amount),("tid",tid),("mid",mid))!=1)
             throw new BusinessRuleException("会员押金余额不足，未执行报废扣款",409);
         var after=before with{TotalQty=before.TotalQty-qty,DamagedQty=before.DamagedQty-qty,ScrappedQty=checked(before.ScrappedQty+qty)};
         await SaveBalance(conn,tx,tid,type,after,ct);
@@ -197,12 +203,12 @@ public static class ContainerCirculation
         var held=Convert.ToInt32(await holdings.ExecuteScalarAsync(ct));
         await using var coverage=Command(conn,tx,"SELECT COALESCE(sum(remaining_qty-reserved_damage_qty),0) FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@type",("tid",tid),("mid",mid),("type",type));
         var covered=Convert.ToInt32(await coverage.ExecuteScalarAsync(ct));
-        await Ledger(conn,tx,tid,mid,type,no,"SCRAP",0,qty,held,covered,amount,req.Reason.Trim(),user,ct);
-        var receipt=new{id,scrapNo=no,memberId=mid,containerType=type,quantity=qty,deductedAmount=amount,lotBreakdown=lots,status="SCRAPPED"};
+        await Ledger(conn,tx,tid,mid,type,no,waive?"SCRAP_WAIVED":"SCRAP",0,qty,held,covered,deducted,req.Reason.Trim(),user,ct);
+        var receipt=new{id,scrapNo=no,memberId=mid,containerType=type,quantity=qty,deductedAmount=deducted,depositWaived=waive,lotBreakdown=lots,status="SCRAPPED"};
         await Exec(conn,tx,"""
-            UPDATE plugin_kunlun_waterstation.container_damages SET status='SCRAPPED',scrap_no=@no,scrap_key=@key,scrap_hash=@hash,scrap_reason=@reason,scrap_operator=@actor,scrapped_at=now(),scrap_receipt=@receipt::jsonb
+            UPDATE plugin_kunlun_waterstation.container_damages SET status='SCRAPPED',deposit_waived=@waive,scrap_no=@no,scrap_key=@key,scrap_hash=@hash,scrap_reason=@reason,scrap_operator=@actor,scrapped_at=now(),scrap_receipt=@receipt::jsonb
             WHERE tenant_id=@tid AND id=@id
-            """,ct,("no",no),("key",req.IdempotencyKey),("hash",hash),("reason",req.Reason.Trim()),("actor",Actor(user)),("receipt",Json(receipt)),("tid",tid),("id",id));
+            """,ct,("waive",waive),("no",no),("key",req.IdempotencyKey),("hash",hash),("reason",req.Reason.Trim()),("actor",Actor(user)),("receipt",Json(receipt)),("tid",tid),("id",id));
         await tx.CommitAsync(ct);return Results.Ok(receipt);
     }
 
