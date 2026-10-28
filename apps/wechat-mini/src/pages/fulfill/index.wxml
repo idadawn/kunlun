@@ -11,13 +11,17 @@
   ><view class="footer-note"
     >请按实际情况登记。本页按预约数量交付，差额交付请在现有员工端办理。</view
   ><text class="form-label">收回空桶 / 空袋数量</text
-  ><input
+  ><view class="row">
+  <button class="secondary-btn small-btn" data-delta="-1" bindtap="quantity" disabled="{{busy}}" aria-label="减少回收数量">−</button>
+  <input
     type="number"
     value="{{emptyInM}}"
     data-field="emptyInM"
     bindinput="input"
     maxlength="4"
-  /><block wx:if="{{order.fulfillMode === 'PICKUP'}}"
+  />
+  <button class="secondary-btn small-btn" data-delta="1" bindtap="quantity" disabled="{{busy}}" aria-label="增加回收数量">+</button>
+  </view><block wx:if="{{order.fulfillMode === 'PICKUP'}}"
     ><text class="form-label">会员出示的自提码</text
     ><input
       type="number"

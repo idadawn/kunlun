@@ -8,6 +8,7 @@ Page({
     this.setData({ order });
   } },
   input(e) { this.setData({ [e.currentTarget.dataset.field]: e.detail.value }); },
+  quantity(e) { this.setData({ emptyInM: String(Math.min(9999, Math.max(0, Number(this.data.emptyInM || 0) + Number(e.currentTarget.dataset.delta)))) }); },
   submit() { ui.run(this, async () => {
     const order = this.data.order; if (!order) throw new Error('请重新选择水单');
     const emptyInM = Number(this.data.emptyInM);
