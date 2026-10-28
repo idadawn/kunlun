@@ -198,7 +198,7 @@ public static class MembershipEndpoints
         await using (var cmd = Command(conn, tx, "SELECT id,recharge_no,paid_amount,buy_qty,gift_qty,plan_snapshot::text,member_id,plan_id,COALESCE(coupon_snapshot->>'id',''),pay_method FROM plugin_kunlun_waterstation.recharge_orders WHERE tenant_id=@tid AND idempotency_key=@key", ("tid", tid), ("key", req.IdempotencyKey)))
         await using (var r = await cmd.ExecuteReaderAsync(ct)) if (await r.ReadAsync(ct))
         {
-            if (r.GetGuid(6) != req.MemberId || r.GetGuid(7) != req.PlanId || r.GetString(8) != (req.CouponId?.ToString() ?? "") || r.GetString(9) != req.PayMethod) throw new BusinessRuleException("请求标识已用于其他充值", 409);
+            if (r.GetGuid(6) != req.MemberId || r.IsDBNull(7) || r.GetGuid(7) != req.PlanId || r.GetString(8) != (req.CouponId?.ToString() ?? "") || r.GetString(9) != req.PayMethod) throw new BusinessRuleException("请求标识已用于其他充值", 409);
             return Results.Ok(new { id = r.GetGuid(0), rechargeNo = r.GetString(1), paidAmount = r.GetDecimal(2), buyQty = r.GetInt32(3), giftQty = r.GetInt32(4), totalTickets = r.GetInt32(3) + r.GetInt32(4), planSnapshot = JsonSerializer.Deserialize<JsonElement>(r.GetString(5)), idempotentReplay = true });
         }
         string name, water, mode; decimal price; int qty, gift;
