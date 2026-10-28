@@ -1,0 +1,35 @@
+<view class="dishes">
+  <view wx:for="{{items}}" wx:key="waterType" class="dish {{item.soldOut ? 'dim' : ''}}">
+    <view class="thumb"><image src="{{item.image}}" mode="aspectFit" /></view>
+    <view class="dish-body">
+      <view class="dish-name">{{item.name}}</view>
+      <view class="dish-spec ellipsis">{{item.packaging}}</view>
+      <view class="dish-tags">
+        <text wx:if="{{item.minTag}}" class="tag line">{{item.minTag}}</text>
+        <text wx:if="{{item.tickets}}" class="tag">水票 {{item.tickets}} {{item.unit}}</text>
+      </view>
+      <view class="dish-foot">
+        <view wx:if="{{item.priceText}}" class="price num"><text class="yen">¥</text>{{item.priceText}}<text class="per">/{{item.unit}}</text></view>
+        <view wx:else class="ticket-only">{{item.tickets ? '水票专享' : '仅限水票'}}</view>
+        <view wx:if="{{item.soldOut && buy}}" class="btn sm ghost" hover-class="press" bindtap="tickets">买水票</view>
+        <text wx:elif="{{item.soldOut}}" class="faint">无水票</text>
+        <view wx:else class="stepper">
+          <view wx:if="{{item.qty}}" class="step minus" hover-class="press" data-water="{{item.waterType}}" data-delta="-1" bindtap="step" aria-role="button" aria-label="减少{{item.name}}">−</view>
+          <text wx:if="{{item.qty}}" class="step-qty num">{{item.qty}}</text>
+          <view class="step plus {{item.full ? 'off' : ''}}" hover-class="press" data-water="{{item.waterType}}" data-delta="1" bindtap="step" aria-role="button" aria-label="增加{{item.name}}">+</view>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>
+<view class="cart {{tabbar ? 'on-tab' : ''}}">
+  <view class="cart-icon {{bar.empty ? '' : 'full'}}">
+    <image src="/assets/icons/{{bar.empty ? 'cart-off' : 'cart'}}.svg" />
+    <text wx:if="{{!bar.empty}}" class="cart-count num">{{bar.count}}</text>
+  </view>
+  <view class="cart-info">
+    <view class="cart-headline {{bar.empty ? 'empty' : ''}} num">{{bar.headline}}</view>
+    <view wx:if="{{bar.note}}" class="cart-note {{bar.warn ? 'warn' : ''}} ellipsis">{{bar.note}}</view>
+  </view>
+  <view class="cart-go {{bar.ready ? '' : 'off'}}" hover-class="{{bar.ready ? 'press' : 'none'}}" bindtap="checkout" aria-role="button">{{bar.action}}</view>
+</view>

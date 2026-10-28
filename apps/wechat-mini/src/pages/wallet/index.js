@@ -1,16 +1,26 @@
-const api = require('../../lib/api'); const ui = require('../../lib/ui'); const payment = require('../../lib/payment');
+const api = require('../../lib/api'); const ui = require('../../lib/ui'); const cart = require('../../lib/cart'); const payment = require('../../lib/payment');
+const yuan = value => { const n = Number(value); return n % 1 ? n.toFixed(2) : String(n); };
 Page({
-  data: { plans: [], payments: [], water: '', mode: '', busy: false, error: '', tickets: [], canMembers: false },
-  onShow() { if (ui.guard(this)) this.load(); },
+  data: { water: '', products: [], balances: [], plans: [], payments: [], busy: false, error: '' },
+  onShow() { if (ui.guard(this, 'MEMBER')) this.load(); },
   onPullDownRefresh() { this.load().finally(() => wx.stopPullDownRefresh()); },
   load() { return ui.run(this, async () => {
-    if (api.session().subjectType === 'STAFF') { this.setData({ canMembers: api.can('member:read') }); return; }
-    const [plans, payments, profile] = await Promise.all([api.call('plans'), api.call('payments'), api.call('profile', { memberId: api.session().subjectId })]);
-    this.allPlans = plans.filter(p => p.status === 'ACTIVE').map(p => Object.assign({}, p, { priceText: Number(p.price).toFixed(2), typeText: p.waterType === 'BAG_7_5L' ? '袋装 5L' : '桶装 15L', modeText: p.fulfillMode === 'PICKUP' ? '到店自提' : '送水上门' }));
-    this.setData({ payments: payments.map(p => Object.assign({}, p, { priceText: ui.money(p.amountFen), stateText: p.status === 'SUCCESS' ? '已到账' : p.status === 'CLOSED' ? '已关闭' : '待支付' })), tickets: [ { label: '桶装 · 配送', qty: profile.bucketDeliveryTickets }, { label: '桶装 · 自提', qty: profile.bucketPickupTickets }, { label: '袋装 · 配送', qty: profile.bagDeliveryTickets }, { label: '袋装 · 自提', qty: profile.bagPickupTickets } ] }); this.filterPlans();
+    const memberId = api.session().subjectId;
+    const [plans, payments, profile, products] = await Promise.all([api.call('plans'), api.call('payments'), api.call('profile', { memberId }), api.call('products')]);
+    this.allPlans = plans.filter(p => p.status === 'ACTIVE').map(p => {
+      const total = p.buyQty + p.giftQty; const unit = cart.unitOf(p.waterType);
+      return Object.assign({}, p, { total, unit, modeText: cart.modeText(p.fulfillMode), priceText: yuan(p.price), unitText: (p.price / total).toFixed(2) });
+    }).sort((a, b) => (a.fulfillMode === b.fulfillMode ? a.price - b.price : a.fulfillMode === 'DELIVERY' ? -1 : 1));
+    this.setData({
+      products,
+      water: this.data.water || (products[0] && products[0].waterType) || '',
+      balances: products.map(p => ({ waterType: p.waterType, name: p.name, delivery: cart.ticketsFor(profile, p.waterType, 'DELIVERY'), pickup: cart.ticketsFor(profile, p.waterType, 'PICKUP') })),
+      payments: payments.map(p => Object.assign({}, p, { title: p.plan.name, amountText: ui.money(p.amountFen), stateText: p.status === 'SUCCESS' ? '已到账' : p.status === 'CLOSED' ? '已关闭' : '待支付', timeText: p.createdAt ? ui.orderView({ createdAt: p.createdAt }).shortTime : '' }))
+    });
+    this.filterPlans();
   }); },
-  filter(e) { this.setData({ [e.currentTarget.dataset.field]: e.currentTarget.dataset.value }); this.filterPlans(); },
-  filterPlans() { this.setData({ plans: (this.allPlans || []).filter(p => (!this.data.water || p.waterType === this.data.water) && (!this.data.mode || p.fulfillMode === this.data.mode)) }); },
+  pick(e) { this.setData({ water: e.currentTarget.dataset.water }); this.filterPlans(); },
+  filterPlans() { this.setData({ plans: (this.allPlans || []).filter(p => p.waterType === this.data.water) }); },
   buy(e) { ui.run(this, async () => {
     const planId = e.currentTarget.dataset.id;
     // Persist the key across timeouts and page recreation to avoid double orders.
@@ -22,10 +32,8 @@ Page({
   retry(e) { ui.run(this, async () => {
     const order = await api.call('payment', { id: e.currentTarget.dataset.id });
     await payment.pay(order);
-    wx.removeStorageSync('kunlun-pay-intent-' + api.config.mode + '-' + api.session().subjectId + '-' + order.planId);
+    if (order.planId) wx.removeStorageSync('kunlun-pay-intent-' + api.config.mode + '-' + api.session().subjectId + '-' + order.planId);
     wx.showToast({ title: '水票已到账', icon: 'success' });
   }).then(() => this.refreshKeepError()); },
-  async refreshKeepError() { const error = this.data.error; await this.load(); if (error) this.setData({ error }); },
-  members() { wx.navigateTo({ url: '/pages/members/index' }); },
-  orders() { wx.switchTab({ url: '/pages/orders/index' }); }
+  async refreshKeepError() { const error = this.data.error; await this.load(); if (error) this.setData({ error }); }
 });

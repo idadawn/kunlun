@@ -16,7 +16,7 @@ test('payment cancel/failure changes no balance; repeated success credits exactl
   assert.equal((await call('profile', { memberId: member.subjectId })).bucketDeliveryTickets, before.bucketDeliveryTickets + 13);
   assert.equal((await call('mockPay', { id: p.id, outcome: 'CANCEL' })).status, 'SUCCESS');
   assert.equal((await call('createPayment', { planId: 'bucket-delivery', idempotencyKey: 'pay-1' })).id, p.id);
-  await assert.rejects(call('createPayment', { planId: 'bucket-pickup', idempotencyKey: 'pay-1' }), /其他套餐/);
+  await assert.rejects(call('createPayment', { planId: 'bucket-pickup', idempotencyKey: 'pay-1' }), /其他购买/);
 });
 test('member order reserves tickets, duplicate request and cancel do not double debit/refund', async () => {
   const p = order('order-1'); const created = await call('createOrder', p);

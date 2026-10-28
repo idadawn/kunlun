@@ -1,4 +1,5 @@
 const api = require('./api');
+const cart = require('./cart');
 function error(page, e) { page.setData({ error: e.message || '操作失败，请重试', busy: false }); }
 function guard(page, role) {
   if (getApp().blocked) return false;
@@ -16,14 +17,24 @@ async function run(page, task) {
   finally { page.setData({ busy: false }); }
 }
 function money(cents) { return (cents / 100).toFixed(2); }
+function stationTime(value) {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp + 8 * 60 * 60 * 1000).toISOString().slice(0, 16).replace('T', ' ') : '';
+}
 function orderView(o) {
-  const timestamp = Date.parse(o.createdAt);
-  const stationTime = Number.isFinite(timestamp) ? new Date(timestamp + 8 * 60 * 60 * 1000).toISOString().slice(0, 16).replace('T', ' ') : '时间待确认';
+  const time = stationTime(o.createdAt);
+  const pickup = o.fulfillMode === 'PICKUP';
   return Object.assign({}, o, {
     label: (o.productSnapshot && o.productSnapshot.waterLabel) || (o.waterType === 'BAG_7_5L' ? '袋装水' : '桶装水'),
-    statusText: { PENDING: '待处理', DISPATCHED: '配送中', COMPLETED: '已完成', CANCELLED: '已取消' }[o.status],
-    modeText: o.fulfillMode === 'DELIVERY' ? '送水上门' : '到店自提',
-    timeText: stationTime
+    unit: cart.unitOf(o.waterType),
+    image: cart.imageOf(o.waterType),
+    statusText: { PENDING: pickup ? '待取水' : '待接单', DISPATCHED: '配送中', COMPLETED: '已完成', CANCELLED: '已取消' }[o.status],
+    modeText: pickup ? '到店自提' : '送水上门',
+    timeText: time || '时间待确认',
+    shortTime: time ? time.slice(5) : '',
+    active: o.status === 'PENDING' || o.status === 'DISPATCHED'
   });
 }
-module.exports = { guard, run, error, money, orderView };
+const ROLES = { ADMIN: '站长', CLERK: '店员', COURIER: '送水员', MEMBER: '会员' };
+function maskPhone(phone) { return /^1\d{10}$/.test(phone || '') ? phone.slice(0, 3) + '****' + phone.slice(7) : phone || ''; }
+module.exports = { guard, run, error, money, orderView, maskPhone, roleText: role => ROLES[role] || '员工' };

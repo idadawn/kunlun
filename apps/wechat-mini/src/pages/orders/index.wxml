@@ -1,85 +1,51 @@
-<view class="page"
-  ><view class="eyebrow">{{staff ? 'ORDER DESK' : 'MY ORDERS'}}</view
-  ><view class="title"
-    >{{staff ? '每一单，都有回应' : '每一次用水，都有记录'}}</view
-  ><view class="tabs-row"
-    ><button
-      wx:for="{{filters}}"
-      wx:key="value"
-      class="chip {{status === item.value ? 'selected' : ''}}"
-      data-value="{{item.value}}"
-      bindtap="filter"
-    >
-      {{item.text}}
-    </button></view
-  >
-  <view wx:if="{{staff}}" class="row"
-    ><input
-      placeholder="输入自提码查找水单"
-      value="{{pickupCode}}"
-      bindinput="code"
-      bindconfirm="search"
-    /><button class="primary small-btn" bindtap="search">查询</button></view
-  >
-  <view wx:if="{{error}}" class="error"
-    >{{error}}<button class="text-link" bindtap="search">重新加载</button></view
-  >
-  <view wx:for="{{orders}}" wx:key="id" class="card"
-    ><view class="row"
-      ><text class="order-no">{{item.orderNo}}</text
-      ><text class="badge {{item.status === 'PENDING' ? 'amber' : ''}}"
-        >{{item.statusText}}</text
-      ></view
-    ><view class="divider" /><view class="row"
-      ><view
-        ><view class="product-name">{{item.label}}</view
-        ><view class="detail">{{item.modeText}} · {{item.timeText}}</view></view
-      ><view class="price"
-        >{{item.orderQty}}<text class="unit"> 份</text></view
-      ></view
-    ><view class="detail"
-      >{{item.addressSnapshot.contactName}} ·
-      {{item.addressSnapshot.address}}</view
-    ><view wx:if="{{item.remark}}" class="detail">备注：{{item.remark}}</view>
-    <view wx:if="{{!staff && item.pickupCode && item.status === 'PENDING'}}"
-      ><view class="detail">到店出示自提码</view
-      ><view class="pickup-code">{{item.pickupCode}}</view></view
-    >
-    <view class="order-foot"
-      ><button
-        wx:if="{{!staff && item.status === 'PENDING'}}"
-        class="secondary-btn small-btn"
-        data-id="{{item.id}}"
-        bindtap="cancel"
-        disabled="{{busy}}"
-      >
-        取消订水</button
-      ><button
-        wx:if="{{staff && canAccept && item.status === 'PENDING' && item.fulfillMode === 'DELIVERY'}}"
-        class="primary small-btn"
-        data-id="{{item.id}}"
-        bindtap="accept"
-        disabled="{{busy}}"
-      >
-        开始配送</button
-      ><button
-        wx:if="{{staff && canFulfill && (item.status === 'PENDING' || item.status === 'DISPATCHED')}}"
-        class="secondary-btn small-btn"
-        data-id="{{item.id}}"
-        bindtap="fulfill"
-      >
-        {{item.fulfillMode === 'PICKUP' ? '自提核销' : '确认送达'}}
-      </button></view
-    >
+<view class="tabs">
+  <view wx:for="{{filters}}" wx:key="value" class="tabs-item {{status === item.value ? 'on' : ''}}" data-value="{{item.value}}" bindtap="filter">{{item.text}}</view>
+</view>
+<view class="page">
+  <view wx:if="{{staff}}" class="search">
+    <image src="/assets/icons/search.svg" />
+    <input type="number" value="{{pickupCode}}" placeholder="输入取水码查找" placeholder-class="input-placeholder" confirm-type="search" bindinput="code" bindconfirm="search" />
+    <text wx:if="{{pickupCode}}" class="faint" bindtap="clearCode">清除</text>
   </view>
-  <view wx:if="{{!orders.length && !busy}}" class="empty"
-    >暂时没有符合条件的水单</view
-  ><button
-    wx:if="{{orders.length < total}}"
-    class="secondary-btn"
-    bindtap="more"
-    loading="{{busy}}"
-  >
-    加载更多</button
-  ><view wx:if="{{busy}}" class="loading">正在加载…</view>
+  <view wx:if="{{error}}" class="alert" bindtap="search">{{error}}</view>
+
+  <view wx:for="{{orders}}" wx:key="id" class="card order">
+    <view class="row between">
+      <text class="faint">{{item.modeText}} · {{item.shortTime}}</text>
+      <text class="status {{item.status}}">{{item.statusText}}</text>
+    </view>
+    <view class="row order-body">
+      <view class="thumb sm"><image src="{{item.image}}" mode="aspectFit" /></view>
+      <view class="grow">
+        <view class="strong">{{item.label}}</view>
+        <view wx:if="{{item.active && item.appointmentSlot}}" class="faint">{{item.appointmentSlot}}</view>
+      </view>
+      <text class="qty num">× {{item.orderQty}}</text>
+    </view>
+    <view wx:if="{{staff}}" class="order-who">
+      <text class="strong">{{item.addressSnapshot.contactName}}</text>
+      <view class="phone" hover-class="press" data-phone="{{item.addressSnapshot.contactPhone}}" bindtap="call">
+        <image src="/assets/icons/phone.svg" />{{item.addressSnapshot.contactPhone}}
+      </view>
+    </view>
+    <view wx:if="{{item.fulfillMode === 'DELIVERY'}}" class="muted">{{item.addressSnapshot.address}}</view>
+    <view wx:if="{{item.remark}}" class="muted">备注：{{item.remark}}</view>
+    <view wx:if="{{item.showCode}}" class="pickup">
+      <text class="muted">取水码</text>
+      <text class="pickup-code num">{{item.pickupCode}}</text>
+    </view>
+    <view wx:if="{{item.hasActions}}" class="actions">
+      <view wx:if="{{item.canCancel}}" class="btn sm line" hover-class="press" data-id="{{item.id}}" bindtap="cancel">取消订单</view>
+      <view wx:if="{{item.canReorder}}" class="btn sm ghost" hover-class="press" data-id="{{item.id}}" bindtap="reorder">再来一单</view>
+      <view wx:if="{{item.canAccept}}" class="btn sm line" hover-class="press" data-id="{{item.id}}" bindtap="accept">开始配送</view>
+      <view wx:if="{{item.canFulfill}}" class="btn sm" hover-class="press" data-id="{{item.id}}" bindtap="fulfill">{{item.fulfillMode === 'PICKUP' ? '核销取水' : '确认送达'}}</view>
+    </view>
+  </view>
+
+  <view wx:if="{{!orders.length && !busy}}" class="empty">
+    <image src="/assets/icons/empty.svg" />
+    <view>{{staff ? '暂时没有水单' : '还没有订单'}}</view>
+    <view wx:if="{{!staff}}" class="btn sm ghost empty-go" hover-class="press" bindtap="shop">去点水</view>
+  </view>
+  <view wx:if="{{orders.length < total}}" class="more" bindtap="more">{{busy ? '加载中…' : '加载更多'}}</view>
 </view>

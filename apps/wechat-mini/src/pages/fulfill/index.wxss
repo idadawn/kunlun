@@ -1,1 +1,20 @@
-/* Shared visual tokens and controls are defined in app.wxss. */
+.order-body {
+  margin: 20rpx 0 12rpx;
+}
+.qty {
+  font-size: 30rpx;
+  font-weight: 600;
+}
+.deposit {
+  margin-top: 28rpx;
+  padding-top: 24rpx;
+  border-top: 1rpx solid var(--line);
+}
+.pay-seg {
+  margin-top: 20rpx;
+}
+.code-input {
+  height: 104rpx;
+  font-size: 34rpx;
+  letter-spacing: 4rpx;
+}

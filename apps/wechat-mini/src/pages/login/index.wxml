@@ -1,60 +1,20 @@
-<view class="page login">
-  <view class="eyebrow">KUNLUN WATER</view
-  ><view class="login-mark">绿麒麟水站</view>
-  <view class="login-intro">日常的好水，<view></view>就在你身边。</view>
-  <view class="subtitle">鲜活每一滴，好水到你家</view>
-  <view class="hero"
-    ><view class="hero-copy"
-      ><text class="hero-tag">绿麒麟 · 会员服务</text
-      ><view class="hero-title">一站订水<view></view>安心到家</view></view
-    ><view class="hero-art"
-  /></view>
-  <view class="section">
-    <view class="test-strip"
-      >{{demo ? '本地测试 · 演示数据 · 模拟支付不扣款' : '测试环境 · 使用已开通的水站账号登录'}}</view
-    >
-    <view class="tabs-row"
-      ><button
-        class="chip {{type === 'MEMBER' ? 'selected' : ''}}"
-        data-type="MEMBER"
-        bindtap="choose"
-      >
-        会员账号</button
-      ><button
-        class="chip {{type === 'STAFF' ? 'selected' : ''}}"
-        data-type="STAFF"
-        bindtap="choose"
-      >
-        员工账号
-      </button></view
-    >
-    <block wx:if="{{!demo}}"
-      ><text class="form-label">账号</text
-      ><input
-        value="{{account}}"
-        data-field="account"
-        bindinput="input"
-        placeholder="请输入账号"
-        maxlength="32" /><text class="form-label">密码</text
-      ><input
-        password
-        value="{{password}}"
-        data-field="password"
-        bindinput="input"
-        placeholder="请输入密码"
-        maxlength="128"
-    /></block>
-    <view wx:if="{{error}}" class="error">{{error}}</view>
-    <button
-      class="primary"
-      loading="{{busy}}"
-      disabled="{{busy}}"
-      bindtap="login"
-    >
-      {{demo ? (type === 'MEMBER' ? '体验会员服务' : '体验员工工作台') : '登录'}}
-    </button>
-    <view class="footer-note"
-      >一个小程序，按登录身份进入相应服务。<view></view>{{demo ? '所有体验内容仅保存在本机，不连接正式业务。' : '会员账号由门店开通，员工权限由管理员分配。'}}</view
-    >
+<view class="login">
+  <view class="brand">
+    <image class="brand-logo" src="/assets/logo.svg" />
+    <view class="brand-name">{{brand.store}}</view>
+    <view class="muted">{{brand.product}}</view>
+  </view>
+  <view class="card login-card">
+    <view class="seg">
+      <view class="seg-item {{type === 'MEMBER' ? 'on' : ''}}" data-type="MEMBER" bindtap="choose">我是会员</view>
+      <view class="seg-item {{type === 'STAFF' ? 'on' : ''}}" data-type="STAFF" bindtap="choose">我是员工</view>
+    </view>
+    <block wx:if="{{!demo}}">
+      <input class="field" value="{{account}}" data-field="account" bindinput="input" placeholder="账号" placeholder-class="input-placeholder" maxlength="32" />
+      <input class="field" password value="{{password}}" data-field="password" bindinput="input" bindconfirm="login" placeholder="密码" placeholder-class="input-placeholder" maxlength="128" />
+    </block>
+    <view wx:if="{{error}}" class="alert login-alert">{{error}}</view>
+    <view class="btn login-btn {{busy ? 'off' : ''}}" hover-class="{{busy ? 'none' : 'press'}}" bindtap="login" aria-role="button">{{busy ? '请稍候…' : (demo ? '进入体验' : '登录')}}</view>
+    <view class="faint login-note">{{demo ? '本地演示 · 数据只保存在本机' : (type === 'MEMBER' ? '账号由门店开通' : '账号由管理员分配')}}</view>
   </view>
 </view>

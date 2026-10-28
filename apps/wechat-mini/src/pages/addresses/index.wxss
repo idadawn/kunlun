@@ -1,1 +1,28 @@
-/* Shared visual tokens and controls are defined in app.wxss. */
+.addr {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  box-shadow: inset 0 0 0 2rpx transparent;
+}
+.addr.picked {
+  box-shadow: inset 0 0 0 2rpx var(--brand);
+}
+.addr-main {
+  font-size: 30rpx;
+  font-weight: 600;
+  margin-bottom: 6rpx;
+}
+.addr-tag {
+  margin-left: 12rpx;
+  vertical-align: 4rpx;
+}
+.addr-edit {
+  flex-shrink: 0;
+  padding: 12rpx 0 12rpx 24rpx;
+  border-left: 1rpx solid var(--line);
+  color: var(--ink-2);
+  font-size: 26rpx;
+}
+.cell-input {
+  height: 104rpx;
+}

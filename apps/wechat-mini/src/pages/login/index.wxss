@@ -1,1 +1,37 @@
-/* Shared visual tokens and controls are defined in app.wxss. */
+page {
+  background: linear-gradient(180deg, #dff4f1 0%, var(--bg) 46%);
+}
+.login {
+  padding: 96rpx 40rpx 60rpx;
+}
+.brand {
+  text-align: center;
+  margin-bottom: 64rpx;
+}
+.brand-logo {
+  width: 144rpx;
+  height: 144rpx;
+}
+.brand-name {
+  font-size: 44rpx;
+  font-weight: 700;
+  margin: 24rpx 0 4rpx;
+}
+.login-card {
+  padding: 36rpx 32rpx;
+  border-radius: 32rpx;
+  box-shadow: 0 12rpx 40rpx rgba(31, 35, 41, 0.06);
+}
+.login-card .field {
+  margin-top: 24rpx;
+}
+.login-alert {
+  margin: 24rpx 0 0;
+}
+.login-btn {
+  margin-top: 36rpx;
+}
+.login-note {
+  text-align: center;
+  margin-top: 24rpx;
+}

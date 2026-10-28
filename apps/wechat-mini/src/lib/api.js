@@ -41,6 +41,8 @@ async function call(action, p) {
     case 'acceptOrder': return request('/api/orders/' + p.id + '/accept', 'POST');
     case 'cancelOrder': return request('/api/orders/' + p.id + '/cancel', 'POST', { cancelReason: '小程序取消预约' });
     case 'fulfillOrder': return request('/api/orders/' + p.id + '/fulfill', 'POST', p);
+    case 'deposits': return Promise.all([request('/api/members/' + p.memberId + '/deposit-summary'), request('/api/containers/summary')]);
+    case 'collectDeposit': return request('/api/deposits/collect', 'POST', p);
     case 'createPayment': return request('/api/mini-payments', 'POST', p);
     case 'payment': return request('/api/mini-payments/' + p.id);
     case 'payments': return request('/api/mini-payments');

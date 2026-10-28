@@ -1,23 +1,31 @@
 // Entirely local fixtures. This module is omitted from API builds.
 // No network calls and no real customer data or merchant credentials.
-const KEY = 'kunlun-mini-demo-v1';
+const KEY = 'kunlun-mini-demo-v2';
 const clone = value => JSON.parse(JSON.stringify(value));
 const bucket = 'BUCKET_18_9L';
 const bag = 'BAG_7_5L';
 const permission = action => 'kunlun.waterstation:' + action;
 function initial() {
   return {
+    // Mirrors the posted price list: bags have a retail price, buckets are sold through tickets only.
     products: [
-      { waterType: bucket, name: '绿麒麟桶装水', capacityLiters: 15, packaging: '循环水桶', deliveryMinimum: 1, deliveryFee: 0 },
-      { waterType: bag, name: '绿麒麟袋装水', capacityLiters: 5, packaging: '循环水袋', deliveryMinimum: 3, deliveryFee: 0 }
+      { waterType: bucket, name: '15L 桶装水', capacityLiters: 15, packaging: '桶装', retailPrice: null, deliveryMinimum: 1, deliveryFee: 0 },
+      { waterType: bag, name: '5L 袋装水', capacityLiters: 5, packaging: '食品级铝箔袋（10斤装）', retailPrice: 5, deliveryMinimum: 5, deliveryFee: 0 }
     ],
     plans: [
-      { id: 'bucket-delivery', name: '桶装配送 · 家庭包', waterType: bucket, fulfillMode: 'DELIVERY', price: 100, buyQty: 13, giftQty: 0, status: 'ACTIVE' },
-      { id: 'bucket-pickup', name: '桶装自提 · 实惠包', waterType: bucket, fulfillMode: 'PICKUP', price: 100, buyQty: 16, giftQty: 0, status: 'ACTIVE' },
-      { id: 'bag-delivery', name: '袋装配送 · 轻享包', waterType: bag, fulfillMode: 'DELIVERY', price: 100, buyQty: 40, giftQty: 0, status: 'ACTIVE' },
-      { id: 'bag-pickup', name: '袋装自提 · 轻享包', waterType: bag, fulfillMode: 'PICKUP', price: 100, buyQty: 50, giftQty: 0, status: 'ACTIVE' }
+      { id: 'bucket-delivery', name: '15L 桶装水 · 配送 100 元 / 13 桶', waterType: bucket, fulfillMode: 'DELIVERY', price: 100, buyQty: 13, giftQty: 0, status: 'ACTIVE' },
+      { id: 'bucket-delivery-499', name: '15L 桶装水 · 配送 499 元 / 70 桶', waterType: bucket, fulfillMode: 'DELIVERY', price: 499, buyQty: 70, giftQty: 0, status: 'ACTIVE' },
+      { id: 'bucket-pickup', name: '15L 桶装水 · 自提 100 元 / 16 桶', waterType: bucket, fulfillMode: 'PICKUP', price: 100, buyQty: 16, giftQty: 0, status: 'ACTIVE' },
+      { id: 'bucket-pickup-499', name: '15L 桶装水 · 自提 499 元 / 95 桶', waterType: bucket, fulfillMode: 'PICKUP', price: 499, buyQty: 95, giftQty: 0, status: 'ACTIVE' },
+      { id: 'bag-delivery', name: '5L 袋装水 · 配送 100 元 / 40 袋', waterType: bag, fulfillMode: 'DELIVERY', price: 100, buyQty: 40, giftQty: 0, status: 'ACTIVE' },
+      { id: 'bag-delivery-499', name: '5L 袋装水 · 配送 499 元 / 220 袋', waterType: bag, fulfillMode: 'DELIVERY', price: 499, buyQty: 220, giftQty: 0, status: 'ACTIVE' },
+      { id: 'bag-pickup', name: '5L 袋装水 · 自提 100 元 / 50 袋', waterType: bag, fulfillMode: 'PICKUP', price: 100, buyQty: 50, giftQty: 0, status: 'ACTIVE' },
+      { id: 'bag-pickup-499', name: '5L 袋装水 · 自提 499 元 / 300 袋', waterType: bag, fulfillMode: 'PICKUP', price: 499, buyQty: 300, giftQty: 0, status: 'ACTIVE' }
     ],
-    member: { id: 'demo-member', name: '体验会员', memberNo: 'TEST001', phone: '13800000000', bucketDeliveryTickets: 12, bucketPickupTickets: 8, bagDeliveryTickets: 20, bagPickupTickets: 10, heldBuckets: 1, heldBags: 0, depositAmount: 50 },
+    member: { id: 'demo-member', name: '体验会员', memberNo: 'TEST001', phone: '13800000000', bucketDeliveryTickets: 12, bucketPickupTickets: 8, bagDeliveryTickets: 0, bagPickupTickets: 0, heldBuckets: 1, heldBags: 0, depositAmount: 50 },
+    // Containers covered by paid deposit, and the current unit deposit.
+    deposits: { BUCKET: 1, BAG: 0 },
+    containers: [{ containerType: 'BUCKET', unitDeposit: 50 }, { containerType: 'BAG', unitDeposit: 5 }],
     addresses: [{ id: 'demo-address', memberId: 'demo-member', contactName: '体验会员', contactPhone: '13800000000', location: '演示花园 1 栋', doorNo: '101 室', fullAddress: '演示花园 1 栋 101 室', isDefault: true }],
     orders: [], payments: [], requests: {}, sequence: 1
   };
@@ -31,7 +39,24 @@ function staff(user) { if (user.subjectType !== 'STAFF') fail('需要员工权�
 function id(db, prefix) { return prefix + String(db.sequence++).padStart(6, '0'); }
 function login(subjectType) {
   if (!['MEMBER', 'STAFF'].includes(subjectType)) fail('身份无效');
-  return { subjectType, subjectId: subjectType === 'STAFF' ? 'demo-staff' : 'demo-member', displayName: subjectType === 'STAFF' ? '体验店员' : '体验会员', codeOrNo: subjectType === 'STAFF' ? 'TEST-YG01' : 'TEST001', role: subjectType === 'STAFF' ? 'CLERK' : 'MEMBER', permissions: subjectType === 'STAFF' ? ['order:create','order:accept','order:fulfill','member:read'].map(permission) : [], accessToken: 'local-demo-only' };
+  return { subjectType, subjectId: subjectType === 'STAFF' ? 'demo-staff' : 'demo-member', displayName: subjectType === 'STAFF' ? '体验店员' : '体验会员', codeOrNo: subjectType === 'STAFF' ? 'TEST-YG01' : 'TEST001', phone: subjectType === 'STAFF' ? '13900000000' : '13800000000', role: subjectType === 'STAFF' ? 'CLERK' : 'MEMBER', permissions: subjectType === 'STAFF' ? ['order:create','order:accept','order:fulfill','member:read','deposit:collect'].map(permission) : [], accessToken: 'local-demo-only' };
+}
+function planPayment(db, user, p) {
+  const plan = db.plans.find(x => x.id === p.planId && x.status === 'ACTIVE'); if (!plan) fail('套餐或请求标识无效');
+  return { id: id(db, 'PAYTEST'), memberId: user.subjectId, planId: plan.id, plan: clone(plan), amountFen: Math.round(plan.price * 100), status: 'NOTPAY', provider: 'MOCK', idempotencyKey: p.idempotencyKey };
+}
+// Buying beyond tickets: the shortfall is paid at retail price and credited as tickets of that mode,
+// which the order then uses, so cancellation and refunds follow the ticket rules.
+function retailPayment(db, user, p) {
+  if (!Array.isArray(p.retail) || !p.retail.length) fail('请选择水品');
+  const lines = p.retail.map(l => {
+    const product = db.products.find(x => x.waterType === l.waterType);
+    if (!product || !(product.retailPrice > 0)) fail('该水品暂未设置零售价');
+    if (!['DELIVERY','PICKUP'].includes(l.fulfillMode) || !Number.isInteger(l.qty) || l.qty < 1 || l.qty > 99) fail('购买数量无效');
+    return { waterType: l.waterType, fulfillMode: l.fulfillMode, qty: l.qty, price: product.retailPrice, name: product.name };
+  });
+  const amountFen = lines.reduce((sum, l) => sum + Math.round(l.price * 100) * l.qty, 0);
+  return { id: id(db, 'PAYTEST'), memberId: user.subjectId, kind: 'RETAIL', plan: { name: '零售 · ' + lines.map(l => l.name + ' ×' + l.qty).join('、'), lines }, amountFen, status: 'NOTPAY', provider: 'MOCK', idempotencyKey: p.idempotencyKey };
 }
 async function call(action, payload, user) {
   if (!user) fail('请先登录');
@@ -74,7 +99,7 @@ async function call(action, payload, user) {
       const addr = p.fulfillMode === 'DELIVERY' ? db.addresses.find(a => a.id === p.addressId) : null;
       if (p.fulfillMode === 'DELIVERY' && !addr) fail('请选择收货地址');
       const orderId = id(db, 'TEST');
-      result = { id: orderId, orderNo: orderId, memberId: p.memberId, waterType: p.waterType, fulfillMode: p.fulfillMode, orderQty: p.orderQty, reservedQty: p.orderQty, status: 'PENDING', pickupCode: p.fulfillMode === 'PICKUP' ? String(100000 + db.sequence) : null, addressSnapshot: addr ? { contactName: addr.contactName, contactPhone: addr.contactPhone, address: addr.fullAddress } : { contactName: db.member.name, contactPhone: db.member.phone, address: '门店自提' }, productSnapshot: { waterLabel: product.name }, remark: p.remark || '', createdAt: new Date().toISOString() };
+      result = { id: orderId, orderNo: orderId, memberId: p.memberId, waterType: p.waterType, fulfillMode: p.fulfillMode, orderQty: p.orderQty, reservedQty: p.orderQty, status: 'PENDING', pickupCode: p.fulfillMode === 'PICKUP' ? String(100000 + db.sequence) : null, addressSnapshot: addr ? { contactName: addr.contactName, contactPhone: addr.contactPhone, address: addr.fullAddress } : { contactName: db.member.name, contactPhone: db.member.phone, address: '门店自提' }, productSnapshot: { waterLabel: product.name }, appointmentSlot: p.appointmentSlot || null, remark: p.remark || '', createdAt: new Date().toISOString() };
       db.member[col] -= p.orderQty; db.orders.unshift(result);
       db.requests[p.idempotencyKey] = { input: JSON.stringify(p), result }; break;
     }
@@ -98,15 +123,30 @@ async function call(action, payload, user) {
       if (p.actualQty !== order.orderQty || p.fullOutN !== p.actualQty || !Number.isInteger(p.emptyInM) || p.emptyInM < 0) fail('本测试流程按订单数量交付，请核对换回数量');
       const held = order.waterType === bucket ? 'heldBuckets' : 'heldBags';
       const after = db.member[held] + p.fullOutN - p.emptyInM;
-      if (after < 0 || after > (order.waterType === bucket ? 1 : 0)) fail('回收数量或押金覆盖不足，请先由门店核实');
+      if (after < 0 || after > db.deposits[order.waterType === bucket ? 'BUCKET' : 'BAG']) fail('回收数量或押金覆盖不足，请先由门店核实');
       db.member[held] = after; order.reservedQty = 0; order.status = 'COMPLETED'; result = order; break;
+    }
+    case 'deposits': {
+      own(user, p.memberId);
+      return clone([[{ containerType: 'BUCKET', paidQty: db.deposits.BUCKET, heldQty: db.member.heldBuckets, pendingDamageQty: 0 }, { containerType: 'BAG', paidQty: db.deposits.BAG, heldQty: db.member.heldBags, pendingDamageQty: 0 }], db.containers]);
+    }
+    case 'collectDeposit': {
+      staff(user); if (!user.permissions.includes(permission('deposit:collect'))) fail('无押金收款权限');
+      if (!p.idempotencyKey) fail('缺少请求标识');
+      if (db.requests[p.idempotencyKey]) return clone(db.requests[p.idempotencyKey].result);
+      if (p.memberId !== db.member.id || !['BUCKET','BAG'].includes(p.containerType) || !Number.isInteger(p.quantity) || p.quantity < 1 || !['CASH','WECHAT','ALIPAY','BANK'].includes(p.payMethod)) fail('押金数量、容器或收款方式无效');
+      const unit = db.containers.find(c => c.containerType === p.containerType).unitDeposit;
+      db.deposits[p.containerType] += p.quantity; db.member.depositAmount += unit * p.quantity;
+      result = { depositNo: id(db, 'DEP'), totalAmount: unit * p.quantity };
+      db.requests[p.idempotencyKey] = { input: JSON.stringify(p), result }; break;
     }
     case 'createPayment': {
       if (user.subjectType !== 'MEMBER') fail('请使用会员身份买水票');
+      if (!p.idempotencyKey) fail('套餐或请求标识无效');
+      const intent = p.retail ? 'retail:' + JSON.stringify(p.retail) : 'plan:' + p.planId;
       const previous = db.payments.find(x => x.idempotencyKey === p.idempotencyKey);
-      if (previous) { if (previous.planId !== p.planId) fail('请求标识已用于其他套餐'); return clone(previous); }
-      const plan = db.plans.find(x => x.id === p.planId && x.status === 'ACTIVE'); if (!plan || !p.idempotencyKey) fail('套餐或请求标识无效');
-      result = { id: id(db, 'PAYTEST'), memberId: user.subjectId, planId: plan.id, plan: clone(plan), amountFen: Math.round(plan.price * 100), status: 'NOTPAY', provider: 'MOCK', idempotencyKey: p.idempotencyKey };
+      if (previous) { if (previous.intent !== intent) fail('请求标识已用于其他购买'); return clone(previous); }
+      result = Object.assign(p.retail ? retailPayment(db, user, p) : planPayment(db, user, p), { intent, createdAt: new Date().toISOString() });
       db.payments.unshift(result); break;
     }
     case 'payment': { const pay = db.payments.find(x => x.id === p.id); if (!pay) fail('支付单不存在'); own(user, pay.memberId); return clone(pay); }
@@ -117,7 +157,8 @@ async function call(action, payload, user) {
       if (!['SUCCESS','CANCEL','FAIL'].includes(p.outcome)) fail('测试结果无效');
       if (pay.status === 'SUCCESS') return clone(pay);
       if (p.outcome === 'SUCCESS') {
-        db.member[column(pay.plan.waterType, pay.plan.fulfillMode)] += pay.plan.buyQty + pay.plan.giftQty;
+        if (pay.kind === 'RETAIL') pay.plan.lines.forEach(l => { db.member[column(l.waterType, l.fulfillMode)] += l.qty; });
+        else db.member[column(pay.plan.waterType, pay.plan.fulfillMode)] += pay.plan.buyQty + pay.plan.giftQty;
         pay.status = 'SUCCESS';
       }
       result = pay; break;

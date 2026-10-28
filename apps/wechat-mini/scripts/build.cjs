@@ -13,7 +13,7 @@ if (mode === 'api') {
 }
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true }); fs.cpSync(path.join(root, 'src'), path.join(out, 'miniprogram'), { recursive: true });
-fs.writeFileSync(path.join(out, 'miniprogram/config.js'), 'module.exports = ' + JSON.stringify({ mode, apiBase: apiBase ? new URL(apiBase).origin : '', paymentMode: 'mock' }) + ';\n');
+fs.writeFileSync(path.join(out, 'miniprogram/config.js'), 'module.exports = ' + JSON.stringify({ mode, apiBase: apiBase ? new URL(apiBase).origin : '', paymentMode: 'mock', retail: true }) + ';\n');
 if (mode === 'api') {
   fs.rmSync(path.join(out, 'miniprogram/lib/demo.js'));
   const apiPath = path.join(out, 'miniprogram/lib/api.js');

@@ -1,0 +1,139 @@
+.dish {
+  display: flex;
+  gap: 24rpx;
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 24rpx;
+  margin-bottom: 20rpx;
+}
+.dish.dim .thumb,
+.dish.dim .dish-name {
+  opacity: 0.55;
+}
+.dish-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.dish-name {
+  font-size: 32rpx;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.dish-spec {
+  font-size: 23rpx;
+  color: var(--ink-3);
+  margin-top: 6rpx;
+}
+.dish-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  margin-top: 10rpx;
+  min-height: 36rpx;
+}
+.dish-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 14rpx;
+}
+.ticket-only {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--brand-text);
+}
+
+.cart {
+  position: fixed;
+  left: 24rpx;
+  right: 24rpx;
+  bottom: calc(24rpx + env(safe-area-inset-bottom));
+  z-index: 30;
+  height: 104rpx;
+  display: flex;
+  align-items: center;
+  border-radius: 999rpx;
+  background: #262a30;
+  box-shadow: 0 12rpx 32rpx rgba(31, 35, 41, 0.22);
+}
+/* The custom tab bar takes its own area; the page above it already ends at the tab bar. */
+.cart.on-tab {
+  bottom: 20rpx;
+}
+.cart-icon {
+  position: relative;
+  flex-shrink: 0;
+  width: 112rpx;
+  height: 112rpx;
+  margin: -28rpx 8rpx 0 16rpx;
+  border-radius: 50%;
+  background: #3a3f47;
+  border: 8rpx solid #262a30;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cart-icon.full {
+  background: var(--brand);
+}
+.cart-icon image {
+  width: 52rpx;
+  height: 52rpx;
+}
+.cart-count {
+  position: absolute;
+  top: -6rpx;
+  right: -8rpx;
+  min-width: 36rpx;
+  height: 36rpx;
+  padding: 0 8rpx;
+  border-radius: 18rpx;
+  background: var(--price);
+  color: #fff;
+  font-size: 22rpx;
+  line-height: 36rpx;
+  text-align: center;
+  box-sizing: border-box;
+}
+.cart-info {
+  flex: 1;
+  min-width: 0;
+}
+.cart-headline {
+  color: #fff;
+  font-size: 34rpx;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.cart-headline.empty {
+  color: #8f959e;
+  font-size: 28rpx;
+  font-weight: 500;
+}
+.cart-note {
+  color: #a8adb4;
+  font-size: 22rpx;
+  line-height: 1.3;
+}
+.cart-note.warn {
+  color: #ffb27a;
+}
+.cart-go {
+  flex-shrink: 0;
+  height: 104rpx;
+  line-height: 104rpx;
+  padding: 0 44rpx;
+  border-radius: 0 999rpx 999rpx 0;
+  background: var(--brand);
+  color: #fff;
+  font-size: 30rpx;
+  font-weight: 600;
+}
+.cart-go.off {
+  background: #3a3f47;
+  color: #8f959e;
+}

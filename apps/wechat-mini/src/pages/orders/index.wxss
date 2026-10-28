@@ -1,1 +1,49 @@
-/* Shared visual tokens and controls are defined in app.wxss. */
+.search {
+  margin-bottom: 20rpx;
+}
+.order .muted {
+  margin-top: 6rpx;
+}
+.order-body {
+  margin: 20rpx 0 12rpx;
+}
+.qty {
+  font-size: 30rpx;
+  font-weight: 600;
+}
+.order-who {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin-top: 8rpx;
+}
+.phone {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  color: var(--brand-text);
+  font-size: 26rpx;
+}
+.phone image {
+  width: 28rpx;
+  height: 28rpx;
+}
+.pickup {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20rpx;
+  padding: 20rpx 24rpx;
+  border-radius: 16rpx;
+  background: var(--brand-soft);
+}
+.pickup-code {
+  font-size: 44rpx;
+  font-weight: 700;
+  letter-spacing: 6rpx;
+  color: var(--brand-text);
+}
+.empty-go {
+  display: inline-flex;
+  margin-top: 28rpx;
+}

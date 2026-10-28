@@ -1,4 +1,9 @@
 {
-  "navigationBarTitleText": "绿麒麟",
-  "enablePullDownRefresh": true
+  "navigationBarTitleText": "绿麒麟水站",
+  "navigationBarBackgroundColor": "#DFF4F1",
+  "navigationBarTextStyle": "black",
+  "backgroundColor": "#DFF4F1",
+  "backgroundTextStyle": "dark",
+  "enablePullDownRefresh": true,
+  "usingComponents": { "water-menu": "/components/water-menu/index" }
 }
