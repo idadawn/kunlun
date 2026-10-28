@@ -77,6 +77,7 @@ public sealed class MiniPaymentTests(TestHost factory)
         created.EnsureSuccessStatusCode();
         var payment = (await created.Content.ReadFromJsonAsync<MiniPaymentView>())!;
         Assert.Equal(10000, payment.AmountFen); Assert.Equal(mid, payment.MemberId); Assert.Equal("NOTPAY", payment.Status);
+        Assert.Equal(("PLAN", planId), (payment.Kind, payment.PlanId));
         Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsJsonAsync("/api/mini-payments", new { planId, idempotencyKey = key })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await other.GetAsync($"/api/mini-payments/{payment.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await other.PostAsJsonAsync($"/api/mini-payments/{payment.Id}/simulate", new { outcome = "SUCCESS" })).StatusCode);
@@ -103,5 +104,76 @@ public sealed class MiniPaymentTests(TestHost factory)
         Assert.Equal(1, reader.GetInt64(0)); Assert.Equal(1, reader.GetInt64(1)); Assert.Equal(1, reader.GetInt64(2));
         using var disabled = factory.CreateClient(); await Login(disabled, "staff", "YG0001", TestHost.Password);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await disabled.GetAsync("/api/mini-payments")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Retail_Payment_Is_Priced_By_Server_And_Credits_Refundable_Tickets_Per_Line()
+    {
+        using var app = factory.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, cfg) => cfg.AddInMemoryCollection(new Dictionary<string, string?> { ["Kunlun:MiniPayments:Mode"] = "Mock" })));
+        using var admin = app.CreateClient(); using var member = app.CreateClient(); using var other = app.CreateClient();
+        await Login(admin, "staff", "YG0001", TestHost.Password);
+        var mid = await NewMember(admin, member); await NewMember(admin, other);
+        var bag = (await member.GetFromJsonAsync<JsonElement>("/api/products")).EnumerateArray().Single(p => p.GetProperty("waterType").GetString() == "BAG_7_5L");
+        var unit = bag.GetProperty("retailPrice").GetDecimal(); var label = bag.GetProperty("name").GetString()!;
+        var lines = new[] { new { waterType = "BAG_7_5L", fulfillMode = "DELIVERY", qty = 3 }, new { waterType = "BAG_7_5L", fulfillMode = "PICKUP", qty = 2 } };
+        object Retail(string water, string mode, params int[] qty) => new { retail = qty.Select(q => new { waterType = water, fulfillMode = mode, qty = q }), idempotencyKey = Guid.NewGuid().ToString("N") };
+        // Malformed or unpriced lines never create a payment; buckets are sold through tickets only.
+        foreach (var body in new object[] { new { idempotencyKey = "neither" }, new { planId = WaterProducts.PlanId("107"), retail = lines, idempotencyKey = "both" },
+            Retail("BAG_7_5L", "PICKUP"), Retail("BAG_7_5L", "PICKUP", 0), Retail("BAG_7_5L", "PICKUP", 100), Retail("BAG_7_5L", "EXPRESS", 1),
+            Retail("BAG_7_5L", "PICKUP", 1, 2), Retail("UNKNOWN", "PICKUP", 1), Retail("BUCKET_18_9L", "DELIVERY", 1) })
+            Assert.Equal(HttpStatusCode.BadRequest, (await member.PostAsJsonAsync("/api/mini-payments", body)).StatusCode);
+        Assert.Empty((await member.GetFromJsonAsync<MiniPaymentView[]>("/api/mini-payments"))!);
+        var key = Guid.NewGuid().ToString("N");
+        // Client-supplied prices, amount and member identity never affect a payment.
+        var created = await member.PostAsJsonAsync("/api/mini-payments", new { retail = lines.Select(l => new { l.waterType, l.fulfillMode, l.qty, price = 0.01m }), idempotencyKey = key, amountFen = 1, memberId = Guid.NewGuid() });
+        created.EnsureSuccessStatusCode();
+        var payment = (await created.Content.ReadFromJsonAsync<MiniPaymentView>())!;
+        Assert.Equal(("RETAIL", (int)(unit * 500), mid, "NOTPAY", (Guid?)null), (payment.Kind, payment.AmountFen, payment.MemberId, payment.Status, payment.PlanId));
+        Assert.Equal($"零售 · {label} ×3、{label} ×2", payment.Plan.Name);
+        Assert.Equal(new[] { unit * 3, unit * 2 }, payment.Plan.Lines!.Select(l => l.Amount));
+        Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsJsonAsync("/api/mini-payments", new { retail = lines, idempotencyKey = key })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await other.GetAsync($"/api/mini-payments/{payment.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await other.PostAsJsonAsync($"/api/mini-payments/{payment.Id}/simulate", new { outcome = "SUCCESS" })).StatusCode);
+        // The key stays bound to these lines.
+        var retry = await member.PostAsJsonAsync("/api/mini-payments", new { retail = lines, idempotencyKey = key });
+        Assert.Equal(payment.Id, (await retry.Content.ReadFromJsonAsync<MiniPaymentView>())!.Id);
+        foreach (var conflict in new object[] { new { retail = lines.Take(1), idempotencyKey = key }, new { planId = WaterProducts.PlanId("107"), idempotencyKey = key } })
+            Assert.Equal(HttpStatusCode.Conflict, (await member.PostAsJsonAsync("/api/mini-payments", conflict)).StatusCode);
+        foreach (var outcome in new[] { "CANCEL", "FAIL" })
+            (await member.PostAsJsonAsync($"/api/mini-payments/{payment.Id}/simulate", new { outcome })).EnsureSuccessStatusCode();
+        var profile = await member.GetFromJsonAsync<JsonElement>($"/api/members/{mid}/profile");
+        Assert.Equal((0, 0), (profile.GetProperty("bagDeliveryTickets").GetInt32(), profile.GetProperty("bagPickupTickets").GetInt32()));
+        // A pending payment keeps the retail price agreed at creation.
+        var revenue = (await admin.GetFromJsonAsync<JsonElement>("/api/reports/finance-summary")).GetProperty("rechargeRevenueTotal").GetDecimal();
+        var original = new SaveWaterProduct(label, bag.GetProperty("capacityLiters").GetDecimal(), bag.GetProperty("packaging").GetString()!, unit, bag.GetProperty("deliveryMinimum").GetInt32());
+        try
+        {
+            (await admin.PutAsJsonAsync("/api/products/BAG_7_5L", original with { RetailPrice = unit + 1 })).EnsureSuccessStatusCode();
+            var settlements = await Task.WhenAll(Enumerable.Range(0, 5).Select(_ => member.PostAsJsonAsync($"/api/mini-payments/{payment.Id}/simulate", new { outcome = "SUCCESS" })));
+            foreach (var response in settlements) { response.EnsureSuccessStatusCode(); Assert.Equal("SUCCESS", (await response.Content.ReadFromJsonAsync<MiniPaymentView>())!.Status); }
+        }
+        finally { await admin.PutAsJsonAsync("/api/products/BAG_7_5L", original); }
+        profile = await member.GetFromJsonAsync<JsonElement>($"/api/members/{mid}/profile");
+        Assert.Equal((3, 2), (profile.GetProperty("bagDeliveryTickets").GetInt32(), profile.GetProperty("bagPickupTickets").GetInt32()));
+        var late = await member.PostAsJsonAsync($"/api/mini-payments/{payment.Id}/simulate", new { outcome = "CANCEL" });
+        Assert.Equal("SUCCESS", (await late.Content.ReadFromJsonAsync<MiniPaymentView>())!.Status);
+        Assert.Equal(revenue + unit * 5, (await admin.GetFromJsonAsync<JsonElement>("/api/reports/finance-summary")).GetProperty("rechargeRevenueTotal").GetDecimal());
+        // Each line is its own planless recharge order and purchase batch, refundable at the price paid.
+        var batches = (await admin.GetFromJsonAsync<JsonElement>($"/api/members/{mid}/ticket-batches")).EnumerateArray().ToList();
+        var delivery = batches.Single(b => b.GetProperty("fulfillMode").GetString() == "DELIVERY");
+        var pickup = batches.Single(b => b.GetProperty("fulfillMode").GetString() == "PICKUP");
+        Assert.Equal(("PURCHASE", "零售 · " + label, unit * 3), (delivery.GetProperty("source").GetString(), delivery.GetProperty("name").GetString(), delivery.GetProperty("refundableAmount").GetDecimal()));
+        Assert.Equal(unit * 2, pickup.GetProperty("refundableAmount").GetDecimal());
+        // The order that needed the shortfall uses those tickets; refunds then follow the ticket rules.
+        (await member.PostAsJsonAsync("/api/orders", new CreateWaterOrderRequest(mid, "BAG_7_5L", "PICKUP", 2, Guid.NewGuid().ToString("N")))).EnsureSuccessStatusCode();
+        var refund = await admin.PostAsJsonAsync($"/api/ticket-batches/{delivery.GetProperty("id").GetGuid()}/refund", new RefundRechargeRequest(Guid.NewGuid().ToString("N"), "CASH", "零售补差退款验收"));
+        refund.EnsureSuccessStatusCode();
+        Assert.Equal(unit * 3, (await refund.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("refundAmount").GetDecimal());
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync($"/api/ticket-batches/{pickup.GetProperty("id").GetGuid()}/refund", new RefundRechargeRequest(Guid.NewGuid().ToString("N"), "CASH", "零售补差退款验收"))).StatusCode);
+        await using var conn = await app.Services.GetRequiredService<NpgsqlDataSource>().OpenConnectionAsync();
+        await using var cmd = new NpgsqlCommand("SELECT count(*),count(*) FILTER (WHERE plan_id IS NULL AND pay_method='MOCK'),sum(paid_amount),(SELECT count(*) FROM plugin_kunlun_waterstation.ticket_ledgers WHERE member_id=@mid AND change_type='RECHARGE_BUY') FROM plugin_kunlun_waterstation.recharge_orders WHERE member_id=@mid", conn);
+        cmd.Parameters.AddWithValue("mid", mid);
+        await using var reader = await cmd.ExecuteReaderAsync(); await reader.ReadAsync();
+        Assert.Equal((2L, 2L, unit * 5, 2L), (reader.GetInt64(0), reader.GetInt64(1), reader.GetDecimal(2), reader.GetInt64(3)));
     }
 }
