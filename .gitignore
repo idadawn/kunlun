@@ -15,6 +15,7 @@ dist/
 # OS
 .DS_Store
 .publish/
+project.private.config.json
 
 .env
 .env.*

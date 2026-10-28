@@ -1,0 +1,1 @@
+{"desc":"测试版及会员私有页面不参与索引","rules":[{"action":"disallow","page":"*"}]}

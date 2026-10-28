@@ -1,0 +1,66 @@
+<view class="page"
+  ><view class="eyebrow">ADDRESS BOOK</view
+  ><view class="title">送到你想去的地方</view
+  ><view wx:if="{{error}}" class="error">{{error}}</view>
+  <block wx:if="{{!editing}}"
+    ><view wx:for="{{addresses}}" wx:key="id" class="card"
+      ><view class="row"
+        ><view class="list-title">{{item.location}}</view
+        ><view wx:if="{{item.isDefault}}" class="badge">默认</view></view
+      ><view>{{item.doorNo}}</view
+      ><view class="row"
+        ><view class="detail">{{item.contactName}} · {{item.contactPhone}}</view
+        ><button class="text-link" bindtap="edit" data-id="{{item.id}}">
+          编辑 →
+        </button></view
+      ></view
+    ><view wx:if="{{!addresses.length}}" class="empty"
+      >添加一个地址，让好水送到家</view
+    ><button class="primary" bindtap="edit">添加收货地址</button></block
+  >
+  <view wx:else
+    ><text class="form-label">联系人</text
+    ><input
+      maxlength="64"
+      value="{{form.contactName}}"
+      data-field="contactName"
+      bindinput="input"
+      placeholder="收货人姓名"
+    /><text class="form-label">手机号</text
+    ><input
+      type="number"
+      maxlength="11"
+      value="{{form.contactPhone}}"
+      data-field="contactPhone"
+      bindinput="input"
+      placeholder="11 位手机号"
+    /><text class="form-label">小区 / 街道 / 楼栋</text
+    ><input
+      maxlength="180"
+      value="{{form.location}}"
+      data-field="location"
+      bindinput="input"
+      placeholder="例如：绿麒麟花园 1 栋"
+    /><text class="form-label">门牌号</text
+    ><input
+      maxlength="100"
+      value="{{form.doorNo}}"
+      data-field="doorNo"
+      bindinput="input"
+      placeholder="单元、楼层和房号"
+    /><view class="row section"
+      ><text>设为默认地址</text
+      ><switch
+        checked="{{form.isDefault}}"
+        color="#174E3C"
+        bindchange="isDefault" /></view
+    ><button
+      class="primary"
+      disabled="{{busy}}"
+      loading="{{busy}}"
+      bindtap="save"
+    >
+      保存地址</button
+    ><button class="text-link" bindtap="close">取消</button></view
+  >
+</view>

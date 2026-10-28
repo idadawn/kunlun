@@ -1,0 +1,87 @@
+<view class="page"
+  ><view class="eyebrow">WATER TO YOUR DOOR</view
+  ><view class="title">选一份好水</view
+  ><view class="subtitle">{{memberName}} · 用水票轻松订水</view>
+  <view class="tabs-row"
+    ><button
+      class="chip {{mode === 'DELIVERY' ? 'selected' : ''}}"
+      bindtap="mode"
+      data-mode="DELIVERY"
+    >
+      送水上门</button
+    ><button
+      class="chip {{mode === 'PICKUP' ? 'selected' : ''}}"
+      bindtap="mode"
+      data-mode="PICKUP"
+    >
+      到店自提
+    </button></view
+  >
+  <view
+    wx:for="{{products}}"
+    wx:key="waterType"
+    class="card product"
+    data-water="{{item.waterType}}"
+    bindtap="select"
+    ><view class="product-art {{item.waterType === 'BAG_7_5L' ? 'bag' : ''}}"
+      >{{item.capacityLiters}}L</view
+    ><view class="grow"
+      ><view class="product-name">{{item.name}}</view
+      ><view class="detail"
+        >{{item.packaging}} · 配送 {{item.deliveryMinimum}} 份起</view
+      ><text class="badge"
+        >{{selected.waterType === item.waterType ? '已选择' : '点击选择'}}</text
+      ></view
+    ></view
+  >
+  <view class="card"
+    ><view class="row"
+      ><view
+        ><view class="list-title">订水数量</view
+        ><view class="detail"
+          >当前可用 {{available || 0}} 张对应水票</view
+        ></view
+      ><view class="stepper"
+        ><button data-delta="-1" bindtap="quantity">−</button
+        ><text>{{quantity}}</text
+        ><button data-delta="1" bindtap="quantity">+</button></view
+      ></view
+    ></view
+  >
+  <view wx:if="{{mode === 'DELIVERY'}}" class="card"
+    ><view class="row"
+      ><view class="list-title">送到哪里</view
+      ><button class="text-link" bindtap="addresses">管理地址 →</button></view
+    ><picker
+      wx:if="{{addresses.length}}"
+      range="{{addresses}}"
+      range-key="fullAddress"
+      value="{{addressIndex}}"
+      bindchange="address"
+      ><view class="select"
+        >{{addresses[addressIndex].fullAddress}}<view class="detail"
+          >{{addresses[addressIndex].contactName}} ·
+          {{addresses[addressIndex].contactPhone}}</view
+        ></view
+      ></picker
+    ><view wx:else class="detail">请先添加收货地址</view></view
+  >
+  <text class="form-label">订水备注（选填）</text
+  ><textarea
+    maxlength="300"
+    value="{{remark}}"
+    bindinput="remark"
+    placeholder="例如：空桶已放在门口"
+  />
+  <view wx:if="{{error}}" class="error">{{error}}</view
+  ><button
+    class="primary"
+    loading="{{busy}}"
+    disabled="{{busy || !selected.waterType}}"
+    bindtap="submit"
+  >
+    使用 {{quantity}} 张水票 · 确认订水</button
+  ><view class="footer-note"
+    >下单后预占水票，取消待处理水单将退回水票。袋桶押金由门店按实际交付核对。</view
+  >
+</view>

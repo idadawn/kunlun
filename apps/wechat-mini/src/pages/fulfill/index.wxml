@@ -1,0 +1,38 @@
+<view class="page"
+  ><view class="eyebrow">DELIVERY CONFIRMATION</view
+  ><view class="title">确认交付，再出发</view
+  ><view wx:if="{{order}}" class="card"
+    ><view class="order-no">{{order.orderNo}}</view
+    ><view class="product-name">{{order.label}} × {{order.orderQty}}</view
+    ><view class="detail"
+      >{{order.addressSnapshot.contactName}} ·
+      {{order.addressSnapshot.address}}</view
+    ></view
+  ><view class="footer-note"
+    >请按实际情况登记。本页按预约数量交付，差额交付请在现有员工端办理。</view
+  ><text class="form-label">收回空桶 / 空袋数量</text
+  ><input
+    type="number"
+    value="{{emptyInM}}"
+    data-field="emptyInM"
+    bindinput="input"
+    maxlength="4"
+  /><block wx:if="{{order.fulfillMode === 'PICKUP'}}"
+    ><text class="form-label">会员出示的自提码</text
+    ><input
+      type="number"
+      value="{{pickupCode}}"
+      data-field="pickupCode"
+      bindinput="input"
+      maxlength="12"
+      placeholder="请输入会员自提码" /></block
+  ><view wx:if="{{error}}" class="error">{{error}}</view
+  ><button
+    class="primary"
+    bindtap="submit"
+    disabled="{{busy || !order}}"
+    loading="{{busy}}"
+  >
+    确认交付 {{order.orderQty}} 份
+  </button></view
+>

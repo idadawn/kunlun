@@ -79,6 +79,7 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+var miniTestPayments = MiniPayments.IsEnabled(app.Configuration, app.Environment, connStr);
 app.Use(async (context, next) =>
 {
     try { await next(); }
@@ -108,6 +109,7 @@ using (var scope = app.Services.CreateScope())
     await MemberAddresses.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>(), repo.DefaultTenantId);
     await BusinessNumbers.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>());
     await RefundRequests.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>());
+    if (miniTestPayments) await MiniPayments.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>());
 }
 
 app.MapGet("/healthz", async (NpgsqlDataSource ds) =>
@@ -243,6 +245,7 @@ app.MapWaterProducts();
 app.MapOrderEndpoints();
 app.MapReportEndpoints();
 app.MapOverviewEndpoints();
+app.MapMiniPayments(miniTestPayments);
 app.Run();
 
 public partial class Program;
