@@ -1,0 +1,13 @@
+{
+  "pages": ["pages/login/index", "pages/home/index", "pages/orders/index", "pages/wallet/index", "pages/profile/index", "pages/shop/index", "pages/addresses/index", "pages/members/index", "pages/fulfill/index"],
+  "window": { "navigationBarTitleText": "绿麒麟", "navigationBarBackgroundColor": "#F7F8F2", "navigationBarTextStyle": "black", "backgroundColor": "#F7F8F2", "enablePullDownRefresh": true },
+  "tabBar": { "custom": true, "color": "#738178", "selectedColor": "#174E3C", "list": [
+    { "pagePath": "pages/home/index", "text": "首页" },
+    { "pagePath": "pages/orders/index", "text": "水单" },
+    { "pagePath": "pages/wallet/index", "text": "水票" },
+    { "pagePath": "pages/profile/index", "text": "我的" }
+  ] },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

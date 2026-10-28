@@ -1,0 +1,13 @@
+<view class="tabs"
+  ><button
+    wx:for="{{tabs}}"
+    wx:key="page"
+    class="tab {{selected === 'pages/' + item.page + '/index' ? 'active' : ''}}"
+    data-page="{{item.page}}"
+    bindtap="go"
+  >
+    {{item.text}}<view
+      class="dot"
+      wx:if="{{selected === 'pages/' + item.page + '/index'}}"
+    /></button
+></view>

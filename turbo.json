@@ -2,6 +2,7 @@
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
     "build": {
+      "env": ["KUNLUN_MINI_MODE", "KUNLUN_MINI_APPID", "KUNLUN_MINI_API_BASE"],
       "dependsOn": [
         "^build"
       ],

@@ -35,5 +35,6 @@ jobs:
       - run: pnpm check:pages
       - run: pnpm test:poster
       - run: pnpm test:web
+      - run: pnpm --filter @kunlun/wechat-mini test
       - run: pnpm typecheck
       - run: dotnet test Kunlun.slnx --configuration Release

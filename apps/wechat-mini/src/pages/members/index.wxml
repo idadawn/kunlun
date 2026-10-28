@@ -1,0 +1,41 @@
+<view class="page"
+  ><view class="eyebrow">MEMBER SERVICE</view
+  ><view class="title">熟悉的邻里，贴心的服务</view
+  ><view class="row section"
+    ><input
+      value="{{query}}"
+      bindinput="input"
+      bindconfirm="search"
+      placeholder="搜索姓名、卡号或手机号"
+    /><button class="primary small-btn" bindtap="search">查询</button></view
+  ><view wx:if="{{error}}" class="error">{{error}}</view
+  ><view wx:for="{{members}}" wx:key="id" class="card"
+    ><view class="row"
+      ><view
+        ><view class="product-name">{{item.name}}</view
+        ><view class="detail">{{item.memberNo}} · {{item.phone}}</view></view
+      ><button
+        wx:if="{{canOrder}}"
+        class="secondary-btn small-btn"
+        data-id="{{item.id}}"
+        bindtap="order"
+      >
+        代客订水
+      </button></view
+    ><view class="divider" /><view class="detail"
+      >桶装配送 {{item.bucketDeliveryTickets}} 张 · 桶装自提
+      {{item.bucketPickupTickets}} 张</view
+    ><view class="detail"
+      >袋装配送 {{item.bagDeliveryTickets}} 张 · 袋装自提
+      {{item.bagPickupTickets}} 张</view
+    ></view
+  ><view wx:if="{{!members.length && !busy}}" class="empty"
+    >未找到符合条件的会员</view
+  ><button
+    wx:if="{{members.length < total}}"
+    class="secondary-btn"
+    bindtap="more"
+  >
+    加载更多
+  </button></view
+>

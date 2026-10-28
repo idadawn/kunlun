@@ -1,0 +1,99 @@
+<view class="page">
+  <view class="test-strip"
+    >{{demo ? '本地测试 · 演示数据 · 不会真实扣款' : '小程序测试版'}}</view
+  >
+  <view class="row"
+    ><view
+      ><view class="eyebrow">{{staff ? 'WORKSPACE' : 'KUNLUN WATER'}}</view
+      ><view class="title"
+        >{{staff ? '把好水送到家' : '今天，也喝好水。'}}</view
+      ></view
+    ><view class="badge">{{staff ? '员工工作台' : '绿麒麟会员'}}</view></view
+  >
+  <view class="subtitle"
+    >{{user.displayName}}，{{staff ? '今天的工作，从这里开始。' : '欢迎回来。'}}</view
+  >
+  <view wx:if="{{error}}" class="error"
+    >{{error}}<button class="text-link" bindtap="load">重新加载</button></view
+  >
+  <block wx:if="{{!staff}}">
+    <view class="hero"
+      ><view class="hero-copy"
+        ><text class="hero-tag">好水 · 日常相伴</text
+        ><view class="hero-title">一键订水<view></view>新鲜送到家</view
+        ><view class="muted">桶装 15L / 袋装 5L</view></view
+      ><view class="hero-art"
+    /></view>
+    <view class="quick"
+      ><button class="quick-item" data-mode="DELIVERY" bindtap="shop">
+        送水上门 →<text class="quick-small">选择好水，预约配送</text></button
+      ><button class="quick-item secondary" data-mode="PICKUP" bindtap="shop">
+        到店自提 →<text class="quick-small">提前下单，到店取水</text>
+      </button></view
+    >
+    <view class="card"
+      ><view class="row"
+        ><view class="section-title">我的水票</view
+        ><button class="text-link" bindtap="wallet">去买水票 →</button></view
+      ><view class="metrics"
+        ><view
+          ><view class="metric numbered"
+            >{{totalTickets}}<text class="unit"> 张</text></view
+          ><view class="metric-label">可用水票</view></view
+        ><view
+          ><view class="metric numbered"
+            >{{profile.heldBuckets || 0}}<text class="unit"> 个</text></view
+          ><view class="metric-label">持有水桶</view></view
+        ><view
+          ><view class="metric numbered"
+            >{{profile.heldBags || 0}}<text class="unit"> 个</text></view
+          ><view class="metric-label">持有水袋</view></view
+        ></view
+      ></view
+    >
+  </block>
+  <block wx:else>
+    <view class="hero"
+      ><view class="eyebrow">SERVICE OVERVIEW</view
+      ><view class="hero-title">每一单，<view></view>都认真送达。</view
+      ><view class="metrics"
+        ><view
+          ><view class="metric">{{pending}}</view
+          ><view class="muted">待处理</view></view
+        ><view
+          ><view class="metric">{{dispatched}}</view
+          ><view class="muted">配送中</view></view
+        ><view
+          ><view class="metric">{{orderTotal || 0}}</view
+          ><view class="muted">全部水单</view></view
+        ></view
+      ></view
+    >
+    <view class="quick"
+      ><button class="quick-item" bindtap="orders">
+        处理水单 →<text class="quick-small">接单、配送、自提核销</text></button
+      ><button
+        wx:if="{{canMembers}}"
+        class="quick-item secondary"
+        bindtap="members"
+      >
+        会员服务 →<text class="quick-small">查找会员与代客订水</text>
+      </button></view
+    >
+  </block>
+  <view class="section"
+    ><view class="section-head"
+      ><view class="section-title">{{staff ? '最近水单' : '近期用水'}}</view
+      ><button class="text-link" bindtap="orders">查看全部 →</button></view
+    >
+    <view wx:for="{{orders}}" wx:key="id" class="card"
+      ><view class="row"
+        ><view class="list-title">{{item.label}} × {{item.orderQty}}</view
+        ><text class="badge">{{item.statusText}}</text></view
+      ><view class="detail">{{item.modeText}} · {{item.timeText}}</view></view
+    >
+    <view wx:if="{{!orders.length && !busy}}" class="empty"
+      >{{staff ? '暂时没有水单' : '还没有水单，开始你的第一次订水吧'}}</view
+    >
+  </view>
+</view>

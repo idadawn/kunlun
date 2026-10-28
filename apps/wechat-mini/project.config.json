@@ -1,0 +1,10 @@
+{
+  "appid": "touristappid",
+  "projectname": "kunlun-wechat-test",
+  "description": "绿麒麟水站 · 会员与员工一体小程序测试版",
+  "compileType": "miniprogram",
+  "libVersion": "2.30.4",
+  "miniprogramRoot": "src/",
+  "setting": { "es6": true, "minified": true, "postcss": true, "urlCheck": true },
+  "condition": {}
+}

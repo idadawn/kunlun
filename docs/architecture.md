@@ -104,7 +104,7 @@ kunlun/
 
 默认套餐是自提 100/16、500/95，配送 100/13、500/70；`buy_qty` 表示全部固定付费票。历史 `gift_qty` 字段保留兼容原单，新方案设置为零，额外赠水由券生成。`recharge_orders.plan_snapshot`、`coupon_snapshot` 保存交易条件，改价不改变退款计价。退款按批次一次退清，最终金额舍入到分，无重复分次舍入损失。
 
-管理端为 `apps/admin-pc` React 应用；员工端与会员端为 `apps/mini-app` React H5 应用，按路径加载对应端的代码与样式。`@kunlun/shared` 的 `KunlunApi` 是唯一 API 入口，`@kunlun/ui` 提供登录门禁、弹窗栈以及充值、发券、退款、履约、押金和领还等员工业务弹窗，管理端和员工端共用；点单组件见 5.2。当前交付为浏览器 H5 页面，并非已打包发布的原生微信小程序。
+管理端为 `apps/admin-pc` React 应用；员工端与会员端为 `apps/mini-app` React H5 应用，按路径加载对应端的代码与样式。浏览器端使用 `@kunlun/shared` 的 `KunlunApi` 作为 API 入口，`@kunlun/ui` 提供登录门禁、弹窗栈以及充值、发券、退款、履约、押金和领还等员工业务弹窗，管理端和员工端共用；点单组件见 5.2。浏览器入口继续保留；新增 `apps/wechat-mini` 原生测试包，使用 `wx.request` 适配已有业务接口，按后端身份与权限渲染。同一小程序覆盖会员与员工测试流程，见 [小程序测试说明](wechat-mini.md)。它尚未发布，也未启用真实微信收款。
 
 接口：`POST/PUT /api/plans`，`POST /api/recharges`（可选 `couponId`），`GET /api/members/{id}/ticket-batches`，`POST /api/ticket-batches/{id}/refund`，`GET/POST/PUT /api/coupon-templates`，`POST /api/coupon-templates/{id}/issue`，`GET /api/members/{id}/coupons`。退款需 `recharge:refund` 权限，仅默认授予管理员；会员查询强制本人范围。充值汇总分别返回累计收款、累计退款及水费净收。
 
@@ -161,3 +161,8 @@ kunlun/
 
 报废扣押可选免扣：`POST /api/containers/damages/{id}/scrap` 的 `deductDeposit=false` 时只释放押金批次的 `reserved_damage_qty`，不减少批次剩余、不扣会员押金；`container_damages.deposit_waived` 标记，周转流水业务类型为 `SCRAP_WAIVED`、扣押金额 0。财务汇总、押金流水和导出中的扣押统计排除免扣记录，剩余押金 = 累计收押 − 累计退押 − 累计报废扣押 仍成立。
 
+
+
+## 原生小程序测试支付（2026-10-29）
+
+`MiniPayments` 在显式 Mock 模式、Development/Testing 环境及名称包含 test 的隔离数据库中启用。Disabled 是默认值，不创建测试表。会员创建待支付单，服务端确定整数分金额和不可变套餐快照；模拟成功在同一事务内锁会员、锁支付单并写支付状态、充值单、水票批次、票据流水及可用余额。`pay_method=MOCK` 区别于线下微信记账。APIv3 直连/公钥验签为已确认的后续真实支付方案，当前服务端不支持 Wechat 模式。详见 [小程序测试说明](wechat-mini.md)。
