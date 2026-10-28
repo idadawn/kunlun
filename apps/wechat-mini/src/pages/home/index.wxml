@@ -1,99 +1,94 @@
-<view class="page">
-  <view class="test-strip"
-    >{{demo ? '本地测试 · 演示数据 · 不会真实扣款' : '小程序测试版'}}</view
-  >
-  <view class="row"
-    ><view
-      ><view class="eyebrow">{{staff ? 'WORKSPACE' : 'KUNLUN WATER'}}</view
-      ><view class="title"
-        >{{staff ? '把好水送到家' : '今天，也喝好水。'}}</view
-      ></view
-    ><view class="badge">{{staff ? '员工工作台' : '绿麒麟会员'}}</view></view
-  >
-  <view class="subtitle"
-    >{{user.displayName}}，{{staff ? '今天的工作，从这里开始。' : '欢迎回来。'}}</view
-  >
-  <view wx:if="{{error}}" class="error"
-    >{{error}}<button class="text-link" bindtap="load">重新加载</button></view
-  >
+<view class="hero" />
+<view class="page home {{staff ? '' : 'with-bar'}}">
   <block wx:if="{{!staff}}">
-    <view class="hero"
-      ><view class="hero-copy"
-        ><text class="hero-tag">好水 · 日常相伴</text
-        ><view class="hero-title">一键订水<view></view>新鲜送到家</view
-        ><view class="muted">桶装 15L / 袋装 5L</view></view
-      ><view class="hero-art"
-    /></view>
-    <view class="quick"
-      ><button class="quick-item" data-mode="DELIVERY" bindtap="shop">
-        送水上门 →<text class="quick-small">选择好水，预约配送</text></button
-      ><button class="quick-item secondary" data-mode="PICKUP" bindtap="shop">
-        到店自提 →<text class="quick-small">提前下单，到店取水</text>
-      </button></view
-    >
-    <view class="card"
-      ><view class="row"
-        ><view class="section-title">我的水票</view
-        ><button class="text-link" bindtap="wallet">去买水票 →</button></view
-      ><view class="metrics"
-        ><view
-          ><view class="metric numbered"
-            >{{totalTickets}}<text class="unit"> 张</text></view
-          ><view class="metric-label">可用水票</view></view
-        ><view
-          ><view class="metric numbered"
-            >{{profile.heldBuckets || 0}}<text class="unit"> 个</text></view
-          ><view class="metric-label">持有水桶</view></view
-        ><view
-          ><view class="metric numbered"
-            >{{profile.heldBags || 0}}<text class="unit"> 个</text></view
-          ><view class="metric-label">持有水袋</view></view
-        ></view
-      ></view
-    >
+    <view class="store">
+      <view class="row">
+        <image class="logo" src="/assets/logo.svg" />
+        <view class="grow">
+          <view class="store-name">{{brand.store}}</view>
+          <view class="faint">{{brand.product}}</view>
+        </view>
+        <text wx:if="{{freeDelivery && mode === 'DELIVERY'}}" class="tag">免配送费</text>
+      </view>
+      <view class="seg store-seg">
+        <view class="seg-item {{mode === 'DELIVERY' ? 'on' : ''}}" data-mode="DELIVERY" bindtap="setMode">送水上门</view>
+        <view class="seg-item {{mode === 'PICKUP' ? 'on' : ''}}" data-mode="PICKUP" bindtap="setMode">到店自提</view>
+      </view>
+      <view wx:if="{{mode === 'DELIVERY'}}" class="where" hover-class="press" bindtap="chooseAddress">
+        <image src="/assets/icons/location.svg" />
+        <view class="grow">
+          <view class="where-main ellipsis">{{address ? address.fullAddress : '添加收货地址'}}</view>
+          <view wx:if="{{address}}" class="faint">{{address.contactName}} {{address.phoneText}}</view>
+        </view>
+        <view class="chev" />
+      </view>
+      <view wx:else class="where">
+        <image src="/assets/icons/store.svg" />
+        <view class="grow">
+          <view class="where-main">{{brand.store}}</view>
+          <view class="faint">营业时间 {{brand.hours}} · 凭取水码领取</view>
+        </view>
+      </view>
+    </view>
+    <view wx:if="{{ongoing}}" class="ongoing" hover-class="press" bindtap="openOrders">
+      <text class="status {{ongoing.status}}">{{ongoing.statusText}}</text>
+      <text class="grow ellipsis">{{ongoing.label}} × {{ongoing.orderQty}}{{ongoing.pickupCode && ongoing.status === 'PENDING' ? '　取水码 ' + ongoing.pickupCode : ''}}</text>
+      <view class="chev" />
+    </view>
+    <view wx:if="{{error}}" class="alert" bindtap="load">{{error}}，点此重试</view>
+    <water-menu items="{{items}}" bar="{{bar}}" tabbar bind:step="onStep" bind:checkout="onCheckout" bind:tickets="onTickets" />
+    <view wx:if="{{items.length}}" class="promo" hover-class="press" bindtap="onTickets">
+      <text class="grow">办水票，每次订水更省</text>
+      <text class="faint">去看看</text>
+      <view class="chev" />
+    </view>
   </block>
+
   <block wx:else>
-    <view class="hero"
-      ><view class="eyebrow">SERVICE OVERVIEW</view
-      ><view class="hero-title">每一单，<view></view>都认真送达。</view
-      ><view class="metrics"
-        ><view
-          ><view class="metric">{{pending}}</view
-          ><view class="muted">待处理</view></view
-        ><view
-          ><view class="metric">{{dispatched}}</view
-          ><view class="muted">配送中</view></view
-        ><view
-          ><view class="metric">{{orderTotal || 0}}</view
-          ><view class="muted">全部水单</view></view
-        ></view
-      ></view
-    >
-    <view class="quick"
-      ><button class="quick-item" bindtap="orders">
-        处理水单 →<text class="quick-small">接单、配送、自提核销</text></button
-      ><button
-        wx:if="{{canMembers}}"
-        class="quick-item secondary"
-        bindtap="members"
-      >
-        会员服务 →<text class="quick-small">查找会员与代客订水</text>
-      </button></view
-    >
+    <view class="store">
+      <view class="row">
+        <view class="avatar">{{initial}}</view>
+        <view class="grow">
+          <view class="store-name">{{user.displayName}}</view>
+          <view class="faint">{{roleText}} · {{user.codeOrNo}}</view>
+        </view>
+      </view>
+      <view class="stats">
+        <view class="stat" hover-class="press" data-status="PENDING" bindtap="openOrders">
+          <view class="stat-num num warn">{{stats.pending || 0}}</view>
+          <view class="faint">待处理</view>
+        </view>
+        <view class="stat" hover-class="press" data-status="DISPATCHED" bindtap="openOrders">
+          <view class="stat-num num">{{stats.dispatched || 0}}</view>
+          <view class="faint">配送中</view>
+        </view>
+        <view class="stat" hover-class="press" data-status="" bindtap="openOrders">
+          <view class="stat-num num">{{stats.total || 0}}</view>
+          <view class="faint">全部水单</view>
+        </view>
+      </view>
+    </view>
+    <view wx:if="{{error}}" class="alert" bindtap="load">{{error}}，点此重试</view>
+    <view class="tiles">
+      <view class="tile" hover-class="press" data-status="PENDING" bindtap="openOrders">
+        <image src="/assets/tab/order-on.svg" /><text>处理水单</text>
+      </view>
+      <view wx:if="{{canFulfill}}" class="tile" hover-class="press" bindtap="verify">
+        <image src="/assets/tab/ticket-on.svg" /><text>核销取水码</text>
+      </view>
+      <view wx:if="{{canMembers}}" class="tile" hover-class="press" bindtap="openMembers">
+        <image src="/assets/tab/team-on.svg" /><text>代客下单</text>
+      </view>
+    </view>
+    <view class="section-title">最近水单</view>
+    <view wx:for="{{recent}}" wx:key="id" class="card recent" hover-class="press" data-status="{{item.status}}" bindtap="openOrders">
+      <view class="thumb sm"><image src="{{item.image}}" mode="aspectFit" /></view>
+      <view class="grow">
+        <view class="strong">{{item.label}} × {{item.orderQty}}</view>
+        <view class="faint ellipsis">{{item.modeText}} · {{item.addressSnapshot.contactName}} · {{item.shortTime}}</view>
+      </view>
+      <text class="status {{item.status}}">{{item.statusText}}</text>
+    </view>
+    <view wx:if="{{!recent.length && !busy}}" class="empty">暂时没有水单</view>
   </block>
-  <view class="section"
-    ><view class="section-head"
-      ><view class="section-title">{{staff ? '最近水单' : '近期用水'}}</view
-      ><button class="text-link" bindtap="orders">查看全部 →</button></view
-    >
-    <view wx:for="{{orders}}" wx:key="id" class="card"
-      ><view class="row"
-        ><view class="list-title">{{item.label}} × {{item.orderQty}}</view
-        ><text class="badge">{{item.statusText}}</text></view
-      ><view class="detail">{{item.modeText}} · {{item.timeText}}</view></view
-    >
-    <view wx:if="{{!orders.length && !busy}}" class="empty"
-      >{{staff ? '暂时没有水单' : '还没有水单，开始你的第一次订水吧'}}</view
-    >
-  </view>
 </view>

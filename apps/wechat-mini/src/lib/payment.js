@@ -2,10 +2,11 @@ const api = require('./api');
 async function pay(order) {
   if (order.status === 'SUCCESS') return order;
   if (order.provider === 'MOCK') {
-    const result = await new Promise((resolve, reject) => wx.showActionSheet({ itemList: ['模拟支付成功（不会扣款）', '模拟用户取消', '模拟支付失败'], success: resolve, fail: () => reject(new Error('已取消支付，水票未增加')) }));
+    const amount = '¥' + (order.amountFen / 100).toFixed(2);
+    const result = await new Promise((resolve, reject) => wx.showActionSheet({ itemList: ['模拟支付 ' + amount + '（测试，不扣款）', '模拟用户取消', '模拟支付失败'], success: resolve, fail: () => reject(new Error('已取消支付')) }));
     const outcome = ['SUCCESS','CANCEL','FAIL'][result.tapIndex];
     await api.call('mockPay', { id: order.id, outcome });
-    if (outcome !== 'SUCCESS') throw new Error(outcome === 'CANCEL' ? '已取消支付，水票未增加' : '模拟支付失败，可在待支付记录重试');
+    if (outcome !== 'SUCCESS') throw new Error(outcome === 'CANCEL' ? '已取消支付' : '支付失败，请重试');
   } else {
     // Official wx.requestPayment contract. The server alone signs these values.
     const p = order.paymentParameters;

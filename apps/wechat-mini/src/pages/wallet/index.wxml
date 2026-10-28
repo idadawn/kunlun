@@ -1,141 +1,52 @@
 <view class="page">
-  <view class="eyebrow">{{staff ? 'SERVICE DESK' : 'WATER WALLET'}}</view
-  ><view class="title">{{staff ? '门店业务' : '好水常备，生活从容'}}</view>
-  <block wx:if="{{staff}}"
-    ><view class="subtitle">按你的账号权限办理日常服务</view
-    ><button
-      wx:if="{{canMembers}}"
-      class="quick-item section"
-      bindtap="members"
-    >
-      会员查询与代客订水 →<text class="quick-small"
-        >水票余额、收货地址，一处查看</text
-      ></button
-    ><button class="quick-item secondary section" bindtap="orders">
-      配送与自提核销 →<text class="quick-small"
-        >按实际交付数量登记换桶</text
-      ></button
-    ><view class="footer-note"
-      >退款审核、押金收退与库存管理继续通过现有管理端办理。</view
-    ></block
-  >
-  <block wx:else>
-    <view class="card"
-      ><view class="section-title">可用水票</view
-      ><view class="metrics"
-        ><view wx:for="{{tickets}}" wx:key="label"
-          ><view class="metric">{{item.qty}}</view
-          ><view class="metric-label">{{item.label}}</view></view
-        ></view
-      ></view
-    >
-    <view class="section"
-      ><view class="section-title">选一份适合你的水票</view
-      ><view class="tabs-row"
-        ><button
-          class="chip {{!water ? 'selected' : ''}}"
-          data-field="water"
-          data-value=""
-          bindtap="filter"
-        >
-          全部水品</button
-        ><button
-          class="chip {{water === 'BUCKET_18_9L' ? 'selected' : ''}}"
-          data-field="water"
-          data-value="BUCKET_18_9L"
-          bindtap="filter"
-        >
-          桶装</button
-        ><button
-          class="chip {{water === 'BAG_7_5L' ? 'selected' : ''}}"
-          data-field="water"
-          data-value="BAG_7_5L"
-          bindtap="filter"
-        >
-          袋装
-        </button></view
-      ><view class="tabs-row"
-        ><button
-          class="chip {{!mode ? 'selected' : ''}}"
-          data-field="mode"
-          data-value=""
-          bindtap="filter"
-        >
-          全部方式</button
-        ><button
-          class="chip {{mode === 'DELIVERY' ? 'selected' : ''}}"
-          data-field="mode"
-          data-value="DELIVERY"
-          bindtap="filter"
-        >
-          配送</button
-        ><button
-          class="chip {{mode === 'PICKUP' ? 'selected' : ''}}"
-          data-field="mode"
-          data-value="PICKUP"
-          bindtap="filter"
-        >
-          自提
-        </button></view
-      ></view
-    >
-    <view wx:if="{{error}}" class="error">{{error}}</view
-    ><view class="test-strip"
-      >测试支付不会扣款；水票到账以订单查询结果为准</view
-    >
-    <view wx:for="{{plans}}" wx:key="id" class="card"
-      ><view class="row"
-        ><view
-          ><view class="product-name">{{item.name}}</view
-          ><view class="detail"
-            >{{item.typeText}} · {{item.modeText}}</view
-          ></view
-        ><view class="badge">{{item.buyQty}} 张水票</view></view
-      ><view class="order-foot"
-        ><view class="price"
-          ><text class="unit">¥ </text>{{item.priceText}}</view
-        ><button
-          class="primary small-btn"
-          data-id="{{item.id}}"
-          disabled="{{busy}}"
-          loading="{{busy}}"
-          bindtap="buy"
-        >
-          购买水票
-        </button></view
-      ></view
-    >
-    <view class="section"
-      ><view class="section-title">购买记录</view
-      ><view wx:for="{{payments}}" wx:key="id" class="card"
-        ><view class="row"
-          ><view
-            ><view class="list-title">{{item.plan.name}}</view
-            ><view class="detail">{{item.id}}</view></view
-          ><view class="badge">{{item.stateText}}</view></view
-        ><view class="order-foot"
-          ><view class="price"
-            ><text class="unit">¥ </text>{{item.priceText}}</view
-          ><button
-            wx:if="{{item.status === 'NOTPAY'}}"
-            class="secondary-btn small-btn"
-            data-id="{{item.id}}"
-            disabled="{{busy}}"
-            loading="{{busy}}"
-            bindtap="retry"
-          >
-            继续支付</button
-          ><button
-            wx:if="{{item.status === 'SUCCESS'}}"
-            class="text-link"
-            bindtap="load"
-          >
-            刷新余额
-          </button></view
-        ></view
-      ><view wx:if="{{!payments.length}}" class="empty"
-        >还没有购买记录</view
-      ></view
-    >
+  <view class="balance">
+    <view class="balance-title">我的水票</view>
+    <view class="balance-grid">
+      <view wx:for="{{balances}}" wx:key="waterType" class="balance-item">
+        <view class="balance-name">{{item.name}}</view>
+        <view class="balance-row">
+          <view><text class="balance-num num">{{item.delivery}}</text><text class="balance-unit">配送</text></view>
+          <view><text class="balance-num num">{{item.pickup}}</text><text class="balance-unit">自提</text></view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="seg wallet-seg">
+    <view wx:for="{{products}}" wx:key="waterType" class="seg-item {{water === item.waterType ? 'on' : ''}}" data-water="{{item.waterType}}" bindtap="pick">{{item.name}}</view>
+  </view>
+  <view wx:if="{{error}}" class="alert">{{error}}</view>
+  <view class="plans">
+    <view wx:for="{{plans}}" wx:key="id" class="plan" hover-class="press" data-id="{{item.id}}" bindtap="buy" aria-role="button">
+      <view class="row between">
+        <text class="tag {{item.fulfillMode === 'PICKUP' ? 'gray' : ''}}">{{item.modeText}}</text>
+        <text wx:if="{{item.giftQty}}" class="tag warn">赠 {{item.giftQty}}</text>
+      </view>
+      <view class="plan-qty"><text class="num">{{item.total}}</text><text class="plan-unit">{{item.unit}}</text></view>
+      <view class="faint">约 ¥{{item.unitText}}/{{item.unit}}</view>
+      <view class="plan-foot">
+        <view class="price num"><text class="yen">¥</text>{{item.priceText}}</view>
+        <view class="btn sm">购买</view>
+      </view>
+    </view>
+  </view>
+  <view wx:if="{{!plans.length && !busy}}" class="empty">暂无可购买的水票</view>
+
+  <block wx:if="{{payments.length}}">
+    <view class="section-title">购买记录</view>
+    <view class="card flush">
+      <view wx:for="{{payments}}" wx:key="id" class="cell">
+        <view class="grow">
+          <view class="ellipsis">{{item.title}}</view>
+          <view class="faint">{{item.timeText}}</view>
+        </view>
+        <view class="pay-right">
+          <view class="strong num">¥{{item.amountText}}</view>
+          <view wx:if="{{item.status === 'NOTPAY'}}" class="pay-link" hover-class="press" data-id="{{item.id}}" bindtap="retry">继续支付</view>
+          <view wx:else class="faint">{{item.stateText}}</view>
+        </view>
+      </view>
+    </view>
   </block>
+  <view class="footnote">测试版 · 模拟支付不会扣款</view>
 </view>

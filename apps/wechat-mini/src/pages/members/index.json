@@ -1,4 +1,4 @@
 {
-  "navigationBarTitleText": "会员服务",
-  "enablePullDownRefresh": false
+  "navigationBarTitleText": "会员",
+  "enablePullDownRefresh": true
 }

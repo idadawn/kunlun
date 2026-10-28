@@ -1,1 +1,78 @@
-/* Shared visual tokens and controls are defined in app.wxss. */
+.balance {
+  padding: 32rpx;
+  border-radius: 28rpx;
+  background: linear-gradient(135deg, #14b8a6, var(--brand) 60%, #0f766e);
+  color: #fff;
+}
+.balance-title {
+  font-size: 26rpx;
+  opacity: 0.8;
+}
+.balance-grid {
+  display: flex;
+  margin-top: 20rpx;
+}
+.balance-item {
+  flex: 1;
+}
+.balance-item + .balance-item {
+  padding-left: 28rpx;
+  border-left: 1rpx solid rgba(255, 255, 255, 0.18);
+}
+.balance-name {
+  font-size: 26rpx;
+  font-weight: 600;
+}
+.balance-row {
+  display: flex;
+  gap: 28rpx;
+  margin-top: 8rpx;
+}
+.balance-num {
+  font-size: 48rpx;
+  font-weight: 700;
+}
+.balance-unit {
+  font-size: 22rpx;
+  opacity: 0.75;
+  margin-left: 6rpx;
+}
+.wallet-seg {
+  margin: 28rpx 0 20rpx;
+  background: #e9ecef;
+}
+.plans {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20rpx;
+}
+.plan {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 24rpx;
+}
+.plan-qty {
+  margin-top: 16rpx;
+  font-size: 56rpx;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.plan-unit {
+  font-size: 26rpx;
+  font-weight: 500;
+  margin-left: 6rpx;
+}
+.plan-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 24rpx;
+}
+.pay-right {
+  text-align: right;
+}
+.pay-link {
+  color: var(--brand-text);
+  font-size: 24rpx;
+  font-weight: 600;
+}

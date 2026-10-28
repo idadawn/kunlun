@@ -1,42 +1,58 @@
-<view class="page"
-  ><view class="eyebrow">DELIVERY CONFIRMATION</view
-  ><view class="title">确认交付，再出发</view
-  ><view wx:if="{{order}}" class="card"
-    ><view class="order-no">{{order.orderNo}}</view
-    ><view class="product-name">{{order.label}} × {{order.orderQty}}</view
-    ><view class="detail"
-      >{{order.addressSnapshot.contactName}} ·
-      {{order.addressSnapshot.address}}</view
-    ></view
-  ><view class="footer-note"
-    >请按实际情况登记。本页按预约数量交付，差额交付请在现有员工端办理。</view
-  ><text class="form-label">收回空桶 / 空袋数量</text
-  ><view class="row">
-  <button class="secondary-btn small-btn" data-delta="-1" bindtap="quantity" disabled="{{busy}}" aria-label="减少回收数量">−</button>
-  <input
-    type="number"
-    value="{{emptyInM}}"
-    data-field="emptyInM"
-    bindinput="input"
-    maxlength="4"
-  />
-  <button class="secondary-btn small-btn" data-delta="1" bindtap="quantity" disabled="{{busy}}" aria-label="增加回收数量">+</button>
-  </view><block wx:if="{{order.fulfillMode === 'PICKUP'}}"
-    ><text class="form-label">会员出示的自提码</text
-    ><input
-      type="number"
-      value="{{pickupCode}}"
-      data-field="pickupCode"
-      bindinput="input"
-      maxlength="12"
-      placeholder="请输入会员自提码" /></block
-  ><view wx:if="{{error}}" class="error">{{error}}</view
-  ><button
-    class="primary"
-    bindtap="submit"
-    disabled="{{busy || !order}}"
-    loading="{{busy}}"
-  >
-    确认交付 {{order.orderQty}} 份
-  </button></view
->
+<view class="page with-bar">
+  <view wx:if="{{order}}" class="card">
+    <view class="row between">
+      <text class="tag {{order.fulfillMode === 'PICKUP' ? 'gray' : ''}}">{{order.modeText}}</text>
+      <text class="faint">{{order.orderNo}}</text>
+    </view>
+    <view class="row order-body">
+      <view class="thumb sm"><image src="{{order.image}}" mode="aspectFit" /></view>
+      <view class="grow">
+        <view class="strong">{{order.label}}</view>
+        <view class="faint">{{order.addressSnapshot.contactName}} · {{order.addressSnapshot.contactPhone}}</view>
+      </view>
+      <text class="qty num">× {{order.orderQty}}</text>
+    </view>
+    <view wx:if="{{order.fulfillMode === 'DELIVERY'}}" class="muted">{{order.addressSnapshot.address}}</view>
+    <view wx:if="{{order.remark}}" class="muted">备注：{{order.remark}}</view>
+  </view>
+
+  <view wx:if="{{order}}" class="card">
+    <view class="row between">
+      <view>
+        <view class="strong">收回空{{order.unit}}</view>
+        <view class="faint">会员现有 {{held}} 个</view>
+      </view>
+      <view class="stepper">
+        <view class="step minus" hover-class="press" data-delta="-1" bindtap="step" aria-role="button" aria-label="减少回收数量">−</view>
+        <text class="step-qty num">{{emptyIn}}</text>
+        <view class="step plus" hover-class="press" data-delta="1" bindtap="step" aria-role="button" aria-label="增加回收数量">+</view>
+      </view>
+    </view>
+    <view wx:if="{{gap}}" class="deposit">
+      <view class="row between">
+        <view>
+          <view class="strong">需补押金</view>
+          <view class="faint">{{gap}} 个{{order.unit}}未交押金</view>
+        </view>
+        <view class="price num"><text class="yen">¥</text>{{depositText}}</view>
+      </view>
+      <view wx:if="{{canCollect}}" class="seg pay-seg">
+        <view wx:for="{{payMethods}}" wx:key="value" class="seg-item {{payMethod === item.value ? 'on' : ''}}" data-value="{{item.value}}" bindtap="pay">{{item.label}}</view>
+      </view>
+      <view wx:else class="faint">当前账号不能收押金，请回门店办理</view>
+    </view>
+  </view>
+
+  <view wx:if="{{order.fulfillMode === 'PICKUP'}}" class="card flush">
+    <view class="cell">
+      <text class="cell-label">取水码</text>
+      <input class="grow code-input num" type="number" value="{{pickupCode}}" data-field="pickupCode" bindinput="input" maxlength="12" placeholder="会员出示的取水码" placeholder-class="input-placeholder" />
+    </view>
+  </view>
+  <view wx:if="{{error}}" class="alert">{{error}}</view>
+</view>
+<view class="bottom-bar">
+  <view class="btn grow {{busy || !order ? 'off' : ''}}" hover-class="{{busy || !order ? 'none' : 'press'}}" bindtap="submit" aria-role="button">
+    {{busy ? '提交中…' : (gap ? '收押金 ¥' + depositText + ' 并交付' : (order ? '确认交付 ' + order.orderQty + ' ' + order.unit : '确认交付'))}}
+  </view>
+</view>

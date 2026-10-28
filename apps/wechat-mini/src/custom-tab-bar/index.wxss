@@ -1,33 +1,27 @@
-.tabs {
+.tabbar {
   display: flex;
-  background: #fffdf8;
-  border-top: 1rpx solid #e3e8dd;
-  padding: 12rpx 20rpx calc(12rpx + env(safe-area-inset-bottom));
+  background: #ffffff;
+  box-shadow: 0 -1rpx 0 #eceef1;
+  /* Stays within the native tab bar height (48px) that the runtime reserves for a custom tab bar. */
+  padding: 8rpx 0 calc(4rpx + env(safe-area-inset-bottom));
 }
 .tab {
-  position: relative;
   flex: 1;
-  background: transparent;
-  font-size: 26rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #8f959e;
+}
+.icon {
+  width: 48rpx;
+  height: 48rpx;
+}
+.text {
+  font-size: 20rpx;
+  line-height: 32rpx;
+  margin-top: 2rpx;
+}
+.on {
+  color: #0d9488;
   font-weight: 600;
-  color: #738178;
-  line-height: 72rpx;
-  border: 0;
-  margin: 0;
-  padding: 0;
-}
-.tab::after {
-  border: 0;
-}
-.active {
-  color: #174e3c;
-}
-.dot {
-  position: absolute;
-  bottom: 0;
-  left: calc(50% - 10rpx);
-  width: 20rpx;
-  height: 5rpx;
-  background: #174e3c;
-  border-radius: 6rpx;
 }

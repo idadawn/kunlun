@@ -1,1 +1,3 @@
-/* Shared visual tokens and controls are defined in app.wxss. */
+.shop-seg {
+  margin-top: 24rpx;
+}

@@ -1,13 +1,14 @@
-<view class="tabs"
-  ><button
+<view class="tabbar">
+  <view
     wx:for="{{tabs}}"
     wx:key="page"
-    class="tab {{selected === 'pages/' + item.page + '/index' ? 'active' : ''}}"
+    class="tab {{selected === item.path ? 'on' : ''}}"
     data-page="{{item.page}}"
     bindtap="go"
+    aria-role="tab"
+    aria-selected="{{selected === item.path}}"
   >
-    {{item.text}}<view
-      class="dot"
-      wx:if="{{selected === 'pages/' + item.page + '/index'}}"
-    /></button
-></view>
+    <image class="icon" src="/assets/tab/{{item.icon}}{{selected === item.path ? '-on' : ''}}.svg" />
+    <text class="text">{{item.text}}</text>
+  </view>
+</view>

@@ -1,1 +1,16 @@
-/* Shared visual tokens and controls are defined in app.wxss. */
+.members-search {
+  margin-bottom: 20rpx;
+}
+.tickets {
+  display: flex;
+  margin-top: 24rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx solid var(--line);
+}
+.ticket {
+  flex: 1;
+  text-align: center;
+}
+.ticket .strong {
+  font-size: 32rpx;
+}

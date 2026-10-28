@@ -1,4 +1,4 @@
 {
-  "navigationBarTitleText": "订水",
-  "enablePullDownRefresh": false
+  "navigationBarTitleText": "代客下单",
+  "usingComponents": { "water-menu": "/components/water-menu/index" }
 }
