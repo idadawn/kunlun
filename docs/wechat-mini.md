@@ -62,12 +62,14 @@ pnpm --filter @kunlun/wechat-mini build
 
 | 接口 | 权限与用途 |
 | --- | --- |
-| `POST /api/mini-payments` | 会员创建本人待支付单；仅接收套餐 ID 和幂等键 |
+| `POST /api/mini-payments` | 会员创建本人待支付单；只接收套餐 ID 或零售行（二选一）和幂等键 |
 | `GET /api/mini-payments` | 本人最近 100 笔测试支付单 |
 | `GET /api/mini-payments/{id}` | 查询本人支付单；不可查询他人 |
 | `POST /api/mini-payments/{id}/simulate` | 模拟 SUCCESS / CANCEL / FAIL；仅独立测试后端可用 |
 
-金额取后端套餐配置，以精确 decimal 转为整数分；创建时保存套餐名称、价格、水品、履约方式、数量快照。相同会员与幂等键复用同一支付单，换套餐返回 409。取消与失败保留 NOTPAY，可以重试；SUCCESS 不得被晚到的取消降级。
+金额取后端套餐配置，以精确 decimal 转为整数分；创建时保存套餐名称、价格、水品、履约方式、数量快照。相同会员与幂等键复用同一支付单，换成其他套餐或零售行返回 409。取消与失败保留 NOTPAY，可以重试；SUCCESS 不得被晚到的取消降级。
+
+零售补差（`kind=RETAIL`）：`retail` 为 1–10 行 `{ waterType, fulfillMode, qty }`，同一水品与方式不重复，数量 1–99。单价取水品当前零售价，未设零售价返回 400；各行单价与金额在创建时冻结进快照，之后改价不影响待支付单。成功后每行各记一笔不关联套餐的充值单（名称“零售 · 水品”）和同方式 `PURCHASE` 水票批次，计入充值收入，供随后的订单扣用；退款按该批次实付单价退剩余票。测试库在启用 Mock 时把 `recharge_orders.plan_id` 改为可空，接入真实支付时须作为正式迁移发布。
 
 结算先锁会员、再锁支付单，判断状态与更新余额在同一 PostgreSQL 事务中完成。支付状态、`recharge_orders`、`ticket_batches`、`ticket_ledgers`、会员可用水票一起提交或回滚。账务方式记录为 `MOCK`，操作人“ 小程序模拟支付 ”，不能算真实微信收入。模拟接口不接受“支付回调”身份，也不将前端 `wx.requestPayment` 成功回调作为入账依据。
 
