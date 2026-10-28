@@ -11,8 +11,7 @@
     ><view class="badge">{{staff ? '员工工作台' : '绿麒麟会员'}}</view></view
   >
   <view class="subtitle"
-    >{{user.displayName}}，{{staff ? '今天的工作，从这里开始。' :
-    '欢迎回来。'}}</view
+    >{{user.displayName}}，{{staff ? '今天的工作，从这里开始。' : '欢迎回来。'}}</view
   >
   <view wx:if="{{error}}" class="error"
     >{{error}}<button class="text-link" bindtap="load">重新加载</button></view

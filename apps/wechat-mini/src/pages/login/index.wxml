@@ -11,8 +11,7 @@
   /></view>
   <view class="section">
     <view class="test-strip"
-      >{{demo ? '本地测试 · 演示数据 · 模拟支付不扣款' : '测试环境 ·
-      使用已开通的水站账号登录'}}</view
+      >{{demo ? '本地测试 · 演示数据 · 模拟支付不扣款' : '测试环境 · 使用已开通的水站账号登录'}}</view
     >
     <view class="tabs-row"
       ><button
@@ -52,13 +51,10 @@
       disabled="{{busy}}"
       bindtap="login"
     >
-      {{demo ? (type === 'MEMBER' ? '体验会员服务' : '体验员工工作台') :
-      '登录'}}
+      {{demo ? (type === 'MEMBER' ? '体验会员服务' : '体验员工工作台') : '登录'}}
     </button>
     <view class="footer-note"
-      >一个小程序，按登录身份进入相应服务。<view></view>{{demo ?
-      '所有体验内容仅保存在本机，不连接正式业务。' :
-      '会员账号由门店开通，员工权限由管理员分配。'}}</view
+      >一个小程序，按登录身份进入相应服务。<view></view>{{demo ? '所有体验内容仅保存在本机，不连接正式业务。' : '会员账号由门店开通，员工权限由管理员分配。'}}</view
     >
   </view>
 </view>
