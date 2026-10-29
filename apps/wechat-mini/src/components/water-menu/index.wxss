@@ -59,9 +59,10 @@
   background: #262a30;
   box-shadow: 0 12rpx 32rpx rgba(31, 35, 41, 0.22);
 }
-/* The custom tab bar takes its own area; the page above it already ends at the tab bar. */
+/* Fixed descendants use the full window in the WeChat renderer. Leave room
+   for the native custom-tab-bar area and the device's bottom safe area. */
 .cart.on-tab {
-  bottom: 20rpx;
+  bottom: calc(112rpx + env(safe-area-inset-bottom));
 }
 .cart-icon {
   position: relative;
