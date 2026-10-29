@@ -1,0 +1,11 @@
+# BEGIN KUNLUN TEST kunlun-test.idalee.cn
+kunlun-test.idalee.cn {
+    tls {
+        issuer acme {
+            disable_http_challenge
+        }
+    }
+    encode zstd gzip
+    reverse_proxy kunlun-test-web:8080
+}
+# END KUNLUN TEST kunlun-test.idalee.cn

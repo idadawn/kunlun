@@ -3,9 +3,13 @@ const ui = require('../../lib/ui');
 const cart = require('../../lib/cart');
 const brand = require('../../lib/brand');
 Page({
-  data: { brand, type: 'MEMBER', account: '', password: '', demo: api.config.mode === 'demo', busy: false, error: '' },
+  data: { brand, type: 'MEMBER', account: '', password: '', demo: api.config.mode === 'demo', environmentLabel: '', busy: false, error: '' },
   onLoad() {
-    if (api.session()) ui.run(this, async () => { await api.call('me'); wx.switchTab({ url: '/pages/home/index' }); });
+    ui.run(this, async () => {
+      const backend = await api.connect();
+      this.setData({ environmentLabel: backend.environmentLabel });
+      if (api.session()) { await api.call('me'); wx.switchTab({ url: '/pages/home/index' }); }
+    });
   },
   choose(e) { this.setData({ type: e.currentTarget.dataset.type, password: '', error: '' }); },
   input(e) { this.setData({ [e.currentTarget.dataset.field]: e.detail.value }); },

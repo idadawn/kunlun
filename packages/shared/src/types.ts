@@ -416,6 +416,8 @@ export interface MemberCoupon {
 }
 
 export interface DepositSummaryRow {
+  /** Current standard for estimating the next hand-over; historical lots keep their original prices. */
+  unitDeposit: number;
   containerType: ContainerType;
   paidQty: number;
   paidAmount: number;

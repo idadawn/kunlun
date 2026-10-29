@@ -67,3 +67,8 @@ pnpm --filter @kunlun/mini-app dev   # http://127.0.0.1:5174/member 与 /staff
 ## al 正式环境
 
 管理端：<https://kunlun.idalee.cn/admin>。使用独立生产数据库，HTTPS 由 Caddy 自动续期；al 通过 WireGuard 访问 k3s。部署、回退和验收说明见 [al 运维文档](deploy/al/README.md)。
+
+
+## 小程序真实接口测试环境
+
+独立测试入口 `https://kunlun-test.idalee.cn`，管理端 `/admin`。原生小程序 API 模式可使用真实登录、产品、地址、订单、水票及押金数据，支付保持服务器模拟，不产生微信扣款。测试库与正式库隔离，运行和验收见 [测试服务说明](deploy/test/README.md)。

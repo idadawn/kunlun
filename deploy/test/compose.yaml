@@ -1,0 +1,78 @@
+name: kunlun-test
+services:
+  database:
+    image: ${POSTGRES_IMAGE:?Set a pinned PostgreSQL 16 image digest}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kunlun_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Required}
+      KUNLUN_DB_PASSWORD: ${KUNLUN_DB_PASSWORD:?Required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-database.sh:/docker-entrypoint-initdb.d/10-kunlun-test.sh:ro
+    command: [postgres, -c, shared_buffers=32MB, -c, max_connections=30]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U postgres -d kunlun_test']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks: [backend]
+    mem_limit: 256m
+    logging: &logs
+      driver: json-file
+      options: { max-size: 5m, max-file: '3' }
+  api:
+    image: ${ASPNET_IMAGE:?Set a pinned ASP.NET 10 image digest}
+    restart: unless-stopped
+    user: '1654:1654'
+    read_only: true
+    tmpfs: ['/tmp:size=64m,mode=1777']
+    working_dir: /app
+    command: [dotnet, Kunlun.WaterStation.dll]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Testing
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Kunlun: 'Host=database;Port=5432;Database=kunlun_test;Username=kunlun_test_app;Password=${KUNLUN_DB_PASSWORD};Maximum Pool Size=15;Search Path=plugin_kunlun_waterstation,public'
+      Kunlun__Jwt__Issuer: kunlun.waterstation.test
+      Kunlun__Jwt__Audience: kunlun.test.clients
+      Kunlun__Jwt__SigningKey: ${KUNLUN_JWT_KEY:?Required}
+      Kunlun__Bootstrap__Username: ${KUNLUN_ADMIN_USER:-test_admin}
+      Kunlun__Bootstrap__Password: ${KUNLUN_ADMIN_PASSWORD:?Required on first initialization}
+      Kunlun__SeedDemoData: 'false'
+      Kunlun__MiniPayments__Mode: Mock
+    volumes:
+      - ${RELEASE_DIR:?Required}/api:/app:ro
+    depends_on:
+      database: { condition: service_healthy }
+    networks: [backend]
+    mem_limit: 384m
+    logging: *logs
+  web:
+    image: ${NGINX_IMAGE:?Set a pinned nginx image digest}
+    restart: unless-stopped
+    volumes:
+      - ${RELEASE_DIR}/admin-pc:/srv/kunlun/admin-pc:ro
+      - ${RELEASE_DIR}/mini-app:/srv/kunlun/mini-app:ro
+      - ${RELEASE_DIR}/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports: ['127.0.0.1:18086:8080']
+    healthcheck:
+      test: [CMD-SHELL, 'wget -q -O - http://127.0.0.1:8080/api/mini-config | grep -q ''"environment":"test"''']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    depends_on: [api]
+    networks:
+      backend:
+      gateway:
+        aliases: [kunlun-test-web]
+    mem_limit: 64m
+    logging: *logs
+volumes:
+  postgres_data:
+networks:
+  backend:
+    internal: true
+  gateway:
+    external: true
+    name: atlas-wiki_default

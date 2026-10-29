@@ -12,7 +12,9 @@ test('API build removes fixtures and refuses missing HTTPS origin or AppID', () 
     assert.equal(ok.status, 0, ok.stderr);
     assert.equal(fs.existsSync(path.join(tmp, 'dist/miniprogram/lib/demo.js')), false);
     assert.equal(fs.readFileSync(path.join(tmp, 'dist/miniprogram/lib/api.js'), 'utf8').includes("require('./demo')"), false);
-    // The server prices retail top-ups, so API builds sell beyond tickets too.
-    assert.match(fs.readFileSync(path.join(tmp, 'dist/miniprogram/config.js'), 'utf8'), /"retail":true/);
+    // The server handshake enables retail only after validating the destination.
+    const config = fs.readFileSync(path.join(tmp, 'dist/miniprogram/config.js'), 'utf8');
+    assert.match(config, /"retail":false/);
+    assert.match(config, /"paymentMode":"disabled"/);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
