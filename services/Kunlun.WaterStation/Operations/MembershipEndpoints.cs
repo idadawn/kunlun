@@ -38,7 +38,9 @@ public static class MembershipEndpoints
                 // Quantity already asked back in refund requests that await review; new requests can only cover the rest.
                 await using var pendingCmd = Command(conn, null, "SELECT COALESCE(sum(quantity),0) FROM plugin_kunlun_waterstation.refund_requests WHERE tenant_id=@tid AND member_id=@mid AND kind='DEPOSIT' AND container_type=@container AND status='PENDING'", ("tid", repo.DefaultTenantId), ("mid", mid), ("container", container));
                 var pendingRefundQty = Convert.ToInt32(await pendingCmd.ExecuteScalarAsync(ct));
-                result.Add(new { containerType = container, paidQty, paidAmount = lots.Sum(l => l.Price * l.Qty), heldQty = held, pendingDamageQty = reservedQty, pendingDamageAmount = lots.Sum(l => l.Price * l.Reserved), refundableQty = refundQty, refundableAmount = amount, pendingRefundQty });
+                await using var configCmd = Command(conn, null, "SELECT unit_deposit FROM plugin_kunlun_waterstation.container_configs WHERE tenant_id=@tid AND container_type=@container", ("tid", repo.DefaultTenantId), ("container", container));
+                var unitDeposit = (decimal?)await configCmd.ExecuteScalarAsync(ct) ?? throw new BusinessRuleException("押金标准尚未配置", 503);
+                result.Add(new { containerType = container, unitDeposit, paidQty, paidAmount = lots.Sum(l => l.Price * l.Qty), heldQty = held, pendingDamageQty = reservedQty, pendingDamageAmount = lots.Sum(l => l.Price * l.Reserved), refundableQty = refundQty, refundableAmount = amount, pendingRefundQty });
             }
             return Results.Ok(result);
         }).RequireAuthorization();

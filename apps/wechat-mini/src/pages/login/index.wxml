@@ -15,6 +15,7 @@
     </block>
     <view wx:if="{{error}}" class="alert login-alert">{{error}}</view>
     <view class="btn login-btn {{busy ? 'off' : ''}}" hover-class="{{busy ? 'none' : 'press'}}" bindtap="login" aria-role="button">{{busy ? '请稍候…' : (demo ? '进入体验' : '登录')}}</view>
+    <view wx:if="{{!demo && environmentLabel}}" class="faint login-note">{{environmentLabel}} · 数据保存在服务器，模拟支付不扣款</view>
     <view class="faint login-note">{{demo ? '本地演示 · 数据只保存在本机' : (type === 'MEMBER' ? '账号由门店开通' : '账号由管理员分配')}}</view>
   </view>
 </view>

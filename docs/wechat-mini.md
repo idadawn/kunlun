@@ -46,6 +46,8 @@ pnpm --filter @kunlun/wechat-mini test
 
 ## 接独立测试后端
 
+真实接口测试服务为 `https://kunlun-test.idalee.cn`，管理端 `/admin`，使用独立 PostgreSQL 测试库。部署、测试账号初始化与跨端验收见 [测试服务运维说明](../deploy/test/README.md)。会员与员工使用各自账号登录，同一会员在不同手机上读取服务器保存的地址、订单和余额。
+
 小程序使用现有账号密码登录，账号由门店开通。当前没有 `wx.login` 换取 OpenID 的后端绑定流程，不能把测试账号登录描述成微信授权登录。
 
 服务端只在同时满足以下条件时允许模拟支付：
@@ -65,7 +67,7 @@ KUNLUN_MINI_API_BASE="$YOUR_TEST_HTTPS_ORIGIN" \
 pnpm --filter @kunlun/wechat-mini build
 ```
 
-设置微信公众平台 request 合法域名，保留 HTTPS/TLS/证书校验。API 构建移除本地演示数据与引用，不会在接口报错时回退演示。登录令牌按运行模式及后端源站分别存储，401 清除会话。正式版 `envVersion=release` 被拒绝使用，避免误上传成为业务入口。
+设置微信公众平台 request 合法域名，保留 HTTPS/TLS/证书校验。API 构建移除本地演示数据与引用，不会在接口报错时回退演示。登录前调用 `/api/mini-config` 核对服务标识、接口版本和测试环境；零售补差及模拟支付能力由后端返回，不能由本地固定开关擅自打开。误配到正式服务时拒绝提交登录凭据。登录令牌按运行模式及后端源站分别存储，401 清除会话。正式版 `envVersion=release` 被拒绝使用，避免误上传成为业务入口。
 
 ## 测试支付接口与原子性
 
@@ -108,3 +110,10 @@ pnpm --filter @kunlun/wechat-mini build
 - [小程序支付开发指引](https://pay.weixin.qq.com/doc/v3/merchant/4012791911)
 - [小程序调起支付](https://pay.weixin.qq.com/doc/v3/merchant/4012791898)
 - 视觉参考：[哆哆送水案例](https://www.vmiaopu.com/cases/181.html)。
+
+
+## 真实后端联调（2026-10-30）
+
+小程序 API 客户端覆盖登录、会员及收货地址、产品和套餐、支付单、订单预占/取消、员工接单/履约及押金登记。会员押金汇总增加 `unitDeposit` 现行标准，小程序从本人接口取得预估资料，不再为预估押金读取全站袋桶库存。历史押金批次仍按原价核算。
+
+测试服务启用服务器模拟支付，但小程序数据全部由真实 API 读写数据库。账号和密码只放在私有配置中，预览包不包含演示数据、固定测试密码、AppSecret 或商户密钥。`apps/wechat-mini/scripts/verify-backend.cjs` 可以加载 API 构建直接联调服务器，证据覆盖独立会话的跨端读写和权限隔离。

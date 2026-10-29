@@ -131,6 +131,17 @@ app.MapGet("/healthz", async (NpgsqlDataSource ds) =>
 
 app.MapAuthEndpoints();
 
+// Public capability handshake for the native client. No database names, users or credentials.
+app.MapGet("/api/mini-config", () => Results.Ok(new
+{
+    service = "kunlun.waterstation",
+    apiVersion = 1,
+    environment = app.Environment.IsProduction() ? "production" : "test",
+    environmentLabel = app.Environment.IsProduction() ? "正式服务" : "测试服务",
+    paymentProvider = miniTestPayments ? "MOCK" : "DISABLED",
+    retailPaymentsEnabled = miniTestPayments
+}));
+
 // 3. 当前登录身份与权限自检
 app.MapGet("/api/auth/me", (ClaimsPrincipal user) =>
 {
