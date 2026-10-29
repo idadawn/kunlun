@@ -15,7 +15,11 @@ function phone() {
       if (url.origin !== access.apiBase) throw new Error('Unexpected backend');
       if ((!options.method || options.method === 'GET') && options.data) Object.entries(options.data).forEach(([k,v]) => url.searchParams.set(k,v));
       fetch(url, { method: options.method, headers: options.header, ...(options.method === 'POST' || options.method === 'PUT' ? { body: JSON.stringify(options.data) } : {}), signal: AbortSignal.timeout(options.timeout) })
-        .then(async response => options.success({ statusCode: response.status, data: await response.json() })).catch(() => options.fail());
+        .then(async response => {
+          const text = await response.text(); let data = text;
+          try { data = JSON.parse(text); } catch { /* wx.request preserves empty/non-JSON error bodies too. */ }
+          options.success({ statusCode: response.status, data });
+        }).catch(() => options.fail());
     }
   } });
   function load(file) {

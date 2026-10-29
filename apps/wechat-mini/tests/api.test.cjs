@@ -63,3 +63,8 @@ test('disabled server payments stay disabled and no payment mutation is sent', a
   await assert.rejects(c.api.call('createPayment', { planId: 'plan', idempotencyKey: 'key' }), /测试支付尚未启用/);
   assert.equal(c.calls.length, 2); assert.equal((await c.api.call('payments')).length, 0); assert.equal(c.config.retail, false);
 });
+test('empty HTTP error bodies keep their status instead of becoming a network failure', async () => {
+  const c = client(r => r.url.endsWith('/mini-config') ? { data: capabilities } : r.url.endsWith('/login') ? { data: identity } : { status: 404, data: '' });
+  await c.api.login('MEMBER', 'member', 'password');
+  await assert.rejects(c.api.call('payment', { id: 'missing' }), e => e.status === 404 && !e.message.includes('网络连接失败'));
+});
