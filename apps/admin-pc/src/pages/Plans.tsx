@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import {
-  KUNLUN_BRAND, buildPosterModel, modeLabel, money, renderPoster, unitOf,
+  KUNLUN_BRAND, buildPosterModel, containerUnit, modeLabel, money, renderPoster,
   type ActiveStatus, type FulfillMode, type RechargePlan, type WaterType,
 } from '@kunlun/shared';
 import { Dialog, Field, FormDialog, Icon, useApi, useDialogs, useRun, useToast } from '@kunlun/ui';
 import { useAdminData } from '../data';
 
-const GROUP_ORDER: Array<[WaterType, FulfillMode]> = [['BAG_7_5L', 'PICKUP'], ['BUCKET_18_9L', 'PICKUP'], ['BAG_7_5L', 'DELIVERY'], ['BUCKET_18_9L', 'DELIVERY']];
+const MODES: FulfillMode[] = ['PICKUP', 'DELIVERY'];
 
 export function Plans() {
   const { plans: all, products, refresh } = useAdminData();
@@ -16,10 +16,11 @@ export function Plans() {
   const [status, setStatus] = useState<ActiveStatus | 'ALL'>('ACTIVE');
   const [generating, setGenerating] = useState(false);
   const plans = all.filter(p => status === 'ALL' || p.status === status);
-  const groups = GROUP_ORDER.map(([water, mode]) => ({
-    water, mode, product: products.find(p => p.waterType === water),
-    items: plans.filter(p => p.waterType === water && p.fulfillMode === mode).sort((a, b) => a.price - b.price || a.buyQty - b.buyQty),
-  })).filter(g => g.items.length);
+  // 自提 groups first, then 配送, each in product order (as on the price list).
+  const groups = MODES.flatMap(mode => products.map(product => ({
+    mode, product,
+    items: plans.filter(p => p.waterType === product.waterType && p.fulfillMode === mode).sort((a, b) => a.price - b.price || a.buyQty - b.buyQty),
+  }))).filter(g => g.items.length);
   const statusText = status === 'ACTIVE' ? '启用' : status === 'DISABLED' ? '停用' : '';
   const edit = (plan?: RechargePlan) => dialogs.open(close => <PlanDialog plan={plan} onClose={close} onDone={refresh} />);
   const poster = run(async () => {
@@ -52,13 +53,13 @@ export function Plans() {
       <div className="plans-grid">
         {groups.length ? groups.map(g => {
           const delivery = g.mode === 'DELIVERY';
-          const unit = unitOf(g.water);
-          const rule = delivery ? `${g.product?.deliveryFee === 0 ? '免费配送' : `配送费 ¥${money(g.product?.deliveryFee ?? 0)}`} · ${g.product?.deliveryMinimum ?? 1}${unit}起送` : '到店领取 · 使用自提水票';
+          const unit = containerUnit(g.product.containerType);
+          const rule = delivery ? `${g.product.deliveryFee === 0 ? '免费配送' : `配送费 ¥${money(g.product.deliveryFee)}`} · ${g.product.deliveryMinimum}${unit}起送` : '到店领取 · 使用自提水票';
           return (
-            <article key={`${g.water}:${g.mode}`} className={`plan-group ${delivery ? 'is-delivery' : 'is-pickup'}`} aria-label={`${g.product?.name ?? g.water} · ${modeLabel(g.mode)}`}>
+            <article key={`${g.product.waterType}:${g.mode}`} className={`plan-group ${delivery ? 'is-delivery' : 'is-pickup'}`} aria-label={`${g.product.name} · ${modeLabel(g.mode)}`}>
               <header className="plan-group-head">
-                <div className="plan-product-icon"><Icon name={g.water === 'BAG_7_5L' ? 'drop' : 'box'} /></div>
-                <div className="plan-product-heading"><h3>{g.product?.name ?? g.water}</h3><p>{g.product?.packaging}</p></div>
+                <div className="plan-product-icon"><Icon name={g.product.containerType === 'BAG' ? 'drop' : 'box'} /></div>
+                <div className="plan-product-heading"><h3>{g.product.name}</h3><p>{g.product.packaging}</p></div>
                 <span className="plan-mode">{delivery ? '送水上门' : '门店自提'}</span>
               </header>
               <div className="plan-group-columns"><span>充值金额</span><span>到账水票</span><span className="sr-only">操作</span></div>
@@ -89,7 +90,7 @@ function PlanDialog({ plan, onClose, onDone }: { plan?: RechargePlan; onClose: (
   const toast = useToast();
   const { products } = useAdminData();
   const [name, setName] = useState(plan?.name ?? '');
-  const [water, setWater] = useState<WaterType>(plan?.waterType ?? products[0]?.waterType ?? 'BUCKET_18_9L');
+  const [water, setWater] = useState<WaterType>(plan?.waterType ?? products[0]?.waterType ?? '');
   const [mode, setMode] = useState<FulfillMode>(plan?.fulfillMode ?? 'PICKUP');
   const [price, setPrice] = useState(String(plan?.price ?? 100));
   const [qty, setQty] = useState(String(plan?.buyQty ?? 16));
@@ -101,12 +102,12 @@ function PlanDialog({ plan, onClose, onDone }: { plan?: RechargePlan; onClose: (
       toast('套餐已保存');
     }}>
       <Field label="套餐名称" htmlFor="planName"><input id="planName" className="input" required maxLength={80} value={name} onChange={e => setName(e.target.value)} /></Field>
-      <Field label="水品" htmlFor="planWater"><select id="planWater" className="select" value={water} onChange={e => setWater(e.target.value as WaterType)}>{products.map(p => <option key={p.waterType} value={p.waterType}>{p.name}</option>)}</select></Field>
+      <Field label="水品" htmlFor="planWater"><select id="planWater" className="select" required value={water} onChange={e => setWater(e.target.value)}>{products.map(p => <option key={p.waterType} value={p.waterType}>{p.name}</option>)}</select></Field>
       <Field label="领取方式" htmlFor="planMode"><select id="planMode" className="select" value={mode} onChange={e => setMode(e.target.value as FulfillMode)}><option value="PICKUP">自提</option><option value="DELIVERY">配送</option></select></Field>
       <Field label="充值金额（元）" htmlFor="planPrice"><input id="planPrice" className="input" type="number" required min={0.01} max={99999999} step={0.01} value={price} onChange={e => setPrice(e.target.value)} /></Field>
       <Field label="固定到账数量（全部为付费票）" htmlFor="planQty"><input id="planQty" className="input" type="number" required min={1} max={100000} step={1} value={qty} onChange={e => setQty(e.target.value)} /></Field>
       <Field label="状态" htmlFor="planStatus"><select id="planStatus" className="select" value={status} onChange={e => setStatus(e.target.value as ActiveStatus)}><option value="ACTIVE">启用</option><option value="DISABLED">停用</option></select></Field>
-      <p className="membership-note">修改只影响后续充值。额外赠水通过优惠券设置。</p>
+      <p className="membership-note">修改只影响后续充值，已充值的水票按原价保留。</p>
     </FormDialog>
   );
 }

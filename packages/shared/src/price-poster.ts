@@ -1,13 +1,10 @@
 /* Deterministic, data-driven price-list PNG. No prices are baked into the artwork. */
 import type { FulfillMode, RechargePlan, WaterProduct, WaterType } from './types';
 
-const ORDER: ReadonlyArray<[WaterType, FulfillMode, '袋' | '桶']> = [
-  ['BAG_7_5L', 'PICKUP', '袋'],
-  ['BUCKET_18_9L', 'PICKUP', '桶'],
-  ['BAG_7_5L', 'DELIVERY', '袋'],
-  ['BUCKET_18_9L', 'DELIVERY', '桶'],
-];
+const MODES: ReadonlyArray<FulfillMode> = ['PICKUP', 'DELIVERY'];
 const amount = (n: number) => (Number.isInteger(Number(n)) ? String(Number(n)) : Number(n).toFixed(2));
+const liters = (n: number) => String(Number(n));
+const unitOf = (p: Pick<WaterProduct, 'containerType'>) => (p.containerType === 'BAG' ? '袋' : '桶');
 
 export interface PosterRow { id: string; price: number; paidQty: number; giftQty: number; totalQty: number; line: string; giftNote: string }
 export interface PosterGroup { waterType: WaterType; mode: FulfillMode; unit: string; title: string; rows: PosterRow[] }
@@ -24,35 +21,37 @@ export function buildPosterModel({ plans, products, store = '绿麒麟水站', g
   const index = new Map(products.map(p => [p.waterType, p]));
   for (const p of active) {
     const product = index.get(p.waterType);
-    if (!product || !ORDER.some(([type, mode]) => type === p.waterType && mode === p.fulfillMode)) throw new Error('套餐水品或领取方式不完整');
+    if (!product || !MODES.includes(p.fulfillMode)) throw new Error('套餐水品或领取方式不完整');
     if (!Number.isFinite(p.price) || p.price <= 0 || !Number.isSafeInteger(p.buyQty) || p.buyQty <= 0 || !Number.isSafeInteger(p.giftQty) || p.giftQty < 0)
       throw new Error('套餐价格或数量无效，请先维护套餐');
     if (!Number.isFinite(product.capacityLiters) || product.capacityLiters <= 0 || !Number.isSafeInteger(product.deliveryMinimum) || product.deliveryMinimum < 1 || !Number.isFinite(product.deliveryFee) || product.deliveryFee < 0)
       throw new Error('水品规格或配送规则无效');
   }
-  const groups = ORDER.map(([type, mode, unit]): PosterGroup | null => {
-    const product = index.get(type)!;
+  // 自提 groups first, then 配送, each in product order. A water is simply 桶装水 / 袋装水 unless another listed water shares its container.
+  const listed = products.filter(p => active.some(a => a.waterType === p.waterType));
+  const kindOf = (product: WaterProduct) => listed.filter(p => unitOf(p) === unitOf(product)).length > 1 ? product.name : unitOf(product) + '装水';
+  const groups = MODES.flatMap(mode => listed.map((product): PosterGroup | null => {
+    const unit = unitOf(product);
     const rows = active
-      .filter(p => p.waterType === type && p.fulfillMode === mode)
+      .filter(p => p.waterType === product.waterType && p.fulfillMode === mode)
       .sort((a, b) => a.price - b.price || a.buyQty - b.buyQty || a.id.localeCompare(b.id));
     if (!rows.length) return null;
-    const kind = unit + '装水';
+    const kind = kindOf(product);
     const title = mode === 'PICKUP'
       ? `来门店自提${kind}`
       : `${product.deliveryFee === 0 ? '免费上门送' : '上门配送'}${kind}（${product.deliveryMinimum}${unit}起送${product.deliveryFee === 0 ? '' : `，配送费${amount(product.deliveryFee)}元`}）`;
     return {
-      waterType: type, mode, unit, title,
+      waterType: product.waterType, mode, unit, title,
       rows: rows.map(p => ({
         id: p.id, price: p.price, paidQty: p.buyQty, giftQty: p.giftQty, totalQty: p.buyQty + p.giftQty,
-        line: `办理${amount(p.price)}元水卡：可得${p.buyQty + p.giftQty}${unit}水（${amount(product.capacityLiters)}升/${unit}）`,
+        line: `办理${amount(p.price)}元水卡：可得${p.buyQty + p.giftQty}${unit}水（${liters(product.capacityLiters)}升/${unit}）`,
         giftNote: p.giftQty ? `其中购买 ${p.buyQty}${unit}，赠送 ${p.giftQty}${unit}` : '',
       })),
     };
-  }).filter((g): g is PosterGroup => g !== null);
+  })).filter((g): g is PosterGroup => g !== null);
   const retailRows = products.filter(p => p.retailPrice != null).map(p => {
     if (!Number.isFinite(p.retailPrice) || p.retailPrice! <= 0) throw new Error('零售价无效');
-    const unit = p.waterType === 'BAG_7_5L' ? '袋' : '桶';
-    return `${p.packaging || p.name} · 零售每${unit}${amount(p.retailPrice!)}元`;
+    return `${p.packaging || p.name} · 零售每${unitOf(p)}${amount(p.retailPrice!)}元`;
   });
   const date = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(generatedAt));
   return { store, groups, retailRows, planCount: active.length, date };

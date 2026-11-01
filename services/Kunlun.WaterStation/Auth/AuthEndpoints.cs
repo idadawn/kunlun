@@ -46,6 +46,41 @@ public static class AuthEndpoints
             return Results.Ok(new { id });
         }).RequireAuthorization();
 
+        // Business records keep the operator's name as a snapshot, so a deleted account leaves history intact; its tokens stop working at once.
+        app.MapDelete("/api/staff/{staffId:guid}", async (Guid staffId, ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>
+        {
+            if (!user.HasClaim("perm", KunlunPermissions.StaffManage)) return Results.Forbid();
+            if (user.FindFirstValue(JwtRegisteredClaimNames.Sub) == staffId.ToString()) return Results.BadRequest(new { error = "不能删除当前登录的账号" });
+            var tid = repo.DefaultTenantId;
+            await using var conn = await db.OpenConnectionAsync(ct);
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            // Same lock as enabling/disabling, so two requests cannot remove the last two administrators together.
+            await using (var lockCmd = new NpgsqlCommand("SELECT pg_advisory_xact_lock(hashtextextended(@key,0))", conn, tx))
+            {
+                lockCmd.Parameters.AddWithValue("key", $"{tid}:staff-status");
+                await lockCmd.ExecuteNonQueryAsync(ct);
+            }
+            await using (var target = new NpgsqlCommand("SELECT role FROM plugin_kunlun_waterstation.staff WHERE tenant_id=@tid AND id=@id FOR UPDATE", conn, tx))
+            {
+                target.Parameters.AddWithValue("tid", tid); target.Parameters.AddWithValue("id", staffId);
+                var role = await target.ExecuteScalarAsync(ct);
+                if (role is null) return Results.NotFound();
+                if ((string)role == "ADMIN")
+                {
+                    await using var count = new NpgsqlCommand("SELECT count(*) FROM plugin_kunlun_waterstation.staff WHERE tenant_id=@tid AND role='ADMIN' AND status='ACTIVE' AND id<>@id", conn, tx);
+                    count.Parameters.AddWithValue("tid", tid); count.Parameters.AddWithValue("id", staffId);
+                    if (Convert.ToInt64(await count.ExecuteScalarAsync(ct)) == 0) return Results.BadRequest(new { error = "不能删除最后一个管理员" });
+                }
+            }
+            await using (var delete = new NpgsqlCommand("DELETE FROM plugin_kunlun_waterstation.staff WHERE tenant_id=@tid AND id=@id", conn, tx))
+            {
+                delete.Parameters.AddWithValue("tid", tid); delete.Parameters.AddWithValue("id", staffId);
+                await delete.ExecuteNonQueryAsync(ct);
+            }
+            await tx.CommitAsync(ct);
+            return Results.Ok(new { id = staffId, deleted = true });
+        }).RequireAuthorization();
+
         app.MapPost("/api/auth/staff/login", (StaffLoginRequest req, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>
             Login(req, "STAFF", db, repo, ct)).RequireRateLimiting("login");
         app.MapPost("/api/auth/member/login", (StaffLoginRequest req, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>

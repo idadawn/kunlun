@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { KUNLUN_BRAND, KUNLUN_PERMISSIONS as P, isActiveOrder, pathFor, type RoleCode, type WaterOrder } from '@kunlun/shared';
+import { KUNLUN_BRAND, KUNLUN_PERMISSIONS as P, isActiveOrder, pathFor, ticketGroups, type RoleCode, type WaterOrder } from '@kunlun/shared';
 import { ChangePasswordDialog, CounterOrder, Icon, useAuth, useDialogs, useRun, type IconName } from '@kunlun/ui';
 import { OrderCard } from '../shared/OrderCard';
 import { Loading } from '../shared/H5Shell';
@@ -110,9 +110,11 @@ export function StaffMembers() {
             <div><b>{m.name}</b><small>{m.phone} · {m.memberNo}</small></div>
             <span className="tag green" style={{ marginLeft: 'auto' }}>办理 ›</span>
           </div>
+          <div className="wallet-tickets">
+            {m.tickets.length === 0 && <span>暂无水票</span>}
+            {ticketGroups(m.tickets).map(g => <span key={g.waterType}>{g.name}<span>自提 <b>{g.pickup}</b> · 配送 <b>{g.delivery}</b> {g.unit}</span></span>)}
+          </div>
           <div className="wallet-sub">
-            <span>自提/配送桶 <b>{m.bucketPickupTickets}/{m.bucketDeliveryTickets}</b></span>
-            <span>自提/配送袋 <b>{m.bagPickupTickets}/{m.bagDeliveryTickets}</b></span>
             <span>押金 <b>¥{Number(m.depositAmount).toFixed(0)}</b></span>
             <span>持桶/袋 <b>{m.heldBuckets}/{m.heldBags}</b></span>
           </div>

@@ -145,7 +145,7 @@ public sealed class MemberAddressTests(TestHost host)
         Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
         Assert.Contains("收货地址", await refused.Content.ReadAsStringAsync());
         var profile = await c.GetFromJsonAsync<JsonElement>($"/api/members/{id}/profile");
-        Assert.Equal(13, profile.GetProperty("bucketDeliveryTickets").GetInt32());
+        Assert.Equal(13, profile.Tickets("BUCKET_18_9L", "DELIVERY"));
 
         var plan = await Ok(await c.PostAsJsonAsync("/api/plans", new SaveRechargePlanRequest("地址验收自提-" + Key(), "BUCKET_18_9L", "PICKUP", 100, 16, 0)));
         await Ok(await c.PostAsJsonAsync("/api/recharges", new CreateRechargeOrderRequest(id, plan.GetProperty("id").GetGuid(), "CASH", Key())));
@@ -155,7 +155,7 @@ public sealed class MemberAddressTests(TestHost host)
     }
 
     [Fact]
-    public async Task Members_Manage_Only_Their_Own_Addresses_And_Couriers_Cannot_Edit()
+    public async Task Couriers_Cannot_Edit_Addresses_And_Legacy_Text_Becomes_Default()
     {
         using var admin = await Staff(); var (id, _) = await Member(admin);
         using var courier = await Staff("YG0008");
@@ -163,7 +163,7 @@ public sealed class MemberAddressTests(TestHost host)
         Assert.Equal(HttpStatusCode.Forbidden, (await courier.PostAsJsonAsync($"/api/members/{id}/addresses", new SaveMemberAddressRequest("李四", "13600001111", "幸福里", "1-101"))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await courier.DeleteAsync($"/api/members/{id}/addresses/{(await List(admin, id))[0].GetProperty("id")}")).StatusCode);
 
-        // Legacy single-text addresses become the default entry, with the door number left for the member to fill in.
+        // Legacy single-text addresses become the default entry, with the door number left for the store to fill in.
         var zhou = Guid.Parse("20000000-0000-0000-0000-000000008620");
         var legacy = Assert.Single(await List(admin, zhou));
         Assert.Equal("金桂花园 2 栋 101 室", legacy.GetProperty("location").GetString());

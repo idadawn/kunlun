@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { PLAN_CATEGORIES, filterPlans, modeLabel, money, unitOf, type RechargePlan, type WaterProduct } from '@kunlun/shared';
+import { filterPlans, modeLabel, money, planCategories, unitOf, type RechargePlan, type WaterProduct } from '@kunlun/shared';
 import { useApi } from './auth';
 import { Dialog, useDialogs } from './feedback';
 import { Icon } from './icons';
@@ -27,6 +27,8 @@ export function PlanPickerDialog({ selectedId, onClose }: { selectedId?: string 
 
   const active = filterPlans(plans ?? []);
   const results = filterPlans(plans ?? [], category, query);
+  // Only water and mode combinations that have packages to choose from.
+  const categories = planCategories(products).filter(c => c.id === 'ALL' || filterPlans(active, c.id).length);
 
   const confirm = async () => {
     if (!selected || confirming) return;
@@ -45,7 +47,7 @@ export function PlanPickerDialog({ selectedId, onClose }: { selectedId?: string 
       <div className="picker-search"><Icon name="search" /><input type="search" aria-label="搜索启用套餐" placeholder="搜索套餐名称、金额或数量" value={query} onChange={e => setQuery(e.target.value)} /></div>
       <div className="picker-layout">
         <nav className="picker-categories" aria-label="套餐分类">
-          {PLAN_CATEGORIES.map(c => (
+          {categories.map(c => (
             <button key={c.id} type="button" aria-pressed={category === c.id} onClick={() => setCategory(c.id)}>{c.label}<span>{filterPlans(active, c.id).length}</span></button>
           ))}
         </nav>

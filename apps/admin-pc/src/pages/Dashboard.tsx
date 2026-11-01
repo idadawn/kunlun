@@ -1,12 +1,15 @@
-import { KUNLUN_BRAND, money, waterFallbackLabel, type ContainerSummaryItem, type OverviewReport, type WaterOrder } from '@kunlun/shared';
+import { KUNLUN_BRAND, containerOf, money, waterFallbackLabel, type ContainerSummaryItem, type ContainerType, type OverviewReport, type WaterOrder } from '@kunlun/shared';
 import { Icon, useAuth } from '@kunlun/ui';
 import { useExport, useGo, useOperations } from '../common';
 import { useAdminData } from '../data';
 
 const EMPTY_CONTAINER: ContainerSummaryItem = {
   containerType: 'BUCKET', unitDeposit: 0, totalQty: 0, inStationQty: 0, memberHeldQty: 0,
-  damagedQty: 0, scrappedQty: 0, warnThreshold: 0, identityValid: true, lowStockWarning: false,
+  damagedQty: 0, scrappedQty: 0, warnThreshold: 0, unregisteredOutQty: 0, inStationUnknown: false, outUnknown: false, countedAt: null,
+  identityValid: true, lowStockWarning: false,
 };
+/** 店里的数量；盘点时说不清的显示待核实。 */
+const inStore = (c: ContainerSummaryItem) => (c.inStationUnknown ? '待核实' : c.inStationQty);
 
 export function Dashboard() {
   const { user } = useAuth();
@@ -22,7 +25,7 @@ export function Dashboard() {
   const pendingPickup = overview?.pendingPickup ?? orders.filter(o => o.status === 'PENDING' && o.fulfillMode === 'PICKUP').length;
   const dispatched = overview?.dispatched ?? orders.filter(o => o.status === 'DISPATCHED').length;
   const pending = pendingDelivery + pendingPickup + dispatched;
-  const doneQty = (water: WaterOrder['waterType']) => completed.filter(o => o.waterType === water).reduce((s, o) => s + (o.actualQty ?? o.orderQty), 0);
+  const doneQty = (type: ContainerType) => completed.filter(o => containerOf(o.waterType) === type).reduce((s, o) => s + (o.actualQty ?? o.orderQty), 0);
 
   return <>
     <div className="hero-banner">
@@ -48,7 +51,7 @@ export function Dashboard() {
       </div>
       <div className="stat-card">
         <div className="stat-top"><span>已核销用水</span><span className="stat-icon blue"><Icon name="drop" /></span></div>
-        <div className="stat-value">{overview?.completedBuckets ?? doneQty('BUCKET_18_9L')}<small>桶</small> · {overview?.completedBags ?? doneQty('BAG_7_5L')}<small>袋</small></div>
+        <div className="stat-value">{overview?.completedBuckets ?? doneQty('BUCKET')}<small>桶</small> · {overview?.completedBags ?? doneQty('BAG')}<small>袋</small></div>
         <div className="stat-foot">累计完结水单 <b>{overview?.completedOrders ?? completed.length}</b> 笔</div>
       </div>
       <div className="stat-card">
@@ -59,7 +62,7 @@ export function Dashboard() {
       <div className="stat-card">
         <div className="stat-top"><span>会员持有容器</span><span className="stat-icon gold"><Icon name="box" /></span></div>
         <div className="stat-value">{bucket.memberHeldQty}<small>桶</small> / {bag.memberHeldQty}<small>袋</small></div>
-        <div className="stat-foot">站内可用：桶 {bucket.inStationQty} · 袋 {bag.inStationQty}</div>
+        <div className="stat-foot">店里能用：桶 {inStore(bucket)} · 袋 {inStore(bag)}</div>
       </div>
     </div>
 
@@ -77,7 +80,7 @@ export function Dashboard() {
           <div className="todo-item"><div className="todo-symbol"><Icon name="truck" /></div><div className="todo-text"><b>待接单配送</b><small>请及时指派或提醒送水员接单</small></div><span className="todo-num">{pendingDelivery}</span><button type="button" className="text-btn" onClick={() => go('orders')}>处理</button></div>
           <div className="todo-item"><div className="todo-symbol green"><Icon name="store" /></div><div className="todo-text"><b>待确认自提</b><small>会员到店出示取水码后核销</small></div><span className="todo-num">{pendingPickup}</span><button type="button" className="text-btn" onClick={() => go('orders')}>处理</button></div>
           <div className="todo-item"><div className="todo-symbol blue"><Icon name="check" /></div><div className="todo-text"><b>待审核退款</b><small>押金与水费退款须管理员审核后才退</small></div><span className="todo-num">{pendingRefunds ?? '—'}</span><button type="button" className="text-btn" onClick={() => go('refunds')}>审核</button></div>
-          <div className="todo-item"><div className="todo-symbol"><Icon name="box" /></div><div className="todo-text"><b>15L 周转桶库存{bucket.lowStockWarning ? '偏低' : ''}</b><small>当前门店可用 {bucket.inStationQty} 个，预警值 {bucket.warnThreshold}</small></div><button type="button" className="text-btn" onClick={() => go('assets')}>查看</button></div>
+          <div className="todo-item"><div className="todo-symbol"><Icon name="box" /></div><div className="todo-text"><b>周转桶库存{bucket.lowStockWarning ? '偏低' : ''}</b><small>{bucket.inStationUnknown ? '店里的数量待核实，盘点后再看是否偏低' : `当前店里能用 ${bucket.inStationQty} 个，预警值 ${bucket.warnThreshold}`}</small></div><button type="button" className="text-btn" onClick={() => go('inventory')}>盘点</button></div>
         </div>
       </div>
     </div>
@@ -101,8 +104,8 @@ export function Dashboard() {
       <div className="card">
         <div className="card-head"><div className="card-title">容器资产恒等概览 <small>桶、袋独立核算</small></div><button type="button" className="text-btn" onClick={() => go('assets')}>查看台账 ›</button></div>
         <div className="asset-content">
-          <AssetLine label="15L 周转桶" c={bucket} />
-          <div style={{ marginTop: 18 }}><AssetLine label="5L 周转水袋" c={bag} aqua /></div>
+          <AssetLine label="周转桶" c={bucket} />
+          <div style={{ marginTop: 18 }}><AssetLine label="周转水袋" c={bag} aqua /></div>
           <div className={`identity-formula${balanced ? '' : ' warn'}`}><span>{balanced ? '✓ 库存平衡' : '库存不平衡，请核对'}</span><b>现存总量 = 门店可用 + 会员持有 + 待报废</b></div>
         </div>
       </div>
@@ -120,9 +123,9 @@ function OrderTag({ order: o }: { order: WaterOrder }) {
 function AssetLine({ label, c, aqua = false }: { label: string; c: ContainerSummaryItem; aqua?: boolean }) {
   const pct = Math.min(100, Math.round(c.memberHeldQty / Math.max(1, c.totalQty) * 100));
   return <>
-    <div className="asset-line"><span>{label}</span><span>会员持有 <b>{c.memberHeldQty}</b> / 总量 <b>{c.totalQty}</b></span></div>
+    <div className="asset-line"><span>{label}</span><span>会员持有 <b>{c.memberHeldQty}</b> / 总量 <b>{c.inStationUnknown || c.outUnknown ? '至少 ' : ''}{c.totalQty}</b></span></div>
     <div className="progress"><i style={{ width: `${Math.max(4, pct)}%`, ...(aqua ? { background: 'var(--grad-aqua)' } : {}) }} /></div>
-    <div className="asset-meta"><span>门店可用 {c.inStationQty}</span><span>待报废 {c.damagedQty}</span><span>累计报废 {c.scrappedQty}</span></div>
+    <div className="asset-meta"><span>店里能用 {inStore(c)}</span><span>待报废 {c.damagedQty}</span><span>累计报废 {c.scrappedQty}</span></div>
   </>;
 }
 

@@ -10,17 +10,19 @@ export interface AreaRoutes {
 export const WEB_ROUTES: Record<AppArea, AreaRoutes> = {
   admin: {
     home: 'dashboard',
-    pages: ['dashboard', 'members', 'orders', 'recharges', 'deposits', 'refunds', 'inventory', 'assets', 'products', 'plans', 'coupons', 'staff-accounts'],
-    // finance 是充值、押金分页前的合并页地址，旧链接落到水费充值。
-    aliases: { settings: 'plans', 'deposit-settings': 'products', finance: 'recharges' },
+    pages: ['dashboard', 'members', 'orders', 'recharges', 'deposits', 'refunds', 'inventory', 'assets', 'products', 'plans', 'staff-accounts'],
+    // finance 是充值、押金分页前的合并页地址，旧链接落到水费充值；优惠券已取消，旧链接落到充值套餐。
+    aliases: { settings: 'plans', 'deposit-settings': 'products', finance: 'recharges', coupons: 'plans' },
   },
   staff: {
     home: 'home',
     pages: ['home', 'order', 'orders', 'members', 'profile'],
   },
+  // 会员端只查记录：点单和地址页已取消，旧链接分别落到首页和个人中心。
   member: {
     home: 'home',
-    pages: ['home', 'order', 'orders', 'assets', 'records', 'profile', 'addresses'],
+    pages: ['home', 'orders', 'assets', 'records', 'profile'],
+    aliases: { order: 'home', addresses: 'profile' },
   },
 };
 

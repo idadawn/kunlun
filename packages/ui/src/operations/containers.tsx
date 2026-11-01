@@ -6,7 +6,7 @@ import { useIdempotencyKey } from '../hooks';
 import { Icon } from '../icons';
 import { MemberPicker, PayOptions, ReasonChips, UnavailableDialog, errorText, usePickedMember, type Done } from './common';
 
-const ContainerOptions = () => <><option value="BUCKET">15L 周转桶</option><option value="BAG">5L 周转水袋</option></>;
+const ContainerOptions = () => <><option value="BUCKET">周转桶</option><option value="BAG">周转水袋</option></>;
 
 export type DepositAction = 'collect' | 'refund';
 

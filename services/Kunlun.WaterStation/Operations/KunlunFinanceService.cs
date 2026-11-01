@@ -7,7 +7,7 @@ namespace Kunlun.WaterStation.Operations;
 public sealed record CreateMemberRequest(string Name, string Phone, string? DefaultAddress, string? Remark, string? DoorNo = null);
 public sealed record SaveRechargePlanRequest(
     string Name,
-    string WaterType,     // BUCKET_18_9L | BAG_7_5L
+    string WaterType,     // a water product code, e.g. BUCKET_18_9L
     string FulfillMode,   // DELIVERY | PICKUP
     decimal Price,
     int BuyQty,
@@ -19,8 +19,7 @@ public sealed record CreateRechargeOrderRequest(
     Guid PlanId,
     string PayMethod,
     string IdempotencyKey,
-    string? Remark = null,
-    Guid? CouponId = null);
+    string? Remark = null);
 
 public sealed record CollectDepositRequest(
     Guid MemberId,
@@ -161,7 +160,7 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
             await cmd.ExecuteNonQueryAsync(ct);
         }
 
-        // Fixed quantities are all paid tickets; promotional gifts belong to coupons.
+        // Fixed quantities are all paid tickets; packages carry no gifts.
         var plans = WaterProducts.PostedPlans;
         await using (var upgrade = new NpgsqlCommand("""
             CREATE TABLE IF NOT EXISTS plugin_kunlun_waterstation.finance_migrations (tenant_id UUID NOT NULL,name TEXT NOT NULL,PRIMARY KEY(tenant_id,name));
@@ -244,14 +243,4 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
 
         await tx.CommitAsync(ct);
     }
-
-    public static string GetTicketColumn(string waterType, string fulfillMode) =>
-        (waterType, fulfillMode) switch
-        {
-            ("BUCKET_18_9L", "DELIVERY") => "bucket_delivery_tickets",
-            ("BUCKET_18_9L", "PICKUP") => "bucket_pickup_tickets",
-            ("BAG_7_5L", "PICKUP") => "bag_pickup_tickets",
-            ("BAG_7_5L", "DELIVERY") => "bag_delivery_tickets",
-            _ => throw new ArgumentException($"Unsupported ticket category: {waterType} + {fulfillMode}")
-        };
 }

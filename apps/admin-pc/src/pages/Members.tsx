@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
-import { KUNLUN_PERMISSIONS as P, containerLabel, money, pageCount, shortDateTime, type DepositSummaryRow, type MemberProfile } from '@kunlun/shared';
+import {
+  KUNLUN_PERMISSIONS as P, containerLabel, containerTickets, money, pageCount, shortDateTime, ticketGroups,
+  type DepositSummaryRow, type MemberProfile, type MemberTicket,
+} from '@kunlun/shared';
 import { AddressBook, CredentialsDialog, Icon, useAuth, useDialogs, useLoader } from '@kunlun/ui';
 import { EmptyRow, Pager, useExport, useOperations } from '../common';
 import { MEMBER_PAGE_SIZE, useAdminData, type MemberFilter } from '../data';
@@ -11,8 +14,15 @@ const PALETTE = [
   { background: 'var(--violet-50)', color: 'var(--violet-500)' },
   { background: 'var(--orange-50)', color: 'var(--orange-500)' },
 ];
-const bucketTickets = (m: MemberProfile) => m.bucketPickupTickets + m.bucketDeliveryTickets;
-const bagTickets = (m: MemberProfile) => m.bagPickupTickets + m.bagDeliveryTickets;
+
+/** Each water product on its own line: 自提 / 配送 balances, plus tickets held by open orders. */
+function TicketCell({ tickets }: { tickets: MemberTicket[] }) {
+  const groups = ticketGroups(tickets);
+  if (!groups.length) return <span style={{ color: 'var(--muted)' }}>暂无水票</span>;
+  return <>{groups.map(g => (
+    <div key={g.waterType} className="ticket-line"><small>{g.name}</small><b>{g.pickup}</b> / <b>{g.delivery}</b> {g.unit}{g.reserved > 0 && <> <span className="tag orange">预占 {g.reserved}</span></>}</div>
+  ))}</>;
+}
 
 export function Members() {
   const { members: rows, memberTotal, loaded, overview, memberQuery, setMemberQuery, memberFilter, setMemberFilter, memberPage, setMemberPage, setSelectedMemberId } = useAdminData();
@@ -20,7 +30,7 @@ export function Members() {
   const exportCsv = useExport();
   const [openId, setOpenId] = useState<string | null>(null);
   const open = rows.find(m => m.id === openId);
-  const withTickets = rows.filter(m => bucketTickets(m) + bagTickets(m) > 0).length;
+  const withTickets = rows.filter(m => m.tickets.some(t => t.available > 0)).length;
   const withContainers = rows.filter(m => m.heldBuckets + m.heldBags > 0).length;
   const filtered = !!(memberQuery.trim() || memberFilter.status || memberFilter.water);
   const filter = (key: keyof MemberFilter, value: string) => setMemberFilter({ ...memberFilter, [key]: value || undefined });
@@ -31,9 +41,8 @@ export function Members() {
 
   return <>
     <div className="page-head">
-      <div><h2>会员管理</h2><p>集中查询会员四类水票、押金余额、实际持有桶袋、收货地址与历史变动流水</p></div>
+      <div><h2>会员管理</h2><p>集中查询会员各水品水票、押金余额、实际持有桶袋、收货地址与历史变动流水</p></div>
       <div className="head-actions">
-        <button type="button" className="btn" onClick={() => ops.issueCoupon()}>发放优惠券</button>
         <button type="button" className="btn primary" onClick={() => ops.newMember()}><Icon name="plus" />新建会员</button>
       </div>
     </div>
@@ -45,8 +54,8 @@ export function Members() {
     </div>
     <div className="filter-card">
       <label className="field-search"><Icon name="search" /><input placeholder="搜索姓名、手机号或会员编号" aria-label="搜索会员" value={memberQuery} onChange={e => setMemberQuery(e.target.value)} /></label>
-      <select className="select" aria-label="水品偏好" value={memberFilter.water ?? ''} onChange={e => filter('water', e.target.value)}>
-        <option value="">全部水品偏好</option><option value="BUCKET">15L 桶装水</option><option value="BAG">5L 袋装水</option>
+      <select className="select" aria-label="水票" value={memberFilter.water ?? ''} onChange={e => filter('water', e.target.value)}>
+        <option value="">全部水票</option><option value="BUCKET">有桶装水票</option><option value="BAG">有袋装水票</option>
       </select>
       <select className="select" aria-label="会员状态" value={memberFilter.status ?? ''} onChange={e => filter('status', e.target.value)}>
         <option value="">全部状态</option><option value="ACTIVE">正常</option><option value="DISABLED">已停用</option>
@@ -58,24 +67,20 @@ export function Members() {
       <div className="table-toolbar"><div><b>会员列表</b><small>{filtered ? `符合条件 ${memberTotal} 位会员` : `共 ${memberTotal} 位会员`} · 可按姓名、手机号或会员编号搜索</small></div></div>
       <div style={{ overflowX: 'auto' }}>
         <table>
-          <thead><tr><th>会员</th><th>联系电话</th><th>默认收货地址</th><th>自提/配送桶票</th><th>自提/配送袋票</th><th>押金余额</th><th>持有桶 / 袋</th><th>建档时间</th><th>操作</th></tr></thead>
+          <thead><tr><th>会员</th><th>联系电话</th><th>默认收货地址</th><th>水票（自提 / 配送）</th><th>押金余额</th><th>持有桶 / 袋</th><th>建档时间</th><th>操作</th></tr></thead>
           <tbody>
-            {rows.length === 0 ? <EmptyRow colSpan={9}>{loaded ? '没有符合条件的会员' : '正在加载会员…'}</EmptyRow> : rows.map((m, i) => {
-              const reserved = m.reservedBucketDeliveryTickets + m.reservedBucketPickupTickets;
-              return (
-                <tr key={m.id}>
-                  <td><div className="member-cell"><div className="member-avatar" style={PALETTE[i % PALETTE.length]}>{m.name[0]}</div><div><b>{m.name}</b><small>{m.memberNo}</small></div></div></td>
-                  <td>{m.phone}</td>
-                  <td style={{ whiteSpace: 'normal', minWidth: 180, maxWidth: 260 }}>{m.defaultAddress || <span style={{ color: 'var(--muted)' }}>未设置</span>}</td>
-                  <td><b>{m.bucketPickupTickets}</b> / <b>{m.bucketDeliveryTickets}</b> 桶{reserved > 0 && <> <span className="tag orange">预占 {reserved}</span></>}</td>
-                  <td><b>{m.bagPickupTickets}</b> / <b>{m.bagDeliveryTickets}</b> 袋</td>
-                  <td>¥ {money(m.depositAmount)}</td>
-                  <td>{m.heldBuckets} 桶 / {m.heldBags} 袋</td>
-                  <td>{(m.createdAt || '').slice(0, 10) || '—'}</td>
-                  <td><button type="button" className="link" onClick={() => { setOpenId(m.id); setSelectedMemberId(m.id); }}>360° 详情</button></td>
-                </tr>
-              );
-            })}
+            {rows.length === 0 ? <EmptyRow colSpan={8}>{loaded ? '没有符合条件的会员' : '正在加载会员…'}</EmptyRow> : rows.map((m, i) => (
+              <tr key={m.id}>
+                <td><div className="member-cell"><div className="member-avatar" style={PALETTE[i % PALETTE.length]}>{m.name[0]}</div><div><b>{m.name}</b><small>{m.memberNo}</small></div></div></td>
+                <td>{m.phone}</td>
+                <td style={{ whiteSpace: 'normal', minWidth: 180, maxWidth: 260 }}>{m.defaultAddress || <span style={{ color: 'var(--muted)' }}>未设置</span>}</td>
+                <td><TicketCell tickets={m.tickets} /></td>
+                <td>¥ {money(m.depositAmount)}</td>
+                <td>{m.heldBuckets} 桶 / {m.heldBags} 袋</td>
+                <td>{(m.createdAt || '').slice(0, 10) || '—'}</td>
+                <td><button type="button" className="link" onClick={() => { setOpenId(m.id); setSelectedMemberId(m.id); }}>360° 详情</button></td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -107,6 +112,7 @@ function MemberDrawer({ member: m, onClose }: { member: MemberProfile; onClose: 
   }, [onClose]);
 
   const recent = recharges.data?.rows.filter(r => r.memberNo === m.memberNo) ?? [];
+  const tickets = ticketGroups(m.tickets);
   const refundable = deposits ? deposits.reduce((sum, r) => sum + Number(r.refundableAmount), 0) : null;
   const pendingDamage = deposits?.reduce((sum, r) => sum + r.pendingDamageQty, 0) ?? 0;
   return (
@@ -120,8 +126,8 @@ function MemberDrawer({ member: m, onClose }: { member: MemberProfile; onClose: 
             <span className={`tag ${m.status === 'ACTIVE' ? 'green' : 'gray'}`} style={{ marginLeft: 'auto' }}>{m.status === 'ACTIVE' ? '正常' : '停用'}</span>
           </div>
           <div className="profile-stats">
-            <div><b>{bucketTickets(m)}</b><small>桶装水票</small></div>
-            <div><b>{bagTickets(m)}</b><small>袋装水票</small></div>
+            <div><b>{containerTickets(m.tickets, 'BUCKET')}</b><small>桶装水票</small></div>
+            <div><b>{containerTickets(m.tickets, 'BAG')}</b><small>袋装水票</small></div>
             <div><b>¥{Number(m.depositAmount).toFixed(0)}</b><small>押金余额</small></div>
             <div><b>{m.heldBuckets} / {m.heldBags}</b><small>持有桶/袋</small></div>
           </div>
@@ -143,9 +149,10 @@ function MemberDrawer({ member: m, onClose }: { member: MemberProfile; onClose: 
             <AddressBook key={m.id} owner={m} onChanged={refresh} compact />
           </div>
           <div className="detail-card">
-            <div className="detail-card-head"><h4>水票与充值</h4><button type="button" className="text-btn" onClick={() => ops.assets(m)}>水票批次 / 优惠券 / 退款 ›</button></div>
-            <div className="detail-row"><span>自提桶票 / 配送桶票</span><b>{m.bucketPickupTickets} 桶 / {m.bucketDeliveryTickets} 桶（预占 {m.reservedBucketDeliveryTickets + m.reservedBucketPickupTickets}）</b></div>
-            <div className="detail-row"><span>自提袋票 / 配送袋票</span><b>{m.bagPickupTickets} 袋 / {m.bagDeliveryTickets} 袋（预占 {m.reservedBagPickupTickets + m.reservedBagDeliveryTickets}）</b></div>
+            <div className="detail-card-head"><h4>水票与充值</h4><button type="button" className="text-btn" onClick={() => ops.assets(m)}>水票批次 / 退款 ›</button></div>
+            {tickets.length
+              ? tickets.map(g => <div key={g.waterType} className="detail-row"><span>{g.name}</span><b>自提 {g.pickup} / 配送 {g.delivery} {g.unit}{g.reserved > 0 ? `（预占 ${g.reserved}）` : ''}</b></div>)
+              : <p className="membership-note">暂无水票</p>}
             {reports && (recent.length
               ? recent.map(r => <div key={r.rechargeNo} className="detail-row"><span>{shortDateTime(r.createdAt)} 充值</span><b>{r.planName} · ¥{money(r.paidAmount)}{r.refundNo ? '（已退）' : ''}</b></div>)
               : <p className="membership-note">暂无充值记录</p>)}

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Npgsql;
@@ -24,6 +25,13 @@ public sealed class TestHost : WebApplicationFactory<Program>
         Set("Kunlun__Jwt__SigningKey", Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"));
         Set("Kunlun__SeedDemoData", "true"); Set("Kunlun__SeedPassword", Password);
     }
+    /// <summary>This run's own database, for seeding history the API no longer creates (e.g. gift tickets from retired coupons).</summary>
+    public NpgsqlConnection OpenDatabase()
+    {
+        var conn = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(connection) { Database = database }.ConnectionString);
+        conn.Open();
+        return conn;
+    }
     private void Set(string key, string value)
     {
         previous[key] = Environment.GetEnvironmentVariable(key);
@@ -38,4 +46,13 @@ public sealed class TestHost : WebApplicationFactory<Program>
         using var cmd = new NpgsqlCommand($"DROP DATABASE IF EXISTS {database} WITH (FORCE)", conn); cmd.ExecuteNonQuery();
         foreach (var (key, value) in previous) Environment.SetEnvironmentVariable(key, value);
     }
+}
+
+public static class ProfileTickets
+{
+    /// <summary>A member's available (or reserved) tickets of one water product and mode, from a profile or member row; none means zero.</summary>
+    public static int Tickets(this JsonElement member, string water, string mode, bool reserved = false) =>
+        member.GetProperty("tickets").EnumerateArray()
+            .Where(t => t.GetProperty("waterType").GetString() == water && t.GetProperty("fulfillMode").GetString() == mode)
+            .Select(t => t.GetProperty(reserved ? "reserved" : "available").GetInt32()).SingleOrDefault();
 }

@@ -58,6 +58,10 @@
 .member-cell small{color:var(--muted);font-size:11.5px}
 .wallet-sub{display:flex;justify-content:space-between;margin-top:10px;padding-top:9px;border-top:1px solid var(--line-soft);font-size:12px;color:var(--muted)}
 .wallet-sub b{color:var(--ink);font-family:var(--font-num)}
+.wallet-tickets{display:flex;flex-direction:column;gap:3px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line-soft);font-size:12px;color:var(--muted)}
+.wallet-tickets>span{display:flex;justify-content:space-between;gap:10px}
+.wallet-tickets b{color:var(--ink);font-family:var(--font-num)}
+.wallet-tickets+.wallet-sub{border-top:0;margin-top:6px;padding-top:0}
 
 .member-ledgers{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .member-ledgers section{display:flex;flex-direction:column;gap:4px;padding:12px;border-radius:14px;background:var(--brand-50);color:var(--brand-700);min-width:0}

@@ -1,5 +1,5 @@
-// Stable legacy account keys; physical capacity is supplied by /api/products.
-export type WaterType = 'BUCKET_18_9L' | 'BAG_7_5L';
+/** A water product code from /api/products: BUCKET_18_9L and BAG_7_5L for the two original products, generated codes for added ones. */
+export type WaterType = string;
 export type FulfillMode = 'DELIVERY' | 'PICKUP';
 export type ContainerType = 'BUCKET' | 'BAG';
 export type RoleCode = 'ADMIN' | 'CLERK' | 'COURIER' | 'MEMBER';
@@ -39,21 +39,27 @@ export interface MemberProfile {
   phone: string;
   /** Display text of the default delivery address; empty when the member has none. */
   defaultAddress: string;
-  bucketDeliveryTickets: number;
-  bucketPickupTickets: number;
-  bagPickupTickets: number;
-  bagDeliveryTickets: number;
+  /** Non-empty balances, oldest product first; a product and mode missing here has no tickets. */
+  tickets: MemberTicket[];
   depositAmount: number;
   heldBuckets: number;
   heldBags: number;
   status: ActiveStatus;
-  reservedBucketDeliveryTickets: number;
-  reservedBucketPickupTickets: number;
-  reservedBagPickupTickets: number;
-  reservedBagDeliveryTickets: number;
   createdAt?: string;
   /** Staff note recorded when the member was created; null when none. */
   remark?: string | null;
+}
+
+/** Tickets of one water product for one fulfilment mode; tickets of one product never pay for another. */
+export interface MemberTicket {
+  waterType: WaterType;
+  name: string;
+  containerType: ContainerType;
+  unit: '桶' | '袋';
+  fulfillMode: FulfillMode;
+  available: number;
+  /** Held by orders that are not fulfilled yet. */
+  reserved: number;
 }
 
 /** 会员收货地址：收货地址 + 门牌号 + 联系人 + 手机号，每位会员最多一个默认地址。 */
@@ -88,6 +94,18 @@ export interface WaterProduct {
   retailPrice: number | null;
   deliveryMinimum: number;
   deliveryFee: number;
+  /** The reusable container (and deposit) this water travels in; chosen when the product is added and fixed after. */
+  containerType: ContainerType;
+}
+
+export interface SaveWaterProductRequest {
+  name: string;
+  capacityLiters: number;
+  packaging: string;
+  retailPrice: number | null;
+  deliveryMinimum: number;
+  /** Required when adding a product; an edit keeps the container. */
+  containerType?: ContainerType;
 }
 
 export interface RechargePlan {
@@ -117,6 +135,8 @@ export interface OrderProductSnapshot {
   capacityLiters: number;
   deliveryMinimum: number;
   deliveryFee: number;
+  /** Absent on orders placed before water products could be added. */
+  containerType?: ContainerType;
 }
 
 export interface WaterOrder {
@@ -177,17 +197,29 @@ export interface FulfillOrderRequest {
   diffReason?: string | null;
 }
 
-/** 现存总量 = 门店可用 + 会员持有 + 待报废；库存只经入库增加、报废减少，累计报废另计。 */
+/**
+ * 现存总量 = 门店可用 + 会员持有 + 待报废 + 客户手里未登记；累计报废另计。
+ * 盘点时答"说不清"的项目是待核实：数字只是上次记下的参考，现存总量也就说不准。
+ */
 export interface ContainerSummaryItem {
   containerType: ContainerType;
   unitDeposit: number;
   totalQty: number;
   inStationQty: number;
+  /** 登记在具体会员名下的数量。 */
   memberHeldQty: number;
   /** 会员破损归还、尚未确认报废扣押金的数量。 */
   damagedQty: number;
   scrappedQty: number;
   warnThreshold: number;
+  /** 盘点时客户手里比会员名下登记多出来、还没登记到人的数量。 */
+  unregisteredOutQty: number;
+  /** 店里的数量待核实。 */
+  inStationUnknown: boolean;
+  /** 客户手里的数量待核实。 */
+  outUnknown: boolean;
+  /** 最近一次盘点时间。 */
+  countedAt: string | null;
   identityValid: boolean;
   lowStockWarning: boolean;
 }
@@ -250,8 +282,6 @@ export interface RechargeLedgerRow {
   payMethod: PayMethod;
   operatorName: string;
   createdAt: string;
-  /** The coupon redeemed with this recharge, if any. */
-  couponName: string | null;
   /** Set once the batch's remaining tickets were refunded. */
   refundNo: string | null;
   refundAmount: number | null;
@@ -322,7 +352,7 @@ export interface MemberQuery extends PageQuery {
   /** Matches member number, name or phone. */
   q?: string;
   status?: ActiveStatus;
-  /** Members who still hold tickets of this kind. */
+  /** Members holding usable tickets of any water carried in this kind of container. */
   water?: ContainerType;
 }
 
@@ -377,44 +407,6 @@ export interface TicketBatch {
   pendingRequestNo: string | null;
 }
 
-export interface CouponTemplate {
-  id: string;
-  name: string;
-  planId: string;
-  giftQty: number;
-  startsAt: string;
-  expiresAt: string;
-  perMemberLimit: number;
-  status: ActiveStatus;
-}
-
-export interface SaveCouponTemplateRequest {
-  name: string;
-  planId: string;
-  giftQty: number;
-  startsAt: string;
-  expiresAt: string;
-  perMemberLimit: number;
-  status: ActiveStatus;
-}
-
-export interface MemberCoupon {
-  id: string;
-  status: 'AVAILABLE' | 'USED' | string;
-  rechargeId: string | null;
-  snapshot: {
-    name: string;
-    planId: string;
-    giftQty: number;
-    startsAt: string;
-    expiresAt: string;
-    waterType: WaterType;
-    fulfillMode: FulfillMode;
-    price: number;
-    fixedQty: number;
-  };
-}
-
 export interface DepositSummaryRow {
   /** Current standard for estimating the next hand-over; historical lots keep their original prices. */
   unitDeposit: number;
@@ -442,7 +434,7 @@ export interface StaffAccount {
 
 export type InventoryAction = 'RECEIVE' | 'SCRAP';
 /** EXTERNAL：入库；AVAILABLE：门店报废；DAMAGED：会员破损确认报废。早期记录可能带有已停用的来源。 */
-export type InventorySource = 'EXTERNAL' | 'AVAILABLE' | 'DAMAGED';
+export type InventorySource = 'EXTERNAL' | 'AVAILABLE' | 'DAMAGED' | 'COUNT';
 
 /** 入库计入门店可用，报废从门店可用扣减。 */
 export interface InventoryRequest {
@@ -459,13 +451,36 @@ export interface InventoryBalance {
   memberHeldQty: number;
   damagedQty: number;
   scrappedQty: number;
+  /** Absent on operations recorded before stock-takes existed. */
+  unregisteredOutQty?: number;
+  inStationUnknown?: boolean;
+  outUnknown?: boolean;
+}
+
+/** 盘点：null 表示"说不清"，记为待核实；scrapQty 是店里坏了要报废的，不含在店里能用的里面。 */
+export interface StocktakeRequest {
+  containerType: ContainerType;
+  inStationQty: number | null;
+  withCustomersQty: number | null;
+  scrapQty: number;
+  idempotencyKey: string;
+  note?: string;
+}
+
+/** What was answered in a stock-take, next to what members were registered as holding at that moment. */
+export interface StocktakeAnswers {
+  inStationQty: number | null;
+  withCustomersQty: number | null;
+  registeredHeldQty: number;
+  scrapQty: number;
 }
 
 export interface InventoryOperation {
   id: string;
   operationNo: string;
   containerType: ContainerType;
-  action: InventoryAction;
+  /** COUNT is a stock-take; RECEIVE and SCRAP are single stock changes. */
+  action: InventoryAction | 'COUNT';
   sourceState: InventorySource;
   quantity: number;
   deltaTotal: number;
@@ -474,6 +489,8 @@ export interface InventoryOperation {
   operatorName: string;
   before: InventoryBalance;
   after: InventoryBalance;
+  /** Set on stock-takes (action COUNT). */
+  counted?: StocktakeAnswers | null;
   createdAt: string;
 }
 

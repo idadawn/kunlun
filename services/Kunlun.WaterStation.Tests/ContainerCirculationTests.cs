@@ -49,7 +49,7 @@ public sealed class ContainerCirculationTests(TestHost host)
         await Ok(await c.PostAsJsonAsync("/api/containers/movements",new RegisterContainerMovementRequest(mid,"BAG",2,0,IdempotencyKey:Key())));
         var before=await Stock(c,"BAG");var financeBefore=await c.GetFromJsonAsync<JsonElement>("/api/reports/finance-summary");
         var report=await Report(c,mid,2);var id=report.GetProperty("id").GetGuid();Assert.Equal(35m,Money(report,"depositAmount"));
-        var profile=await Profile(c,mid);Assert.Equal(0,Q(profile,"heldBags"));Assert.Equal(40m,Money(profile,"depositAmount"));Assert.Equal(0,Q(profile,"bagPickupTickets"));
+        var profile=await Profile(c,mid);Assert.Equal(0,Q(profile,"heldBags"));Assert.Equal(40m,Money(profile,"depositAmount"));Assert.Equal(0,profile.Tickets("BAG_7_5L", "PICKUP"));
         var reserved=await Deposit(c,mid);Assert.Equal(2,Q(reserved,"pendingDamageQty"));Assert.Equal(1,Q(reserved,"refundableQty"));Assert.Equal(5m,Money(reserved,"refundableAmount"));
         var now=await Stock(c,"BAG");Assert.Equal(Q(before,"totalQty"),Q(now,"totalQty"));Assert.Equal(Q(before,"damagedQty")+2,Q(now,"damagedQty"));
         await Ok(await c.PostAsJsonAsync("/api/deposits/refund",new RefundDepositRequest(mid,"BAG",1,Key())));

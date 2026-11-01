@@ -1,11 +1,11 @@
-# 小程序独立测试服务
+# 独立测试服务
 
 固定入口：`https://kunlun-test.idalee.cn`，管理端 `/admin`；与 `kunlun.idalee.cn` 的业务数据隔离。
 
 - al 部署目录 `/opt/kunlun-test`，Compose 项目 `kunlun-test`。
 - 独立 PostgreSQL 数据卷和数据库 `kunlun_test`、账号 `kunlun_test_app`、JWT 密钥及 issuer/audience。数据库不开放公网端口。
 - 宿主机诊断口 `127.0.0.1:18086`，既有 Caddy 经 `kunlun-test-web:8080` 代理 HTTPS。
-- `ASPNETCORE_ENVIRONMENT=Testing`、`MiniPayments:Mode=Mock`；使用真实数据库事务模拟支付，无微信扣款。`SeedDemoData=false`，初始化通过业务 API 完成。
+- `ASPNETCORE_ENVIRONMENT=Testing`，`SeedDemoData=false`，初始化通过业务 API 完成。系统不接收线上付款，钱款均在店里线下收取后记账。
 
 ## 构建与发布
 
@@ -30,7 +30,7 @@ KUNLUN_ADMIN_PASSWORD=独立随机密码
 RELEASE_DIR=/opt/kunlun-test/releases/SOURCE_SHA
 ```
 
-镜像需固定 digest，可复用 al 上已验证的基础镜像。先运行 Compose `config --quiet` 再 `up -d --wait`。网关备份后添加 `Caddyfile.fragment`，通过 `caddy validate` 后用现有 Caddy 的 `USR1` 信号重读配置，保持原站点不变。HTTP 网关添加 `http-redirect.conf`，通过 `nginx -t` 后热加载。不要对正式库启用 Mock。
+镜像需固定 digest，可复用 al 上已验证的基础镜像。先运行 Compose `config --quiet` 再 `up -d --wait`。网关备份后添加 `Caddyfile.fragment`，通过 `caddy validate` 后用现有 Caddy 的 `USR1` 信号重读配置，保持原站点不变。HTTP 网关添加 `http-redirect.conf`，通过 `nginx -t` 后热加载。
 
 ## 测试账号初始化
 
@@ -40,29 +40,12 @@ RELEASE_DIR=/opt/kunlun-test/releases/SOURCE_SHA
 node deploy/test/seed.mjs PRIVATE_ACCESS_JSON
 ```
 
-该脚本只接受固定的测试域名，并核对 `/api/mini-config` 的测试标记和 MOCK 能力；创建店员和两名测试会员，通过业务接口一次性登记初始水票、押金及袋桶入库。幂等键避免重跑重复赠票或重复入库。再次部署保留数据，不清空数据库、不覆盖已有账号密码。
-
-## 小程序接入与验收
-
-测试号后台的 **request 合法域名**加入 `https://kunlun-test.idalee.cn`，保留 HTTPS、TLS 和证书校验。小程序不需要 AppSecret 或商户密钥。当前使用门店开通的账号密码，尚未实现微信身份绑定。
-
-```sh
-KUNLUN_MINI_MODE=api \
-KUNLUN_MINI_APPID=自己的测试AppID \
-KUNLUN_MINI_API_BASE=https://kunlun-test.idalee.cn \
-pnpm --filter @kunlun/wechat-mini build
-node apps/wechat-mini/scripts/verify-backend.cjs PRIVATE_ACCESS_JSON
-```
-
-验收脚本加载**实际打包的小程序 API 模块**，以各自独立的存储和会话模拟多部手机，`wx.request` 桥接到真实 HTTPS 服务。验证登录、跨端地址和订单可见、模拟支付取消/失败/成功、重复入账保护、接单/交付/取消、零售补差、押金幂等收取、会员数据隔离和退出失效。它只修改测试库，保留完成/取消的验收水单供查看；不会调用微信收款。
-
-只通过接口测试不代表已完成手机验收。还需在微信开发者工具以保留域名校验的 API 构建登录，生成预览码，在手机上核对真实网络及页面行为。
+该脚本只接受固定的测试域名，并通过 `/healthz` 核对连接的是 `kunlun_test` 测试库；创建店员和两名测试会员，通过业务接口一次性登记初始水票、押金及袋桶入库。幂等键避免重跑重复赠票或重复入库。再次部署保留数据，不清空数据库、不覆盖已有账号密码。
 
 ## 回退与诊断
 
 ```sh
 ssh al 'cd /opt/kunlun-test && docker compose ps'
-curl -fsS https://kunlun-test.idalee.cn/api/mini-config
 curl -fsS https://kunlun-test.idalee.cn/healthz
 ```
 

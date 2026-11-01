@@ -29,7 +29,6 @@ export function Recharges() {
     <div className="page-head">
       <div><h2>水费充值</h2><p>登记线下收取的水费并按套餐发放水票；押金在「押金管理」单独收退，不计入水费、不触发赠水</p></div>
       <div className="head-actions">
-        <button type="button" className="btn" onClick={() => ops.issueCoupon()}>发放优惠券</button>
         <button type="button" className="btn primary" onClick={() => ops.recharge()}><Icon name="plus" />水费充值登记</button>
       </div>
     </div>
@@ -76,7 +75,7 @@ function RechargeTable({ filter, filtered }: { filter: RechargeLedgerQuery; filt
                 <tr key={r.rechargeNo}>
                   <td><span className="order-no">{r.rechargeNo}</span><br /><small>{shortDateTime(r.createdAt)}</small></td>
                   <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>
-                  <td>{r.planName}{r.couponName && <><br /><small>用券：{r.couponName}</small></>}</td>
+                  <td>{r.planName}</td>
                   <td><b>¥ {money(r.paidAmount)}</b></td>
                   <td>付费 {r.buyQty}{r.giftQty > 0 && <> + 赠 {r.giftQty}</>} {unit}</td>
                   <td>{payMethodLabel(r.payMethod)}</td>
@@ -134,7 +133,6 @@ function RechargeDetailDialog({ row: r, onClose }: { row: RechargeLedgerRow; onC
         <div className="detail-row"><span>水品与方式</span><b>{r.planSnapshot.waterLabel || waterFallbackLabel(r.planSnapshot.waterType)} · {modeLabel(r.planSnapshot.fulfillMode)}</b></div>
         <div className="detail-row"><span>水费实收</span><b>¥ {money(r.paidAmount)} · {payMethodLabel(r.payMethod)}</b></div>
         <div className="detail-row"><span>到账水票</span><b>付费 {r.buyQty} + 赠送 {r.giftQty} = 共 {r.buyQty + r.giftQty} {unit}</b></div>
-        <div className="detail-row"><span>优惠券</span><b>{r.couponName ?? '未使用'}</b></div>
         <div className="detail-row"><span>经办人</span><b>{r.operatorName}</b></div>
         {r.refundNo && <div className="detail-row"><span>退清剩余权益</span><b>{r.refundNo} · 退 ¥{money(r.refundAmount ?? 0)}{r.refundedAt ? ` · ${shortDateTime(r.refundedAt)}` : ''}</b></div>}
       </div>

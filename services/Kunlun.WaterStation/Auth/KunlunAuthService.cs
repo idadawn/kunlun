@@ -133,6 +133,7 @@ public sealed class KunlunAuthRepository(NpgsqlDataSource dataSource, IConfigura
                 phone VARCHAR(20) NOT NULL,
                 wx_openid VARCHAR(64),
                 default_address TEXT,
+                -- Original ticket balances; MemberTickets.EnsureSchema moves them to member_tickets and drops them on first start.
                 bucket_delivery_tickets INT NOT NULL DEFAULT 0 CHECK (bucket_delivery_tickets >= 0),
                 bucket_pickup_tickets INT NOT NULL DEFAULT 0 CHECK (bucket_pickup_tickets >= 0),
                 bag_pickup_tickets INT NOT NULL DEFAULT 0 CHECK (bag_pickup_tickets >= 0),
@@ -235,13 +236,24 @@ public sealed class KunlunAuthRepository(NpgsqlDataSource dataSource, IConfigura
             (Id: Guid.Parse("20000000-0000-0000-0000-000000008620"), No: "No.008620", Name: "周明", Phone: "13911223344", Addr: "金桂花园 2 栋 101 室", BDeliv: 0, BPick: 0, BagPick: 12, Dep: 30.00m, HBucket: 0, HBag: 1)
         };
 
+        // A fresh database still has the original ticket columns, which the ticket migration later in this start moves;
+        // once they are gone the demo members already exist and keep their balances.
+        bool ticketColumns;
+        await using (var check = new NpgsqlCommand("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='plugin_kunlun_waterstation' AND table_name='members' AND column_name='bucket_delivery_tickets')", conn, tx))
+            ticketColumns = (bool)(await check.ExecuteScalarAsync(ct))!;
         foreach (var m in memberSeeds)
         {
-            const string upsertMember = """
+            var upsertMember = ticketColumns ? """
                 INSERT INTO plugin_kunlun_waterstation.members
                     (id, tenant_id, member_no, name, phone, default_address, bucket_delivery_tickets, bucket_pickup_tickets, bag_pickup_tickets, deposit_amount, held_buckets, held_bags, status, source)
                 VALUES
                     (@id, @tid, @no, @name, @phone, @addr, @bd, @bp, @bgp, @dep, @hb, @hbg, 'ACTIVE', 'STAFF_CREATED')
+                ON CONFLICT (tenant_id, member_no) DO NOTHING;
+                """ : """
+                INSERT INTO plugin_kunlun_waterstation.members
+                    (id, tenant_id, member_no, name, phone, default_address, deposit_amount, held_buckets, held_bags, status, source)
+                VALUES
+                    (@id, @tid, @no, @name, @phone, @addr, @dep, @hb, @hbg, 'ACTIVE', 'STAFF_CREATED')
                 ON CONFLICT (tenant_id, member_no) DO NOTHING;
                 """;
             await using var cmd = new NpgsqlCommand(upsertMember, conn, tx);
@@ -251,9 +263,12 @@ public sealed class KunlunAuthRepository(NpgsqlDataSource dataSource, IConfigura
             cmd.Parameters.AddWithValue("name", m.Name);
             cmd.Parameters.AddWithValue("phone", m.Phone);
             cmd.Parameters.AddWithValue("addr", m.Addr);
-            cmd.Parameters.AddWithValue("bd", m.BDeliv);
-            cmd.Parameters.AddWithValue("bp", m.BPick);
-            cmd.Parameters.AddWithValue("bgp", m.BagPick);
+            if (ticketColumns)
+            {
+                cmd.Parameters.AddWithValue("bd", m.BDeliv);
+                cmd.Parameters.AddWithValue("bp", m.BPick);
+                cmd.Parameters.AddWithValue("bgp", m.BagPick);
+            }
             cmd.Parameters.AddWithValue("dep", m.Dep);
             cmd.Parameters.AddWithValue("hb", m.HBucket);
             cmd.Parameters.AddWithValue("hbg", m.HBag);

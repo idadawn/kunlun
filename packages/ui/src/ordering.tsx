@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  KUNLUN_BRAND, KUNLUN_PERMISSIONS as P, PAY_METHODS, calcDepositGap, containerOf, modeLabel, money, ticketsFor, unitOf,
+  KUNLUN_BRAND, KUNLUN_PERMISSIONS as P, PAY_METHODS, calcDepositGap, containerUnit, modeLabel, money, ticketSummary, ticketsFor, unitOf,
   type ContainerType, type CreateOrderResult, type FulfillMode, type MemberProfile, type PayMethod, type WaterProduct, type WaterType,
 } from '@kunlun/shared';
 import { AddressPicker } from './addresses';
@@ -66,7 +66,13 @@ export function Stepper({ value, onChange, max, label, showZero = false }: {
   );
 }
 
-type Line = { product: WaterProduct; water: WaterType; qty: number; tickets: number; container: ContainerType; held: number; emptyIn: number; gap: number; deposit: number };
+type Line = {
+  product: WaterProduct; water: WaterType; qty: number; tickets: number; container: ContainerType; unit: string;
+  /** The container position this line starts from, after the lines before it; undefined while it loads. */
+  position?: DepositPosition;
+  /** Empties the customer still has to swap for this line. */
+  empties: number; emptyIn: number; gap: number; deposit: number;
+};
 type Placed = CreateOrderResult & { name: string; handedOver: boolean };
 type Progress = { key: string; order?: CreateOrderResult; deposit?: boolean };
 
@@ -91,7 +97,7 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
   const [addressId, setAddressId] = useState<string | null>(null);
   const [slot, setSlot] = useState(DELIVERY_SLOTS[0]);
   const [remark, setRemark] = useState('');
-  const [returns, setReturns] = useState<Partial<Record<ContainerType, number>>>({});
+  const [returns, setReturns] = useState<Partial<Record<WaterType, number>>>({});
   const [payMethod, setPayMethod] = useState<PayMethod>('WECHAT');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -104,17 +110,21 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
   const delivery = mode === 'DELIVERY';
   const handOver = counter && !delivery && can(P.OrderFulfill);
   const positions = deposits.data;
+  // Waters in the same kind of container share it. Orders are handed over one after another, so each line takes from the
+  // empties the customer still has and owes deposit on top of what the lines before it settled.
+  const running = new Map<ContainerType, { position: DepositPosition; empties: number }>();
   const lines: Line[] = products.flatMap(product => {
     const water = product.waterType;
     const qty = cart[water] ?? 0;
     if (!qty) return [];
-    const container = containerOf(water);
-    const position = positions?.[container];
-    const held = position?.held ?? 0;
+    const container = product.containerType;
+    const start = positions?.[container];
+    const { position, empties } = running.get(container) ?? { position: start, empties: start?.held ?? 0 };
     // Water is swapped full-for-empty: assume every empty the customer holds comes back unless the counter records otherwise.
-    const emptyIn = Math.min(held, handOver ? returns[container] ?? qty : qty);
-    const gap = position ? calcDepositGap(position.covered, held, qty, emptyIn) : 0;
-    return [{ product, water, qty, tickets: ticketsFor(member, water, mode), container, held, emptyIn, gap, deposit: gap * (position?.unitDeposit ?? 0) }];
+    const emptyIn = Math.min(empties, handOver ? returns[water] ?? qty : qty);
+    const gap = position ? calcDepositGap(position.covered, position.held, qty, emptyIn) : 0;
+    if (position) running.set(container, { position: { ...position, held: position.held + qty - emptyIn, covered: position.covered + gap }, empties: empties - emptyIn });
+    return [{ product, water, qty, tickets: ticketsFor(member, water, mode), container, unit: containerUnit(container), position, empties, emptyIn, gap, deposit: gap * (position?.unitDeposit ?? 0) }];
   });
   const count = lines.reduce((sum, l) => sum + l.qty, 0);
   const depositTotal = lines.reduce((sum, l) => sum + l.deposit, 0);
@@ -134,8 +144,8 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
 
   let blocker = '';
   if (!count) blocker = '请先选择水品';
-  else if (short) blocker = `${modeLabel(mode)}${unitOf(short.water)}票不足，剩 ${short.tickets} 张`;
-  else if (below) blocker = `${below.product.name}${minimumOf(below.product)}${unitOf(below.water)}起送，还差 ${minimumOf(below.product) - below.qty} ${unitOf(below.water)}`;
+  else if (short) blocker = `${short.product.name}${modeLabel(mode)}票不足，剩 ${short.tickets} 张`;
+  else if (below) blocker = `${below.product.name}${minimumOf(below.product)}${below.unit}起送，还差 ${minimumOf(below.product) - below.qty} ${below.unit}`;
   else if (step === 'checkout' && delivery && !addressId) blocker = '请选择收货地址';
   else if (step === 'checkout' && handOver && depositTotal > 0 && !can(P.DepositCollect)) blocker = '需补押金，当前账号没有收押金权限';
   else if (!positions && !deposits.error) blocker = '正在核对押金…';
@@ -201,7 +211,7 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
     <div className="cart-bar">
       <span className="cart-icon"><Icon name="box" />{count > 0 && <i>{count}</i>}</span>
       <span className="cart-text">
-        <b>{count ? lines.map(l => `${l.product.name.replace(/（.*?）|\(.*?\)/g, '')} ${l.qty}${unitOf(l.water)}`).join(' · ') : '还没有选水'}</b>
+        <b>{count ? lines.map(l => `${l.product.name.replace(/（.*?）|\(.*?\)/g, '')} ${l.qty}${l.unit}`).join(' · ') : '还没有选水'}</b>
         <small>{blocker && blocker !== '正在核对押金…' ? blocker : depositTotal > 0 ? `需补押金 ¥${money(depositTotal)}` : `扣${modeLabel(mode)}水票，无需另付水费`}</small>
       </span>
       {step === 'menu'
@@ -234,11 +244,11 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
         <h4><Icon name="drop" />水品</h4>
         {lines.map(l => (
           <div key={l.water} className="checkout-line">
-            <span><b>{l.product.name} × {l.qty}{unitOf(l.water)}</b><small>扣{modeLabel(mode)}{unitOf(l.water)}票 {l.qty} 张，剩 {l.tickets - l.qty} 张</small></span>
+            <span><b>{l.product.name} × {l.qty}{l.unit}</b><small>扣{modeLabel(mode)}票 {l.qty} 张，剩 {l.tickets - l.qty} 张</small></span>
             {handOver && (
               <span className="checkout-return">
-                <small>换回空{unitOf(l.water)}</small>
-                <Stepper value={l.emptyIn} max={l.held} showZero label={`换回空${unitOf(l.water)}`} onChange={v => setReturns(r => ({ ...r, [l.container]: v }))} />
+                <small>换回空{l.unit}</small>
+                <Stepper value={l.emptyIn} max={l.empties} showZero label={`${l.product.name}换回空${l.unit}`} onChange={v => setReturns(r => ({ ...r, [l.water]: v }))} />
               </span>
             )}
           </div>
@@ -248,7 +258,7 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
         <h4><Icon name="deposit" />桶袋押金</h4>
         {deposits.error ? <p className="account-error" role="alert">{deposits.error}</p>
           : !positions ? <p className="membership-note">正在核对押金…</p>
-          : lines.map(l => <DepositDue key={l.water} type={l.container} position={positions[l.container]} fullOut={l.qty} emptyIn={l.emptyIn} />)}
+          : lines.map(l => l.position && <DepositDue key={l.water} type={l.container} position={l.position} fullOut={l.qty} emptyIn={l.emptyIn} />)}
         {depositTotal > 0 && (handOver ? (
           <div className="slot-chips" role="radiogroup" aria-label="押金收款方式">
             {PAY_METHODS.map(p => <button key={p.value} type="button" role="radio" aria-checked={payMethod === p.value} className={payMethod === p.value ? 'active' : ''} onClick={() => setPayMethod(p.value)}>{p.label}</button>)}
@@ -280,12 +290,12 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
         {products.map(p => {
           const tickets = ticketsFor(member, p.waterType, mode);
           const qty = cart[p.waterType] ?? 0;
-          const unit = unitOf(p.waterType);
-          const position = positions?.[containerOf(p.waterType)];
+          const unit = containerUnit(p.containerType);
+          const position = positions?.[p.containerType];
           const soldOut = tickets < minimumOf(p);
           return (
             <article key={p.waterType} className={`menu-item${soldOut && !qty ? ' sold-out' : ''}`}>
-              <span className={`menu-thumb${p.waterType === 'BAG_7_5L' ? ' bag' : ''}`}><Icon name="drop" size="xl" /><small>{p.capacityLiters}L</small></span>
+              <span className={`menu-thumb${p.containerType === 'BAG' ? ' bag' : ''}`}><Icon name="drop" size="xl" /><small>{p.capacityLiters}L</small></span>
               <div className="menu-info">
                 <b>{p.name}</b>
                 <small>{p.packaging} · {delivery ? `${minimumOf(p)}${unit}起送 · ${p.deliveryFee ? `配送费 ¥${money(p.deliveryFee)}` : '免费配送'}` : '门店领取'}</small>
@@ -356,7 +366,7 @@ function CustomerSearch({ onPick, onNewMember }: { onPick: (memberId: string) =>
         : members.data.slice(0, 8).map(m => (
           <button key={m.id} type="button" className="counter-customer pick" onClick={() => onPick(m.id)}>
             <span className="counter-avatar">{m.name[0]}</span>
-            <span><b>{m.name}</b><small>{m.phone} · 自提 桶{m.bucketPickupTickets} 袋{m.bagPickupTickets} · 配送 桶{m.bucketDeliveryTickets} 袋{m.bagDeliveryTickets}</small></span>
+            <span><b>{m.name}</b><small>{m.phone} · {ticketSummary(m.tickets)}</small></span>
             <Icon name="chevron" />
           </button>
         ))}

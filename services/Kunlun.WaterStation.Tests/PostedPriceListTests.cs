@@ -48,7 +48,7 @@ public sealed class PostedPriceListTests(TestHost host)
         var denied=await c.PostAsJsonAsync("/api/orders",new CreateWaterOrderRequest(m,"BAG_7_5L","DELIVERY",4,Guid.NewGuid().ToString()));
         Assert.Equal(HttpStatusCode.BadRequest,denied.StatusCode);
         Assert.Contains("5袋起送",await denied.Content.ReadAsStringAsync());
-        var profile=await c.GetFromJsonAsync<JsonElement>($"/api/members/{m}/profile");Assert.Equal(40,profile.GetProperty("bagDeliveryTickets").GetInt32());Assert.Equal(0,profile.GetProperty("reservedBagDeliveryTickets").GetInt32());
+        var profile=await c.GetFromJsonAsync<JsonElement>($"/api/members/{m}/profile");Assert.Equal(40,profile.Tickets("BAG_7_5L", "DELIVERY"));Assert.Equal(0,profile.Tickets("BAG_7_5L", "DELIVERY", reserved: true));
         var req=new CreateWaterOrderRequest(m,"BAG_7_5L","DELIVERY",5,Guid.NewGuid().ToString());
         var order=await Ok(await c.PostAsJsonAsync("/api/orders",req));await Ok(await c.PostAsJsonAsync("/api/orders",req));
         await Ok(await c.PostAsJsonAsync($"/api/orders/{order.GetProperty("id")}/cancel",new CancelWaterOrderRequest("验收取消")));

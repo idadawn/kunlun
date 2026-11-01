@@ -58,21 +58,8 @@ public static class TicketBatches
               consumed_buy INT NOT NULL DEFAULT 0, consumed_gift INT NOT NULL DEFAULT 0,
               status VARCHAR(16) NOT NULL DEFAULT 'RESERVED', PRIMARY KEY(order_id,batch_id)
             );
-            CREATE TABLE IF NOT EXISTS coupon_templates (
-              id UUID PRIMARY KEY, tenant_id UUID NOT NULL, name VARCHAR(80) NOT NULL,
-              plan_id UUID NOT NULL REFERENCES recharge_plans(id), gift_qty INT NOT NULL CHECK(gift_qty>0),
-              starts_at TIMESTAMPTZ NOT NULL, expires_at TIMESTAMPTZ NOT NULL,
-              per_member_limit INT NOT NULL CHECK(per_member_limit>0), status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
-              CHECK(expires_at>starts_at)
-            );
-            CREATE TABLE IF NOT EXISTS member_coupons (
-              id UUID PRIMARY KEY, tenant_id UUID NOT NULL, member_id UUID NOT NULL REFERENCES members(id),
-              template_id UUID NOT NULL REFERENCES coupon_templates(id), snapshot JSONB NOT NULL,
-              idempotency_key VARCHAR(80) NOT NULL, status VARCHAR(16) NOT NULL DEFAULT 'AVAILABLE',
-              recharge_id UUID UNIQUE REFERENCES recharge_orders(id), issued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-              UNIQUE(tenant_id,idempotency_key)
-            );
-            ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS coupon_snapshot JSONB;
+            -- Coupons are retired: older databases keep coupon_templates, member_coupons and recharge_orders.coupon_snapshot
+            -- as history only; gifts they granted stay on their ticket batches.
             CREATE TABLE IF NOT EXISTS recharge_refunds (
               id UUID PRIMARY KEY, tenant_id UUID NOT NULL, refund_no VARCHAR(32) NOT NULL UNIQUE,
               member_id UUID NOT NULL REFERENCES members(id), batch_id UUID NOT NULL UNIQUE REFERENCES ticket_batches(id),
@@ -88,7 +75,7 @@ public static class TicketBatches
         {
             foreach (var (water, mode) in new[] { ("BUCKET_18_9L", "PICKUP"), ("BUCKET_18_9L", "DELIVERY"), ("BAG_7_5L", "PICKUP"), ("BAG_7_5L", "DELIVERY") })
             {
-                var (available, reserved, _) = KunlunOrderRepository.ResolveTicketColumns(water, mode);
+                var (available, reserved) = MemberTickets.LegacyColumns(water, mode);
                 await Exec(conn, tx, $"""
                     INSERT INTO plugin_kunlun_waterstation.ticket_batches
                       (id,tenant_id,member_id,source,water_type,fulfill_mode,paid_amount,fixed_qty,gift_qty,remaining_buy,remaining_gift,created_at)
@@ -102,6 +89,7 @@ public static class TicketBatches
                 while (await r.ReadAsync(ct)) pending.Add((r.GetGuid(0), r.GetGuid(1), r.GetString(2), r.GetString(3), r.GetInt32(4)));
             foreach (var o in pending) await Reserve(conn, tx, tid, o.Member, o.Water, o.Mode, o.Id, o.Qty, ct);
         }
+        await MemberTickets.EnsureSchema(conn, tx, tid, ct);
         await tx.CommitAsync(ct);
     }
 
