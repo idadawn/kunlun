@@ -79,7 +79,7 @@ export function Dashboard() {
         <div className="todo-list">
           <div className="todo-item"><div className="todo-symbol"><Icon name="truck" /></div><div className="todo-text"><b>待接单配送</b><small>请及时指派或提醒送水员接单</small></div><span className="todo-num">{pendingDelivery}</span><button type="button" className="text-btn" onClick={() => go('orders')}>处理</button></div>
           <div className="todo-item"><div className="todo-symbol green"><Icon name="store" /></div><div className="todo-text"><b>待确认自提</b><small>会员到店出示取水码后核销</small></div><span className="todo-num">{pendingPickup}</span><button type="button" className="text-btn" onClick={() => go('orders')}>处理</button></div>
-          <div className="todo-item"><div className="todo-symbol blue"><Icon name="check" /></div><div className="todo-text"><b>待审核退款</b><small>押金与水费退款须管理员审核后才退</small></div><span className="todo-num">{pendingRefunds ?? '—'}</span><button type="button" className="text-btn" onClick={() => go('refunds')}>审核</button></div>
+          <div className="todo-item"><div className="todo-symbol blue"><Icon name="check" /></div><div className="todo-text"><b>待审核</b><small>店员的手动赠送和退款，按审核开关等管理员处理</small></div><span className="todo-num">{pendingRefunds ?? '—'}</span><button type="button" className="text-btn" onClick={() => go('refunds')}>审核</button></div>
           <div className="todo-item"><div className="todo-symbol"><Icon name="box" /></div><div className="todo-text"><b>周转桶库存{bucket.lowStockWarning ? '偏低' : ''}</b><small>{bucket.inStationUnknown ? '店里的数量待核实，盘点后再看是否偏低' : `当前店里能用 ${bucket.inStationQty} 个，预警值 ${bucket.warnThreshold}`}</small></div><button type="button" className="text-btn" onClick={() => go('inventory')}>盘点</button></div>
         </div>
       </div>

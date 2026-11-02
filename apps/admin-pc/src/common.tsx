@@ -11,7 +11,7 @@ import {
 import { useAdminData } from './data';
 
 export const PAGE_NAMES: Record<string, string> = {
-  dashboard: '经营总览', members: '会员管理', orders: '水单管理', recharges: '水费充值', deposits: '押金管理', refunds: '退款审核', inventory: '袋桶库存', assets: '袋桶台账',
+  dashboard: '经营总览', members: '会员管理', orders: '水单管理', recharges: '水费充值', deposits: '押金管理', refunds: '审核', inventory: '袋桶库存', assets: '袋桶台账',
   products: '水品与押金标准', plans: '充值套餐', 'staff-accounts': '员工账号',
 };
 
@@ -143,6 +143,11 @@ export function StatCard({ label, icon, tone, value, foot }: { label: string; ic
       <div className="stat-foot">{foot}</div>
     </div>
   );
+}
+
+/** Who did it: "小林 申请 / 林站长 审核退款" when a clerk filed and an administrator approved, else the one name. */
+export function handledBy(applicant: string | null, operator: string, done: string) {
+  return applicant && applicant !== operator ? <>{applicant} 申请<br /><small>{operator} 审核{done}</small></> : operator;
 }
 
 export function EmptyRow({ colSpan, children }: { colSpan: number; children: string }) {

@@ -313,12 +313,14 @@ public static class ReportEndpoints
             return await Paging.From(page, pageSize, legacyLimit: 30).Query(conn, """
                 r.recharge_no, m.name, m.member_no, r.plan_snapshot->>'name',
                 r.paid_amount, r.buy_qty, r.gift_qty, r.pay_method, r.operator_name, r.created_at, r.plan_snapshot::text,
-                rf.refund_no, rf.amount, rf.created_at
+                rf.refund_no, rf.amount, rf.created_at,
+                g.status, g.quantity, g.reviewer_name, g.review_note, g.reviewed_at
                 """, """
                 plugin_kunlun_waterstation.recharge_orders r
                 JOIN plugin_kunlun_waterstation.members m ON m.id = r.member_id
                 LEFT JOIN plugin_kunlun_waterstation.ticket_batches b ON b.recharge_id = r.id
                 LEFT JOIN plugin_kunlun_waterstation.recharge_refunds rf ON rf.batch_id = b.id
+                LEFT JOIN plugin_kunlun_waterstation.refund_requests g ON g.batch_id = b.id AND g.kind = 'GIFT'
                 WHERE r.tenant_id = @tid
                   AND (@from IS NULL OR r.created_at >= @from)
                   AND (@to IS NULL OR r.created_at < @to)
@@ -347,7 +349,16 @@ public static class ReportEndpoints
                 createdAt = reader.GetDateTime(9),
                 refundNo = reader.IsDBNull(11) ? null : reader.GetString(11),
                 refundAmount = reader.IsDBNull(12) ? (decimal?)null : reader.GetDecimal(12),
-                refundedAt = reader.IsDBNull(13) ? (DateTime?)null : reader.GetDateTime(13)
+                refundedAt = reader.IsDBNull(13) ? (DateTime?)null : reader.GetDateTime(13),
+                // A hand-given gift that went through review; null when the gift (if any) arrived at once.
+                giftReview = reader.IsDBNull(14) ? null : new
+                {
+                    status = reader.GetString(14),
+                    quantity = reader.GetInt32(15),
+                    reviewerName = reader.IsDBNull(16) ? null : reader.GetString(16),
+                    reviewNote = reader.IsDBNull(17) ? null : reader.GetString(17),
+                    reviewedAt = reader.IsDBNull(18) ? (DateTime?)null : reader.GetDateTime(18)
+                }
             }, ct);
         }).RequireAuthorization();
 
@@ -358,12 +369,13 @@ public static class ReportEndpoints
             await using var conn = await db.OpenConnectionAsync(ct);
             return await Paging.From(page, pageSize, legacyLimit: 30).Query(conn, """
                 rf.refund_no, COALESCE(ro.recharge_no, ''), m.name, m.member_no, ro.plan_snapshot->>'name', b.water_type, b.fulfill_mode,
-                rf.amount, rf.refund_buy_qty, rf.revoked_gift_qty, rf.pay_method, rf.reason, rf.operator_name, rf.created_at
+                rf.amount, rf.refund_buy_qty, rf.revoked_gift_qty, rf.pay_method, rf.reason, rf.operator_name, rf.created_at, q.applicant_name
                 """, """
                 plugin_kunlun_waterstation.recharge_refunds rf
                 JOIN plugin_kunlun_waterstation.members m ON m.id = rf.member_id
                 JOIN plugin_kunlun_waterstation.ticket_batches b ON b.id = rf.batch_id
                 LEFT JOIN plugin_kunlun_waterstation.recharge_orders ro ON ro.id = b.recharge_id
+                LEFT JOIN plugin_kunlun_waterstation.refund_requests q ON q.refund_no = rf.refund_no AND q.kind = 'RECHARGE'
                 WHERE rf.tenant_id = @tid
                   AND (@from IS NULL OR rf.created_at >= @from)
                   AND (@to IS NULL OR rf.created_at < @to)
@@ -392,7 +404,8 @@ public static class ReportEndpoints
                 payMethod = reader.GetString(10),
                 reason = reader.GetString(11),
                 operatorName = reader.GetString(12),
-                createdAt = reader.GetDateTime(13)
+                createdAt = reader.GetDateTime(13),
+                applicantName = reader.IsDBNull(14) ? null : reader.GetString(14)
             }, ct);
         }).RequireAuthorization();
 
@@ -401,21 +414,25 @@ public static class ReportEndpoints
         {
             await using var conn = await db.OpenConnectionAsync(ct);
             return await Paging.From(page, pageSize, legacyLimit: 30).Query(conn,
-                "doc_no, member_name, flow_type, container_type, qty, unit_price, amount, remaining_qty, operator_name, created_at, member_no, pay_method", """
+                "doc_no, member_name, flow_type, container_type, qty, unit_price, amount, remaining_qty, operator_name, created_at, member_no, pay_method, applicant_name, reason", """
                 (SELECT d.deposit_no AS doc_no, m.name AS member_name, m.member_no, m.phone, 'COLLECT' AS flow_type, d.container_type, d.paid_qty AS qty,
-                        d.unit_price, d.total_amount AS amount, d.remaining_qty, d.operator_name, d.created_at, d.pay_method
+                        d.unit_price, d.total_amount AS amount, d.remaining_qty, d.operator_name, d.created_at, d.pay_method,
+                        NULL AS applicant_name, NULL AS reason
                  FROM plugin_kunlun_waterstation.deposit_lots d
                  JOIN plugin_kunlun_waterstation.members m ON m.id = d.member_id
                  WHERE d.tenant_id = @tid
                  UNION ALL
                  SELECT rf.refund_no, m.name, m.member_no, m.phone, 'REFUND', rf.container_type, rf.refund_qty,
-                        ROUND(rf.refund_amount / rf.refund_qty, 2), rf.refund_amount, 0, rf.operator_name, rf.created_at, rf.pay_method
+                        ROUND(rf.refund_amount / rf.refund_qty, 2), rf.refund_amount, 0, rf.operator_name, rf.created_at, rf.pay_method,
+                        q.applicant_name, NULLIF(q.reason, '')
                  FROM plugin_kunlun_waterstation.deposit_refunds rf
                  JOIN plugin_kunlun_waterstation.members m ON m.id = rf.member_id
+                 LEFT JOIN plugin_kunlun_waterstation.refund_requests q ON q.refund_no = rf.refund_no AND q.kind = 'DEPOSIT'
                  WHERE rf.tenant_id = @tid
                  UNION ALL
                  SELECT d.scrap_no, m.name, m.member_no, m.phone, 'DEDUCT', d.container_type, d.quantity,
-                        ROUND(d.deposit_amount / d.quantity, 2), d.deposit_amount, 0, d.scrap_operator, d.scrapped_at, NULL
+                        ROUND(d.deposit_amount / d.quantity, 2), d.deposit_amount, 0, d.scrap_operator, d.scrapped_at, NULL,
+                        NULL, NULLIF(COALESCE(d.scrap_reason, d.reason), '')
                  FROM plugin_kunlun_waterstation.container_damages d
                  JOIN plugin_kunlun_waterstation.members m ON m.id = d.member_id AND m.tenant_id = d.tenant_id
                  WHERE d.tenant_id = @tid AND d.status = 'SCRAPPED' AND NOT d.deposit_waived) flows
@@ -445,7 +462,10 @@ public static class ReportEndpoints
                 remainingQty = reader.GetInt32(7),
                 payMethod = reader.IsDBNull(11) ? null : reader.GetString(11),
                 operatorName = reader.GetString(8),
-                createdAt = reader.GetDateTime(9)
+                createdAt = reader.GetDateTime(9),
+                // Who filed a refund (the operator approved it) and why; null for deposits collected.
+                applicantName = reader.IsDBNull(12) ? null : reader.GetString(12),
+                reason = reader.IsDBNull(13) ? null : reader.GetString(13)
             }, ct);
         }).RequireAuthorization();
 

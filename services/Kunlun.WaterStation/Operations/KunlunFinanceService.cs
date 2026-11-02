@@ -19,7 +19,8 @@ public sealed record CreateRechargeOrderRequest(
     Guid PlanId,
     string PayMethod,
     string IdempotencyKey,
-    string? Remark = null);
+    string? Remark = null,
+    int GiftQty = 0); // 店员手动赠送的张数，按审核开关当场到账或待管理员批准
 
 public sealed record CollectDepositRequest(
     Guid MemberId,
@@ -89,6 +90,8 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 UNIQUE (tenant_id, idempotency_key)
             );
+            -- 店员登记时手动填的赠送张数；gift_qty 只记已到账的，待审核的赠送在 refund_requests(kind=GIFT)。
+            ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS manual_gift_qty INT NOT NULL DEFAULT 0;
 
             CREATE TABLE IF NOT EXISTS ticket_ledgers (
                 id BIGSERIAL PRIMARY KEY,

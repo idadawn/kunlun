@@ -3,7 +3,7 @@ import {
   KUNLUN_PERMISSIONS as P, money,
   type CirculationBusinessType, type CirculationRow, type ContainerDamageRow, type ContainerHoldingRow, type ContainerType, type Paged,
 } from '@kunlun/shared';
-import { Field, FormDialog, MemberPicker, ReasonChips, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
+import { Field, FormDialog, MemberPicker, ReasonChips, Stepper, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
 import { EmptyRow, Pager, useExport, useOperations } from '../common';
 import { useAdminData } from '../data';
 import { CONTAINER_NAMES, DAMAGE_REASONS, ReasonField } from './Inventory';
@@ -11,9 +11,21 @@ import { CONTAINER_NAMES, DAMAGE_REASONS, ReasonField } from './Inventory';
 type Tab = 'holdings' | 'movements' | 'damages';
 type Member = Pick<ContainerHoldingRow, 'id' | 'name' | 'memberNo' | 'heldBags' | 'heldBuckets' | 'depositAmount'>;
 type Ledger = ({ tab: 'holdings' } & Paged<ContainerHoldingRow>) | ({ tab: 'movements' } & Paged<CirculationRow>) | ({ tab: 'damages' } & Paged<ContainerDamageRow>);
-const TABS: Array<[Tab, string]> = [['holdings', '会员持有'], ['movements', '周转流水'], ['damages', '破损报废']];
-const BUSINESS: Record<CirculationBusinessType, string> = { TURNOVER: '领还周转', DAMAGE_RETURN: '破损归还', SCRAP: '报废扣押金', SCRAP_WAIVED: '报废免扣押金' };
+const TABS: Array<[Tab, string]> = [['movements', '流转记录'], ['holdings', '会员手里'], ['damages', '破损报废']];
+const BUSINESS: Record<CirculationBusinessType, [string, string]> = {
+  TURNOVER: ['领还', 'green'], DAMAGE_RETURN: ['破损还回', 'orange'], SCRAP: ['报废 · 扣押金', 'orange'], SCRAP_WAIVED: ['报废 · 不扣押金', 'gray'],
+};
 const time = (value: string) => new Date(value).toLocaleString('zh-CN', { hour12: false });
+
+/** One flow row in words: what was taken, brought back or scrapped. */
+function happened(r: CirculationRow) {
+  const parts = [
+    r.fullOutQty ? `领走 ${r.fullOutQty} 个` : '',
+    r.emptyInQty ? `${r.businessType === 'DAMAGE_RETURN' ? '破损还回' : '还回'} ${r.emptyInQty} 个` : '',
+    r.scrappedQty ? `报废 ${r.scrappedQty} 个` : '',
+  ].filter(Boolean);
+  return parts.join('，') || '—';
+}
 
 export function Assets() {
   const { version, refresh } = useAdminData();
@@ -24,7 +36,7 @@ export function Assets() {
   const exportCsv = useExport();
   const manage = can(P.ContainerInventoryManage);
   const canScrap = manage && can(P.DepositRefundApprove);
-  const [tab, setTab] = useState<Tab>('holdings');
+  const [tab, setTab] = useState<Tab>('movements');
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [type, setType] = useState<ContainerType | ''>('');
@@ -48,7 +60,7 @@ export function Assets() {
   const result = ledger.data?.tab === tab ? ledger.data : null;
   let table: ReactNode;
   if (tab === 'holdings') table = <>
-    <thead><tr><th>会员</th><th>手机号</th><th>持有水袋</th><th>持有桶</th><th>押金余额</th><th>待报废</th><th>操作</th></tr></thead>
+    <thead><tr><th>会员</th><th>手机号</th><th>手里周转水袋</th><th>手里周转桶</th><th>押金余额</th><th>待报废</th><th>操作</th></tr></thead>
     <tbody>{body(7, '暂无持有袋桶或待报废的会员', result?.tab === 'holdings' && result.rows.map(m => (
       <tr key={m.id}>
         <td><b>{m.name}</b><br /><small>{m.memberNo}</small></td>
@@ -62,19 +74,26 @@ export function Assets() {
     )))}</tbody>
   </>;
   else if (tab === 'movements') table = <>
-    <thead><tr><th>时间 / 单号</th><th>会员</th><th>容器 / 业务</th><th>领出 / 归还 / 报废</th><th>持有变化 / 结余</th><th>扣押金</th><th>关联单号 / 原因</th><th>操作人</th></tr></thead>
-    <tbody>{body(8, '暂无周转记录', result?.tab === 'movements' && result.rows.map(r => (
-      <tr key={r.ledgerNo}>
-        <td>{time(r.createdAt)}<br /><small>{r.ledgerNo}</small></td>
-        <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>
-        <td>{CONTAINER_NAMES[r.containerType]}<br /><span className={`tag ${r.businessType === 'SCRAP' ? 'orange' : r.businessType === 'SCRAP_WAIVED' ? 'gray' : 'green'}`}>{BUSINESS[r.businessType] ?? '领还周转'}</span></td>
-        <td>{r.fullOutQty} / {r.emptyInQty} / {r.scrappedQty}</td>
-        <td>{r.deltaHeld > 0 ? '+' : ''}{r.deltaHeld}<br /><small>持有 {r.heldAfter} 个</small></td>
-        <td>{r.depositDeductedAmount ? `−¥${money(r.depositDeductedAmount)}` : '—'}</td>
-        <td className="inventory-reason"><small>{r.referenceNo}</small><br />{r.remark}</td>
-        <td>{r.operatorName}</td>
-      </tr>
-    )))}</tbody>
+    <thead><tr><th>时间</th><th>会员</th><th>桶袋</th><th>发生了什么</th><th>会员手里</th><th>押金</th><th>来源 / 原因</th><th>经办人</th></tr></thead>
+    <tbody>{body(8, '暂无流转记录', result?.tab === 'movements' && result.rows.map(r => {
+      const [label, tone] = BUSINESS[r.businessType] ?? BUSINESS.TURNOVER;
+      return (
+        <tr key={r.ledgerNo}>
+          <td>{time(r.createdAt)}<br /><small className="container-reference" title={r.ledgerNo}>{r.ledgerNo}</small></td>
+          <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>
+          <td>{CONTAINER_NAMES[r.containerType]}</td>
+          <td><span className={`tag ${tone}`}>{label}</span><br /><b>{happened(r)}</b></td>
+          <td>{r.deltaHeld === 0 ? `${r.heldAfter} 个（不变）` : <b>{r.heldAfter - r.deltaHeld} → {r.heldAfter} 个</b>}</td>
+          <td>{r.depositDeductedAmount ? <b className="amount-out">扣 ¥{money(r.depositDeductedAmount)}</b> : '—'}</td>
+          <td className="inventory-reason">
+            {r.referenceNo && <small className="container-reference" title={r.referenceNo}>{r.referenceNo.startsWith('ORD-') ? `水单 ${r.referenceNo}` : r.referenceNo}</small>}
+            {r.referenceNo && r.remark && <br />}
+            {r.remark === '独立领还' ? '单独登记' : r.remark}
+          </td>
+          <td>{r.operatorName}</td>
+        </tr>
+      );
+    }))}</tbody>
   </>;
   else table = <>
     <thead><tr><th>时间 / 破损单号</th><th>会员</th><th>容器 / 数量</th><th>原实收押金</th><th>状态</th><th>原因</th><th>操作</th></tr></thead>
@@ -102,11 +121,11 @@ export function Assets() {
   const total = result?.total ?? 0;
   return <>
     <div className="page-head">
-      <div><h2>袋桶台账</h2><p>会员领还、破损归还与报废（可选扣押金或水站承担），全程记录</p></div>
+      <div><h2>袋桶台账</h2><p>每次领走、还回、破损和报废都记一笔：谁、什么时候、几个，会员手里从几个变成几个</p></div>
       <div className="head-actions">
-        <button type="button" className="btn" onClick={() => exportCsv('container-ledgers')}>导出周转流水</button>
+        <button type="button" className="btn" onClick={() => exportCsv('container-ledgers')}>导出流转记录</button>
         <button type="button" className="btn" onClick={() => reportDamage()}>登记破损</button>
-        <button type="button" className="btn primary" onClick={() => ops.movement()}>登记领还</button>
+        <button type="button" className="btn primary" onClick={() => ops.movement()}>登记领还桶袋</button>
       </div>
     </div>
     <div className="container-ledger-toolbar">
@@ -163,7 +182,7 @@ function DamageDialog({ member, onClose, onDone }: { member?: Member; onClose: (
       </Field>
       <p className="membership-note">{selected ? `当前持有${type === 'BAG' ? '水袋' : '桶'} ${type === 'BAG' ? selected.heldBags : selected.heldBuckets} 个 · 押金余额 ¥${money(selected.depositAmount)}` : '请选择会员'}</p>
       <Field label="已收回破损数量（个）" htmlFor="damageQuantity">
-        <input id="damageQuantity" className="input" type="number" min={1} max={10000} step={1} required value={quantity} onChange={e => setQuantity(Number(e.target.value))} />
+        <Stepper id="damageQuantity" label="破损数量" value={quantity} onChange={setQuantity} min={1} max={10000} />
       </Field>
       <ReasonField value={reason} onChange={setReason} placeholder="如：桶身开裂漏水" />
       <ReasonChips options={DAMAGE_REASONS[type]} value={reason} onPick={setReason} />

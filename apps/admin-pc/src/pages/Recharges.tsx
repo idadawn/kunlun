@@ -1,17 +1,17 @@
 import { useState } from 'react';
 import {
   PAY_METHODS, dateFilterFrom, modeLabel, money, payMethodLabel, shortDateTime, unitOf, waterFallbackLabel,
-  type DateFilter, type PayMethod, type RechargeLedgerQuery, type RechargeLedgerRow, type RechargeRefundLedgerRow,
+  type DateFilter, type GiftReview, type PayMethod, type RechargeLedgerQuery, type RechargeLedgerRow, type RechargeRefundLedgerRow,
 } from '@kunlun/shared';
 import { Dialog, Icon, useAuth, useDialogs } from '@kunlun/ui';
-import { DateFilterSelect, EmptyRow, Pager, StatCard, ledgerEmptyText, useDebounced, useExport, useLedger, useOperations } from '../common';
+import { DateFilterSelect, EmptyRow, Pager, StatCard, handledBy, ledgerEmptyText, useDebounced, useExport, useLedger, useOperations } from '../common';
 import { useAdminData } from '../data';
 
 type Tab = 'recharges' | 'refunds';
 const TABS: Array<[Tab, string]> = [['recharges', '充值记录'], ['refunds', '退款记录']];
 const NO_REPORTS = '需要报表权限';
 
-/** 水费充值：只管水费实收、水票到账和退清退款；押金在「押金管理」单独办理。 */
+/** 水费充值：只管水费实收、水票到账（含手动赠送）和退清退款；押金在「押金管理」单独办理。 */
 export function Recharges() {
   const { finance: f } = useAdminData();
   const ops = useOperations();
@@ -27,9 +27,9 @@ export function Recharges() {
 
   return <>
     <div className="page-head">
-      <div><h2>水费充值</h2><p>登记线下收取的水费并按套餐发放水票；押金在「押金管理」单独收退，不计入水费、不触发赠水</p></div>
+      <div><h2>水费充值</h2><p>登记线下收的水费，按套餐发水票，可手动加赠送；押金在「押金管理」单独收退，不算水费</p></div>
       <div className="head-actions">
-        <button type="button" className="btn primary" onClick={() => ops.recharge()}><Icon name="plus" />水费充值登记</button>
+        <button type="button" className="btn primary" onClick={() => ops.recharge()}><Icon name="plus" />水费充值</button>
       </div>
     </div>
     <div className="stats-grid">
@@ -67,9 +67,9 @@ function RechargeTable({ filter, filtered }: { filter: RechargeLedgerQuery; filt
     <div className="table-card ledger-table">
       <div style={{ overflowX: 'auto' }}>
         <table>
-          <thead><tr><th>充值单号 / 时间</th><th>会员</th><th>充值套餐</th><th>水费实收</th><th>到账水票</th><th>收款方式</th><th>状态</th><th>操作人</th><th>操作</th></tr></thead>
+          <thead><tr><th>充值单号 / 时间</th><th>会员</th><th>充值套餐</th><th>水费实收</th><th>到账水票</th><th>收款方式</th><th>状态</th><th>经办人</th><th>操作</th></tr></thead>
           <tbody>
-            {rows.length === 0 ? <EmptyRow colSpan={9}>{ledgerEmptyText(table, filtered, '暂无水费充值记录，请点击右上角「水费充值登记」办理', '充值记录')}</EmptyRow> : rows.map(r => {
+            {rows.length === 0 ? <EmptyRow colSpan={9}>{ledgerEmptyText(table, filtered, '暂无水费充值记录，请点击右上角「水费充值」办理', '充值记录')}</EmptyRow> : rows.map(r => {
               const unit = unitOf(r.planSnapshot.waterType);
               return (
                 <tr key={r.rechargeNo}>
@@ -77,7 +77,7 @@ function RechargeTable({ filter, filtered }: { filter: RechargeLedgerQuery; filt
                   <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>
                   <td>{r.planName}</td>
                   <td><b>¥ {money(r.paidAmount)}</b></td>
-                  <td>付费 {r.buyQty}{r.giftQty > 0 && <> + 赠 {r.giftQty}</>} {unit}</td>
+                  <td><b>{r.buyQty + r.giftQty} {unit}</b><br /><small>付费 {r.buyQty}{r.giftQty > 0 ? ` + 赠送 ${r.giftQty}` : ''}</small>{waitingGift(r.giftReview, unit)}</td>
                   <td>{payMethodLabel(r.payMethod)}</td>
                   <td>{r.refundNo ? <span className="tag orange">已退 ¥{money(r.refundAmount ?? 0)}</span> : <span className="tag green">已到账</span>}</td>
                   <td>{r.operatorName}</td>
@@ -101,9 +101,9 @@ function RefundTable({ filter, filtered }: { filter: RechargeLedgerQuery; filter
     <div className="table-card ledger-table">
       <div style={{ overflowX: 'auto' }}>
         <table>
-          <thead><tr><th>退款单号 / 时间</th><th>会员</th><th>原充值</th><th>退款金额</th><th>退回水票</th><th>退款方式</th><th>退款原因</th><th>审核人</th></tr></thead>
+          <thead><tr><th>退款单号 / 时间</th><th>会员</th><th>原充值</th><th>退款金额</th><th>退回水票</th><th>退款方式</th><th>退款原因</th><th>经办人</th></tr></thead>
           <tbody>
-            {rows.length === 0 ? <EmptyRow colSpan={8}>{ledgerEmptyText(table, filtered, '暂无水费退款；会员水票批次提交退款申请，经「退款审核」通过后记入此处', '退款记录')}</EmptyRow> : rows.map(r => (
+            {rows.length === 0 ? <EmptyRow colSpan={8}>{ledgerEmptyText(table, filtered, '暂无水费退款；在会员的水票批次里办理，需要审核的经「审核」通过后记入此处', '退款记录')}</EmptyRow> : rows.map(r => (
               <tr key={r.refundNo}>
                 <td><span className="order-no">{r.refundNo}</span><br /><small>{shortDateTime(r.createdAt)}</small></td>
                 <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>
@@ -111,8 +111,8 @@ function RefundTable({ filter, filtered }: { filter: RechargeLedgerQuery; filter
                 <td><b className="amount-out">−¥ {money(r.amount)}</b></td>
                 <td>退付费 {r.refundBuyQty} · 收回赠 {r.revokedGiftQty} {unitOf(r.waterType)}</td>
                 <td>{payMethodLabel(r.payMethod)}</td>
-                <td className="ledger-reason">{r.reason}</td>
-                <td>{r.operatorName}</td>
+                <td className="ledger-reason">{r.reason || '—'}</td>
+                <td>{handledBy(r.applicantName, r.operatorName, '退款')}</td>
               </tr>
             ))}
           </tbody>
@@ -122,6 +122,16 @@ function RefundTable({ filter, filtered }: { filter: RechargeLedgerQuery; filter
     </div>
   );
 }
+
+/** A hand-given gift that has not reached the member: waiting for approval or turned down. */
+function waitingGift(g: GiftReview | null, unit: string) {
+  if (!g || g.status === 'APPROVED') return null;
+  return <><br /><span className={`tag ${g.status === 'PENDING' ? 'orange' : 'gray'}`}>赠送 {g.quantity}{unit} {g.status === 'PENDING' ? '待批准' : '未批准'}</span></>;
+}
+
+const giftText = (g: GiftReview, unit: string) => g.status === 'PENDING' ? `${g.quantity}${unit}，等管理员批准`
+  : g.status === 'APPROVED' ? `${g.quantity}${unit}，${g.reviewerName ?? '管理员'} 已批准`
+  : `${g.quantity}${unit}，${g.reviewerName ?? '管理员'} 未批准${g.reviewNote ? `：${g.reviewNote}` : ''}`;
 
 function RechargeDetailDialog({ row: r, onClose }: { row: RechargeLedgerRow; onClose: () => void }) {
   const unit = unitOf(r.planSnapshot.waterType);
@@ -133,6 +143,7 @@ function RechargeDetailDialog({ row: r, onClose }: { row: RechargeLedgerRow; onC
         <div className="detail-row"><span>水品与方式</span><b>{r.planSnapshot.waterLabel || waterFallbackLabel(r.planSnapshot.waterType)} · {modeLabel(r.planSnapshot.fulfillMode)}</b></div>
         <div className="detail-row"><span>水费实收</span><b>¥ {money(r.paidAmount)} · {payMethodLabel(r.payMethod)}</b></div>
         <div className="detail-row"><span>到账水票</span><b>付费 {r.buyQty} + 赠送 {r.giftQty} = 共 {r.buyQty + r.giftQty} {unit}</b></div>
+        {r.giftReview && <div className="detail-row"><span>手动赠送</span><b>{giftText(r.giftReview, unit)}</b></div>}
         <div className="detail-row"><span>经办人</span><b>{r.operatorName}</b></div>
         {r.refundNo && <div className="detail-row"><span>退清剩余权益</span><b>{r.refundNo} · 退 ¥{money(r.refundAmount ?? 0)}{r.refundedAt ? ` · ${shortDateTime(r.refundedAt)}` : ''}</b></div>}
       </div>

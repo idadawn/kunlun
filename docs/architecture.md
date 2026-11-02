@@ -148,16 +148,25 @@ kunlun/
 
 路由 `/admin/inventory` 和 `/admin/assets` 独立呈现，主 HTML 与 `assets/inventory.js` 为唯一前端维护源，构建同步到两端。会员持有、周转流水、破损记录由服务器过滤和分页，避免仅展示最近记录造成台账遗漏。
 
-## 6.1 退款申请与审核
+## 6.1 审核申请：退款与手动赠送
 
-`refund_requests` 记录所有退款申请：`kind`（`DEPOSIT` / `RECHARGE`）、会员、容器与数量或充值批次、申请时估算金额、退款方式、原因、`status`（`PENDING` / `APPROVED` / `REJECTED`）、申请人与审核人、审核备注、实际退款单号与金额。部分唯一索引保证同一充值批次最多一笔待审核申请。
+`refund_requests` 记录所有退款和需审核的手动赠送：`kind`（`DEPOSIT` 押金退款 / `RECHARGE` 退清水费 / `GIFT` 店员充值时手动赠送）、会员、容器与数量或充值批次（`GIFT` 用 `quantity` 记赠送张数）、申请时估算金额、退款方式、原因、`status`（`PENDING` / `APPROVED` / `REJECTED`）、申请人与审核人、审核备注、实际退款单号与金额。部分唯一索引 `(batch_id, kind) WHERE status='PENDING'` 保证同一充值批次每类最多一笔待审核。旧库启动时放宽 `kind` 与形状约束（检测约束定义是否含 `GIFT`）。
 
-- `POST /api/refund-requests`：提交申请（带幂等键）。押金需 `deposit:refund_apply` 或 `deposit:refund_approve`，申请数量不得超过 已交未退 − 持有 − 待报废 − 其他待审核数量；水费需 `recharge:create` 或 `recharge:refund`，原因必填，批次须属于该会员且可退。只写申请，不动账。
-- `GET /api/refund-requests?status&kind&q&page&pageSize`：分页列表（需 `member:read`），带会员、容器或批次信息。
-- `POST /api/refund-requests/{id}/approve`：审核通过，押金需 `deposit:refund_approve`，水费需 `recharge:refund`。先锁会员、再锁申请，在同一事务内调用与直接退款相同的 `ExecuteDepositRefund` / `ExecuteRechargeRefund`（幂等键 `refund-request:{id}`），再写回审核结果；重复通过返回原结果，已驳回的返回 409。
-- `POST /api/refund-requests/{id}/reject`：驳回，原因必填，不动账；已通过的不能驳回。
+`review_settings`（每租户一行）保存两个审核开关 `gift_review`、`refund_review`，默认都为真：
+
+- `GET /api/settings/review`：员工可读，弹窗据此显示“申请”还是“当场办理”。
+- `PUT /api/settings/review`：需 `staff:manage`，记录修改人和时间。
+
+审核规则：有对应审核权限的账号（押金 `deposit:refund_approve`，水费与赠送 `recharge:refund`）自己办理时总是直接生效；其他账号在开关打开时提交申请、关闭时直接生效。直接生效的也写一条 `APPROVED` 申请，备注“管理员直接办理”或“无需审核，直接退款”。
+
+- `POST /api/recharges` 增加 `giftQty`（0–1000，手动赠送）。需审核时付费票当场到账，赠送记为 `GIFT` 待审核申请，响应带 `pendingGiftQty`、`giftRequestNo`；否则赠送与付费票一起到账。`recharge_orders.manual_gift_qty` 记录店员填的赠送数，`gift_qty` 只记已到账的；同一幂等键改了赠送数返回 409。
+- `POST /api/refund-requests`：提交退款（带幂等键）。押金需 `deposit:refund_apply` 或 `deposit:refund_approve`，申请数量不得超过 已交未退 − 持有 − 待报废 − 其他待审核数量；水费需 `recharge:create` 或 `recharge:refund`，批次须属于该会员且可退；原因选填。需审核时只写申请、不动账，否则在同一事务内退款并记为已通过，响应带 `status`、`refundNo`、`refundAmount`。
+- `GET /api/refund-requests?status&kind&q&page&pageSize`：分页列表（需 `member:read`），带会员、容器或批次信息，赠送带原充值实收和付费张数（`rechargePaid`、`rechargeBuyQty`）。
+- `POST /api/refund-requests/{id}/approve`：审核通过，押金需 `deposit:refund_approve`，水费和赠送需 `recharge:refund`。先锁会员、再锁申请，在同一事务内调用 `ExecuteDepositRefund` / `ExecuteRechargeRefund`（幂等键 `refund-request:{id}`），赠送调用 `GrantGift`（批次和充值单的赠送数、会员水票、`RECHARGE_GIFT` 流水），再写回审核结果；重复通过返回原结果，已驳回的返回 409。充值已退款的赠送不能再批准。
+- `POST /api/refund-requests/{id}/reject`：驳回，原因必填，不动账；已通过的不能驳回。退清一笔充值时，其待审核的赠送自动驳回（“充值已退款，赠送作废”）。
 - 原 `POST /api/deposits/refund`、`POST /api/ticket-batches/{id}/refund` 仅对有审核权限的账号开放，成功后由 `RefundRequests.RecordDirect` 补记一笔 `APPROVED` 申请（如该批次已有待审核申请则直接将其通过）。
-- `GET /api/members/{id}/deposit-summary` 增加 `pendingRefundQty`，`GET /api/members/{id}/ticket-batches` 增加 `pendingRequestNo`。
+- `GET /api/members/{id}/deposit-summary` 增加 `pendingRefundQty`，`GET /api/members/{id}/ticket-batches` 增加 `pendingRequestNo`（仅退款）和 `pendingGiftQty`。
+- 流水接口：`/api/ledgers/recharges` 增加 `giftReview`（赠送审核状态、张数、审核人、备注），`/api/ledgers/recharge-refunds` 与 `/api/ledgers/deposits` 增加 `applicantName`，押金流水另带 `reason`（退款或报废原因）。
 
 报废扣押可选免扣：`POST /api/containers/damages/{id}/scrap` 的 `deductDeposit=false` 时只释放押金批次的 `reserved_damage_qty`，不减少批次剩余、不扣会员押金；`container_damages.deposit_waived` 标记，周转流水业务类型为 `SCRAP_WAIVED`、扣押金额 0。财务汇总、押金流水和导出中的扣押统计排除免扣记录，剩余押金 = 累计收押 − 累计退押 − 累计报废扣押 仍成立。
 

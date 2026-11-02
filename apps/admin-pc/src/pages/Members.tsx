@@ -158,7 +158,7 @@ function MemberDrawer({ member: m, onClose }: { member: MemberProfile; onClose: 
               : <p className="membership-note">暂无充值记录</p>)}
           </div>
           <div className="detail-card">
-            <div className="detail-card-head"><h4>押金与容器</h4><button type="button" className="text-btn" onClick={() => ops.deposit('refund', m.id)}>申请退押金 ›</button></div>
+            <div className="detail-card-head"><h4>押金与容器</h4><button type="button" className="text-btn" onClick={() => ops.deposit('refund', m.id)}>退押金 ›</button></div>
             {deposits ? deposits.map(r => (
               <div key={r.containerType} className="detail-row"><span>{containerLabel(r.containerType)}</span><b>已交 {r.paidQty} 个 ¥{money(r.paidAmount)} · 持有 {r.heldQty} · 可退 {r.refundableQty}{r.pendingRefundQty > 0 ? ` · 审核中 ${r.pendingRefundQty}` : ''}</b></div>
             )) : <p className="membership-note">押金明细查询中…</p>}

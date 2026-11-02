@@ -286,6 +286,16 @@ export interface RechargeLedgerRow {
   refundNo: string | null;
   refundAmount: number | null;
   refundedAt: string | null;
+  /** A gift a clerk gave by hand that went to review; null when any gift arrived at once. */
+  giftReview: GiftReview | null;
+}
+
+export interface GiftReview {
+  status: RefundRequestStatus;
+  quantity: number;
+  reviewerName: string | null;
+  reviewNote: string | null;
+  reviewedAt: string | null;
 }
 
 /** 水费退款：退清某次充值剩余权益，与押金退款分开记账。 */
@@ -302,8 +312,11 @@ export interface RechargeRefundLedgerRow {
   revokedGiftQty: number;
   payMethod: PayMethod;
   reason: string;
+  /** Who refunded it. */
   operatorName: string;
   createdAt: string;
+  /** Who filed the refund; null for refunds made before requests were recorded. */
+  applicantName: string | null;
 }
 
 export type DepositFlowType = 'COLLECT' | 'REFUND' | 'DEDUCT';
@@ -322,6 +335,10 @@ export interface DepositLedgerRow {
   payMethod: PayMethod | null;
   operatorName: string;
   createdAt: string;
+  /** Who filed a refund (the operator paid it out); null for collections and deductions. */
+  applicantName: string | null;
+  /** Why a refund or deduction was made, when one was given. */
+  reason: string | null;
 }
 
 export interface ContainerLedgerRow {
@@ -405,6 +422,8 @@ export interface TicketBatch {
   waterLabel: string;
   /** A refund request for this batch that waits for review. */
   pendingRequestNo: string | null;
+  /** Tickets a clerk gave away by hand that wait for an administrator's approval. */
+  pendingGiftQty: number;
 }
 
 export interface DepositSummaryRow {
@@ -555,10 +574,19 @@ export interface ContainerDamageRow {
   depositWaived: boolean;
 }
 
-export type RefundKind = 'DEPOSIT' | 'RECHARGE';
+/** GIFT: tickets a clerk gave away by hand while gifts are reviewed. */
+export type RefundKind = 'DEPOSIT' | 'RECHARGE' | 'GIFT';
 export type RefundRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
-/** 退款申请：押金退款或退清充值剩余权益，管理员审核通过后才退款。 */
+/** 审核开关：店员的手动赠送、退押金和退水费要不要管理员审核；管理员自己办理总是直接生效。 */
+export interface ReviewSettings {
+  giftReview: boolean;
+  refundReview: boolean;
+  updatedBy: string | null;
+  updatedAt: string | null;
+}
+
+/** 审核申请：押金退款、退清充值剩余权益或店员手动赠送的水票，不需要审核时当场记为已通过。 */
 export interface RefundRequestRow {
   id: string;
   requestNo: string;
@@ -588,6 +616,9 @@ export interface RefundRequestRow {
   reviewNote: string | null;
   refundNo: string | null;
   refundAmount: number | null;
+  /** The recharge a refund or gift belongs to: what was paid and how many tickets were bought. */
+  rechargePaid: number | null;
+  rechargeBuyQty: number | null;
 }
 
 export interface RefundRequestQuery extends PageQuery {
@@ -598,7 +629,7 @@ export interface RefundRequestQuery extends PageQuery {
 
 export type ApplyRefundBody =
   | { kind: 'DEPOSIT'; memberId: string; containerType: ContainerType; quantity: number; payMethod: PayMethod; reason?: string; idempotencyKey: string }
-  | { kind: 'RECHARGE'; memberId: string; batchId: string; payMethod: PayMethod; reason: string; idempotencyKey: string };
+  | { kind: 'RECHARGE'; memberId: string; batchId: string; payMethod: PayMethod; reason?: string; idempotencyKey: string };
 
 export type ExportDataset =
   | 'members'

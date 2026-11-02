@@ -54,11 +54,12 @@ public static class MembershipEndpoints
             await using var cmd = Command(conn, null, """
                 SELECT b.id,b.source,b.water_type,b.fulfill_mode,b.paid_amount,b.fixed_qty,b.gift_qty,b.remaining_buy,b.remaining_gift,
                   b.reserved_buy,b.reserved_gift,b.status,b.created_at,COALESCE(r.recharge_no,''),COALESCE(r.plan_snapshot->>'name','历史余额待核对'),
-                  COALESCE(f.amount,0),COALESCE(f.refund_no,''),COALESCE(r.plan_snapshot->>'waterLabel',''),q.request_no
+                  COALESCE(f.amount,0),COALESCE(f.refund_no,''),COALESCE(r.plan_snapshot->>'waterLabel',''),q.request_no,COALESCE(g.quantity,0)
                 FROM plugin_kunlun_waterstation.ticket_batches b
                 LEFT JOIN plugin_kunlun_waterstation.recharge_orders r ON r.id=b.recharge_id
                 LEFT JOIN plugin_kunlun_waterstation.recharge_refunds f ON f.batch_id=b.id
-                LEFT JOIN plugin_kunlun_waterstation.refund_requests q ON q.batch_id=b.id AND q.status='PENDING'
+                LEFT JOIN plugin_kunlun_waterstation.refund_requests q ON q.batch_id=b.id AND q.kind='RECHARGE' AND q.status='PENDING'
+                LEFT JOIN plugin_kunlun_waterstation.refund_requests g ON g.batch_id=b.id AND g.kind='GIFT' AND g.status='PENDING'
                 WHERE b.tenant_id=@tid AND b.member_id=@mid ORDER BY b.created_at,b.id
                 """, ("tid", repo.DefaultTenantId), ("mid", mid));
             var rows = new List<object>();
@@ -83,7 +84,8 @@ public static class MembershipEndpoints
                 refundableAmount = r.GetString(1) == "PURCHASE" && r.GetString(11) == "ACTIVE" && r.GetInt32(9) + r.GetInt32(10) == 0 ? Math.Round(r.GetDecimal(4) * r.GetInt32(7) / r.GetInt32(5), 2, MidpointRounding.AwayFromZero) : 0,
                 refundedAmount = r.GetDecimal(15),
                 refundNo = r.GetString(16), waterLabel = r.GetString(17),
-                pendingRequestNo = r.IsDBNull(18) ? null : r.GetString(18)
+                pendingRequestNo = r.IsDBNull(18) ? null : r.GetString(18),
+                pendingGiftQty = r.GetInt32(19)
             });
             return Results.Ok(rows);
         }).RequireAuthorization();
@@ -103,36 +105,54 @@ public static class MembershipEndpoints
         return Results.Ok(new { id = pid, name = req.Name, waterType = req.WaterType, fulfillMode = req.FulfillMode, price = req.Price, buyQty = req.BuyQty, giftQty = 0, status = req.Status });
     }
 
+    /// <summary>The most tickets one recharge may give away by hand.</summary>
+    private const int MaxGift = 1000;
+
     private static async Task<IResult> CreateRecharge(CreateRechargeOrderRequest req, ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct)
     {
         if (!Can(user, KunlunPermissions.RechargeCreate)) return Results.Forbid();
         if (!Payment(req.PayMethod)) throw new BusinessRuleException("收款方式无效");
+        if (req.GiftQty is < 0 or > MaxGift) throw new BusinessRuleException($"赠送数量须在 0 到 {MaxGift} 之间");
         await using var conn = await db.OpenConnectionAsync(ct); await using var tx = await conn.BeginTransactionAsync(ct);
         var tid = repo.DefaultTenantId;
         await LockRequest(conn, tx, tid, "recharge", req.IdempotencyKey, ct);
         await LockMember(conn, tx, tid, req.MemberId, ct);
-        await using (var cmd = Command(conn, tx, "SELECT id,recharge_no,paid_amount,buy_qty,gift_qty,plan_snapshot::text,member_id,plan_id,pay_method FROM plugin_kunlun_waterstation.recharge_orders WHERE tenant_id=@tid AND idempotency_key=@key", ("tid", tid), ("key", req.IdempotencyKey)))
+        await using (var cmd = Command(conn, tx, """
+            SELECT r.id,r.recharge_no,r.paid_amount,r.buy_qty,r.gift_qty,r.plan_snapshot::text,r.member_id,r.plan_id,r.pay_method,r.manual_gift_qty,g.quantity,g.request_no
+            FROM plugin_kunlun_waterstation.recharge_orders r
+            LEFT JOIN plugin_kunlun_waterstation.refund_requests g ON g.batch_id=r.id AND g.kind='GIFT' AND g.status='PENDING'
+            WHERE r.tenant_id=@tid AND r.idempotency_key=@key
+            """, ("tid", tid), ("key", req.IdempotencyKey)))
         await using (var r = await cmd.ExecuteReaderAsync(ct)) if (await r.ReadAsync(ct))
         {
-            if (r.GetGuid(6) != req.MemberId || r.IsDBNull(7) || r.GetGuid(7) != req.PlanId || r.GetString(8) != req.PayMethod) throw new BusinessRuleException("请求标识已用于其他充值", 409);
-            return Results.Ok(new { id = r.GetGuid(0), rechargeNo = r.GetString(1), paidAmount = r.GetDecimal(2), buyQty = r.GetInt32(3), giftQty = r.GetInt32(4), totalTickets = r.GetInt32(3) + r.GetInt32(4), planSnapshot = JsonSerializer.Deserialize<JsonElement>(r.GetString(5)), idempotentReplay = true });
+            if (r.GetGuid(6) != req.MemberId || r.IsDBNull(7) || r.GetGuid(7) != req.PlanId || r.GetString(8) != req.PayMethod || r.GetInt32(9) != req.GiftQty) throw new BusinessRuleException("请求标识已用于其他充值", 409);
+            return Results.Ok(new
+            {
+                id = r.GetGuid(0), rechargeNo = r.GetString(1), paidAmount = r.GetDecimal(2), buyQty = r.GetInt32(3), giftQty = r.GetInt32(4),
+                pendingGiftQty = r.IsDBNull(10) ? 0 : r.GetInt32(10), giftRequestNo = r.IsDBNull(11) ? null : r.GetString(11),
+                totalTickets = r.GetInt32(3) + r.GetInt32(4), planSnapshot = JsonSerializer.Deserialize<JsonElement>(r.GetString(5)), idempotentReplay = true
+            });
         }
-        string name, water, mode; decimal price; int qty, gift;
+        string name, water, mode; decimal price; int qty, planGift;
         await using (var cmd = Command(conn, tx, "SELECT name,water_type,fulfill_mode,price,buy_qty,gift_qty,status FROM plugin_kunlun_waterstation.recharge_plans WHERE tenant_id=@tid AND id=@id FOR SHARE", ("tid", tid), ("id", req.PlanId)))
         await using (var r = await cmd.ExecuteReaderAsync(ct))
         {
             if (!await r.ReadAsync(ct)) return Results.NotFound();
             if (r.GetString(6) != "ACTIVE") throw new BusinessRuleException("套餐已停用");
-            name = r.GetString(0); water = r.GetString(1); mode = r.GetString(2); price = r.GetDecimal(3); qty = r.GetInt32(4); gift = r.GetInt32(5);
+            name = r.GetString(0); water = r.GetString(1); mode = r.GetString(2); price = r.GetDecimal(3); qty = r.GetInt32(4); planGift = r.GetInt32(5);
         }
+        // A gift typed in by a clerk waits for an admin while the station reviews gifts; an admin's own gift arrives at once.
+        var settings = await ReviewSettings.Read(conn, tx, tid, ct);
+        var pendingGift = settings.GiftReview && !Can(user, KunlunPermissions.RechargeRefund) ? req.GiftQty : 0;
+        var gift = planGift + req.GiftQty - pendingGift;
         var id = Guid.NewGuid(); var no = Number("CZ");
         var product = await WaterProducts.Read(conn, tx, tid, water, ct);
-        var snapshot = new { planId = req.PlanId, name, waterType = water, waterLabel = product.Name, capacityLiters = product.CapacityLiters, fulfillMode = mode, price, buyQty = qty, giftQty = gift, totalTickets = qty + gift };
+        var snapshot = new { planId = req.PlanId, name, waterType = water, waterLabel = product.Name, capacityLiters = product.CapacityLiters, fulfillMode = mode, price, buyQty = qty, giftQty = planGift, totalTickets = qty + planGift };
         await Exec(conn, tx, """
             INSERT INTO plugin_kunlun_waterstation.recharge_orders
-              (id,tenant_id,recharge_no,idempotency_key,member_id,plan_id,plan_snapshot,paid_amount,buy_qty,gift_qty,total_tickets,pay_method,operator_id,operator_name,remark)
-            VALUES(@id,@tid,@no,@key,@mid,@plan,@snap::jsonb,@price,@qty,@gift,@total,@pay,@actor,@name,@remark)
-            """, ct, ("id", id), ("tid", tid), ("no", no), ("key", req.IdempotencyKey), ("mid", req.MemberId), ("plan", req.PlanId), ("snap", JsonSerializer.Serialize(snapshot)), ("price", price), ("qty", qty), ("gift", gift), ("total", qty + gift), ("pay", req.PayMethod), ("actor", Guid.Parse(user.FindFirstValue("sub")!)), ("name", Actor(user)), ("remark", req.Remark ?? ""));
+              (id,tenant_id,recharge_no,idempotency_key,member_id,plan_id,plan_snapshot,paid_amount,buy_qty,gift_qty,total_tickets,pay_method,operator_id,operator_name,remark,manual_gift_qty)
+            VALUES(@id,@tid,@no,@key,@mid,@plan,@snap::jsonb,@price,@qty,@gift,@total,@pay,@actor,@name,@remark,@manual)
+            """, ct, ("id", id), ("tid", tid), ("no", no), ("key", req.IdempotencyKey), ("mid", req.MemberId), ("plan", req.PlanId), ("snap", JsonSerializer.Serialize(snapshot)), ("price", price), ("qty", qty), ("gift", gift), ("total", qty + gift), ("pay", req.PayMethod), ("actor", Guid.Parse(user.FindFirstValue("sub")!)), ("name", Actor(user)), ("remark", req.Remark ?? ""), ("manual", req.GiftQty));
         await Exec(conn, tx, """
             INSERT INTO plugin_kunlun_waterstation.ticket_batches(id,tenant_id,member_id,recharge_id,source,water_type,fulfill_mode,paid_amount,fixed_qty,gift_qty,remaining_buy,remaining_gift)
             VALUES(@id,@tid,@mid,@id,'PURCHASE',@water,@mode,@price,@qty,@gift,@qty,@gift)
@@ -140,8 +160,30 @@ public static class MembershipEndpoints
         var (balance, _) = await MemberTickets.Add(conn, tx, tid, req.MemberId, water, mode, qty + gift, 0, ct);
         await Ledger(conn, tx, tid, req.MemberId, water, mode, "RECHARGE_BUY", qty, balance - gift, no, Actor(user), ct);
         if (gift > 0) await Ledger(conn, tx, tid, req.MemberId, water, mode, "RECHARGE_GIFT", gift, balance, no, Actor(user), ct);
+        var giftRequestNo = pendingGift > 0 ? await RefundRequests.RequestGift(conn, tx, tid, req.MemberId, id, pendingGift, Actor(user), ct) : null;
         await tx.CommitAsync(ct);
-        return Results.Ok(new { id, batchId = id, rechargeNo = no, paidAmount = price, buyQty = qty, giftQty = gift, totalTickets = qty + gift, planSnapshot = snapshot, idempotentReplay = false });
+        return Results.Ok(new { id, batchId = id, rechargeNo = no, paidAmount = price, buyQty = qty, giftQty = gift, pendingGiftQty = pendingGift, giftRequestNo, totalTickets = qty + gift, planSnapshot = snapshot, idempotentReplay = false });
+    }
+
+    /// <summary>Adds an approved gift to its recharge batch; a refunded recharge takes no more gifts. The caller holds the member lock.</summary>
+    public static async Task GrantGift(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid batchId, int qty, string actor, CancellationToken ct)
+    {
+        Guid mid; string water, mode, no;
+        await using (var cmd = Command(conn, tx, """
+            SELECT b.member_id,b.water_type,b.fulfill_mode,b.status,r.recharge_no
+            FROM plugin_kunlun_waterstation.ticket_batches b JOIN plugin_kunlun_waterstation.recharge_orders r ON r.id=b.recharge_id
+            WHERE b.tenant_id=@tid AND b.id=@id FOR UPDATE OF b
+            """, ("tid", tid), ("id", batchId)))
+        await using (var r = await cmd.ExecuteReaderAsync(ct))
+        {
+            if (!await r.ReadAsync(ct)) throw new BusinessRuleException("充值批次不存在", 404);
+            if (r.GetString(3) != "ACTIVE") throw new BusinessRuleException("这笔充值已退款，赠送不能再到账，请驳回", 409);
+            mid = r.GetGuid(0); water = r.GetString(1); mode = r.GetString(2); no = r.GetString(4);
+        }
+        await Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.ticket_batches SET gift_qty=gift_qty+@qty,remaining_gift=remaining_gift+@qty WHERE tenant_id=@tid AND id=@id", ct, ("qty", qty), ("tid", tid), ("id", batchId));
+        await Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.recharge_orders SET gift_qty=gift_qty+@qty,total_tickets=total_tickets+@qty WHERE tenant_id=@tid AND id=@id", ct, ("qty", qty), ("tid", tid), ("id", batchId));
+        var (balance, _) = await MemberTickets.Add(conn, tx, tid, mid, water, mode, qty, 0, ct);
+        await Ledger(conn, tx, tid, mid, water, mode, "RECHARGE_GIFT", qty, balance, no, actor, ct);
     }
 
     // 管理员直接退清剩余权益（RechargeRefund 即审核权限），并记为已审核申请；店员通过 /api/refund-requests 提交申请。
@@ -193,6 +235,11 @@ public static class MembershipEndpoints
         var (balance, _) = await MemberTickets.Add(conn, tx, tid, mid, water, mode, -(buy + gift), 0, ct);
         if (buy > 0) await Ledger(conn, tx, tid, mid, water, mode, "RECHARGE_REFUND", -buy, balance + gift, no, actor, ct);
         if (gift > 0) await Ledger(conn, tx, tid, mid, water, mode, "GIFT_REVOKE", -gift, balance, no, actor, ct);
+        // A gift still waiting for review goes with the refunded recharge.
+        await Exec(conn, tx, """
+            UPDATE plugin_kunlun_waterstation.refund_requests SET status='REJECTED',reviewer_name=@actor,reviewed_at=now(),review_note='充值已退款，赠送作废'
+            WHERE tenant_id=@tid AND batch_id=@id AND kind='GIFT' AND status='PENDING'
+            """, ct, ("actor", actor), ("tid", tid), ("id", id));
         return new RechargeRefundResult(rid, no, amount, buy, gift);
     }
     private static Task<int> Ledger(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, string water, string mode, string kind, int delta, int balance, string no, string actor, CancellationToken ct) =>

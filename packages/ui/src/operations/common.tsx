@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { PAY_METHODS, type MemberProfile } from '@kunlun/shared';
+import { PAY_METHODS, type MemberProfile, type PayMethod, type ReviewSettings } from '@kunlun/shared';
 import { useApi } from '../auth';
 import { Dialog } from '../feedback';
 
@@ -9,6 +9,33 @@ export const errorText = (e: unknown) => (e instanceof Error ? e.message : Strin
 
 export function PayOptions() {
   return <>{PAY_METHODS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}</>;
+}
+
+/** How the money changed hands, one tap instead of a dropdown. */
+export function PayButtons({ labelledBy, value, onChange }: { labelledBy: string; value: PayMethod; onChange: (pay: PayMethod) => void }) {
+  return (
+    <div className="pay-buttons" role="group" aria-labelledby={labelledBy}>
+      {PAY_METHODS.map(p => <button key={p.value} type="button" aria-pressed={value === p.value} onClick={() => onChange(p.value)}>{p.label}</button>)}
+    </div>
+  );
+}
+
+/** The station's review switches, read when a dialog opens; null while loading or when they cannot be read. */
+export function useReviewSettings() {
+  const api = useApi();
+  const [settings, setSettings] = useState<ReviewSettings | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.reviewSettings().then(s => alive && setSettings(s)).catch(() => undefined);
+    return () => { alive = false; };
+  }, [api]);
+  return settings;
+}
+
+/** Whether a clerk's gift or refund waits for an administrator; reviewers never wait, and unknown settings count as reviewed. */
+export function waitsForReview(settings: ReviewSettings | null, what: 'gift' | 'refund', reviewer: boolean) {
+  if (reviewer) return false;
+  return settings ? (what === 'gift' ? settings.giftReview : settings.refundReview) : true;
 }
 
 /** Shown instead of a form when a precondition (permission, configuration, data) is not met. */

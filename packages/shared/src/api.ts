@@ -36,6 +36,7 @@ import type {
   RefundRequestRow,
   RefundRequestStatus,
   RechargePlan,
+  ReviewSettings,
   RoleCode,
   SaveMemberAddressRequest,
   SaveWaterProductRequest,
@@ -176,19 +177,25 @@ export class KunlunApi {
   }
 
   // Recharges & refunds
-  createRecharge(body: { memberId: string; planId: string; payMethod: PayMethod; idempotencyKey: string }) {
-    return this.post<{ id: string; rechargeNo: string; paidAmount: number; buyQty: number; giftQty: number; totalTickets: number; planSnapshot?: PlanSnapshot; idempotentReplay: boolean }>('/api/recharges', body);
+  /** `giftQty` is given by hand; while gifts are reviewed a clerk's gift waits (`pendingGiftQty`) and the paid tickets arrive at once. */
+  createRecharge(body: { memberId: string; planId: string; payMethod: PayMethod; giftQty?: number; idempotencyKey: string }) {
+    return this.post<{
+      id: string; rechargeNo: string; paidAmount: number; buyQty: number; giftQty: number; pendingGiftQty: number; giftRequestNo: string | null;
+      totalTickets: number; planSnapshot?: PlanSnapshot; idempotentReplay: boolean;
+    }>('/api/recharges', body);
   }
 
-  // Refunds: staff file a request, an administrator approves (which pays out) or rejects it
+  // Refunds and gifts: what needs review waits for an administrator, anything else is done on the spot (status APPROVED)
   applyRefund(body: ApplyRefundBody) {
-    return this.post<{ id: string; requestNo: string; status: RefundRequestStatus; estimatedAmount: number; idempotentReplay: boolean }>('/api/refund-requests', body);
+    return this.post<{ id: string; requestNo: string; status: RefundRequestStatus; estimatedAmount: number; refundNo: string | null; refundAmount: number | null; idempotentReplay: boolean }>('/api/refund-requests', body);
   }
+  reviewSettings() { return this.request<ReviewSettings>('/api/settings/review'); }
+  saveReviewSettings(body: { giftReview: boolean; refundReview: boolean }) { return this.put<ReviewSettings>('/api/settings/review', body); }
   refundRequests(query: RefundRequestQuery = {}) {
     return this.request<Paged<RefundRequestRow>>('/api/refund-requests' + paged(query));
   }
   approveRefund(id: string, body: { payMethod?: PayMethod; note?: string }) {
-    return this.post<{ id: string; status: RefundRequestStatus; refundNo: string; refundAmount: number; idempotentReplay: boolean }>(`/api/refund-requests/${id}/approve`, body);
+    return this.post<{ id: string; status: RefundRequestStatus; refundNo: string | null; refundAmount: number; idempotentReplay: boolean }>(`/api/refund-requests/${id}/approve`, body);
   }
   rejectRefund(id: string, note: string) {
     return this.post<{ id: string; status: RefundRequestStatus }>(`/api/refund-requests/${id}/reject`, { note });
