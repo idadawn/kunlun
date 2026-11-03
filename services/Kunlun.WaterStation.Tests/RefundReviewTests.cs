@@ -101,7 +101,7 @@ public sealed class RefundReviewTests(TestHost host)
         await Ok(await admin.PostAsJsonAsync($"/api/refund-requests/{firstId}/reject", new RejectRefundRequest("仍在使用中，暂不退")));
         Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync($"/api/refund-requests/{firstId}/approve", new ApproveRefundRequest(null, null))).StatusCode);
         var profile = await admin.GetFromJsonAsync<JsonElement>($"/api/members/{mid}/profile");
-        Assert.True(profile.GetProperty("bucketPickupTickets").GetInt32() > 0);
+        Assert.True(profile.Tickets("BUCKET_18_9L", "PICKUP") > 0);
         Assert.Equal(0, (await admin.GetFromJsonAsync<JsonElement>($"/api/ledgers/recharge-refunds?q={memberNo}&page=1")).GetProperty("total").GetInt64());
 
         var second = await Ok(await apply());
@@ -109,7 +109,7 @@ public sealed class RefundReviewTests(TestHost host)
         Assert.Equal(second.GetProperty("estimatedAmount").GetDecimal(), approved.GetProperty("refundAmount").GetDecimal());
         var refund = Assert.Single((await admin.GetFromJsonAsync<JsonElement>($"/api/ledgers/recharge-refunds?q={memberNo}&page=1")).GetProperty("rows").EnumerateArray());
         Assert.Equal("WECHAT", refund.GetProperty("payMethod").GetString());
-        Assert.Equal(0, (await admin.GetFromJsonAsync<JsonElement>($"/api/members/{mid}/profile")).GetProperty("bucketPickupTickets").GetInt32());
+        Assert.Equal(0, (await admin.GetFromJsonAsync<JsonElement>($"/api/members/{mid}/profile")).Tickets("BUCKET_18_9L", "PICKUP"));
     }
 
     [Fact]

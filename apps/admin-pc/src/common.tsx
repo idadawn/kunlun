@@ -5,14 +5,14 @@ import {
   type DateFilter, type ExportDataset, type LedgerQuery, type MemberProfile, type Paged, type WaterOrder, type WaterProduct,
 } from '@kunlun/shared';
 import {
-  CounterOrder, DepositDialog, Dialog, FulfillDialog, IssueCouponDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog, RechargeDialog,
+  CounterOrder, DepositDialog, Dialog, FulfillDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog, RechargeDialog,
   Icon, saveBlob, useApi, useAuth, useDialogs, useLoader, useRun, useToast, type DepositAction, type IconName,
 } from '@kunlun/ui';
 import { useAdminData } from './data';
 
 export const PAGE_NAMES: Record<string, string> = {
-  dashboard: '经营总览', members: '会员管理', orders: '水单管理', recharges: '水费充值', deposits: '押金管理', refunds: '退款审核', inventory: '袋桶库存', assets: '袋桶台账',
-  products: '水品与押金标准', plans: '充值套餐', coupons: '优惠券', 'staff-accounts': '员工账号',
+  dashboard: '经营总览', members: '会员管理', orders: '水单管理', recharges: '水费充值', deposits: '押金管理', refunds: '审核', inventory: '袋桶库存', assets: '袋桶台账',
+  products: '水品与押金标准', plans: '充值套餐', 'staff-accounts': '员工账号',
 };
 
 export function useGo() {
@@ -42,7 +42,6 @@ export function useOperations() {
   const run = useRun();
   return {
     recharge: (id = memberId) => run(() => dialogs.open(close => <RechargeDialog memberId={id} onClose={close} onDone={refresh} />))(),
-    issueCoupon: (id?: string, templateId?: string) => run(() => dialogs.open(close => <IssueCouponDialog memberId={id ?? memberId} templateId={templateId} onClose={close} onDone={refresh} />))(),
     deposit: (action?: DepositAction, id = memberId) => run(() => dialogs.open(close => <DepositDialog containers={data.containers} memberId={id} action={action} onClose={close} onDone={refresh} />))(),
     // Opened from a member row it starts with that customer; elsewhere it starts by finding the customer at the counter.
     order: (id?: string) => run(() => dialogs.open(close => <CounterOrderDialog products={data.products} memberId={id} onClose={close} onDone={refresh} />))(),
@@ -144,6 +143,11 @@ export function StatCard({ label, icon, tone, value, foot }: { label: string; ic
       <div className="stat-foot">{foot}</div>
     </div>
   );
+}
+
+/** Who did it: "小林 申请 / 林站长 审核退款" when a clerk filed and an administrator approved, else the one name. */
+export function handledBy(applicant: string | null, operator: string, done: string) {
+  return applicant && applicant !== operator ? <>{applicant} 申请<br /><small>{operator} 审核{done}</small></> : operator;
 }
 
 export function EmptyRow({ colSpan, children }: { colSpan: number; children: string }) {

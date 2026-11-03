@@ -8,7 +8,6 @@ import type {
   ContainerLedgerRow,
   ContainerSummaryItem,
   ContainerType,
-  CouponTemplate,
   CreateOrderRequest,
   ContainerLedgerQuery,
   CreateOrderResult,
@@ -23,7 +22,6 @@ import type {
   InventoryRequest,
   LedgerQuery,
   MemberAddress,
-  MemberCoupon,
   MemberProfile,
   MemberQuery,
   OrderQuery,
@@ -38,10 +36,12 @@ import type {
   RefundRequestRow,
   RefundRequestStatus,
   RechargePlan,
+  ReviewSettings,
   RoleCode,
-  SaveCouponTemplateRequest,
   SaveMemberAddressRequest,
+  SaveWaterProductRequest,
   StaffAccount,
+  StocktakeRequest,
   TicketBatch,
   WaterOrder,
   WaterProduct,
@@ -135,6 +135,7 @@ export class KunlunApi {
   setStaffStatus(id: string, status: ActiveStatus) {
     return this.request<{ id: string; status: ActiveStatus }>(`/api/staff/${id}/status`, { method: 'PATCH', ...json({ status }) });
   }
+  deleteStaff(id: string) { return this.request<{ id: string; deleted: boolean }>(`/api/staff/${id}`, { method: 'DELETE' }); }
 
   // Members & address books
   /** The newest 50 matches, for pickers; tables use `membersPage`. */
@@ -163,39 +164,38 @@ export class KunlunApi {
   }
   depositSummary(memberId: string) { return this.request<DepositSummaryRow[]>(`/api/members/${memberId}/deposit-summary`); }
   ticketBatches(memberId: string) { return this.request<TicketBatch[]>(`/api/members/${memberId}/ticket-batches`); }
-  memberCoupons(memberId: string) { return this.request<MemberCoupon[]>(`/api/members/${memberId}/coupons`); }
 
-  // Products, plans & coupons
+  // Products & plans
   listProducts() { return this.request<WaterProduct[]>('/api/products'); }
-  updateProduct(waterType: WaterType, body: { name: string; capacityLiters: number; packaging: string; retailPrice: number | null; deliveryMinimum: number }) {
-    return this.put<WaterProduct>(`/api/products/${waterType}`, body);
-  }
+  createProduct(body: SaveWaterProductRequest & { containerType: ContainerType }) { return this.post<WaterProduct>('/api/products', body); }
+  updateProduct(waterType: WaterType, body: SaveWaterProductRequest) { return this.put<WaterProduct>(`/api/products/${waterType}`, body); }
+  /** Only a product without packages, tickets or orders can be deleted. */
+  deleteProduct(waterType: WaterType) { return this.request<{ waterType: WaterType; deleted: boolean }>(`/api/products/${waterType}`, { method: 'DELETE' }); }
   listPlans() { return this.request<RechargePlan[]>('/api/plans'); }
   savePlan(id: string | null, body: { name: string; waterType: WaterType; fulfillMode: FulfillMode; price: number; buyQty: number; giftQty: 0; status: ActiveStatus }) {
     return id ? this.put<RechargePlan>(`/api/plans/${id}`, body) : this.post<RechargePlan>('/api/plans', body);
   }
-  listCouponTemplates() { return this.request<CouponTemplate[]>('/api/coupon-templates'); }
-  saveCouponTemplate(id: string | null, body: SaveCouponTemplateRequest) {
-    return id ? this.put<{ id: string }>(`/api/coupon-templates/${id}`, body) : this.post<{ id: string }>('/api/coupon-templates', body);
-  }
-  issueCoupon(templateId: string, memberId: string, idempotencyKey: string) {
-    return this.post<{ id: string; idempotentReplay: boolean }>(`/api/coupon-templates/${templateId}/issue`, { memberId, idempotencyKey });
-  }
 
   // Recharges & refunds
-  createRecharge(body: { memberId: string; planId: string; couponId: string | null; payMethod: PayMethod; idempotencyKey: string }) {
-    return this.post<{ id: string; rechargeNo: string; paidAmount: number; buyQty: number; giftQty: number; totalTickets: number; planSnapshot?: PlanSnapshot; idempotentReplay: boolean }>('/api/recharges', body);
+  /** `giftQty` is given by hand; while gifts are reviewed a clerk's gift waits (`pendingGiftQty`) and the paid tickets arrive at once. */
+  createRecharge(body: { memberId: string; planId: string; payMethod: PayMethod; giftQty?: number; idempotencyKey: string }) {
+    return this.post<{
+      id: string; rechargeNo: string; paidAmount: number; buyQty: number; giftQty: number; pendingGiftQty: number; giftRequestNo: string | null;
+      totalTickets: number; planSnapshot?: PlanSnapshot; idempotentReplay: boolean;
+    }>('/api/recharges', body);
   }
 
-  // Refunds: staff file a request, an administrator approves (which pays out) or rejects it
+  // Refunds and gifts: what needs review waits for an administrator, anything else is done on the spot (status APPROVED)
   applyRefund(body: ApplyRefundBody) {
-    return this.post<{ id: string; requestNo: string; status: RefundRequestStatus; estimatedAmount: number; idempotentReplay: boolean }>('/api/refund-requests', body);
+    return this.post<{ id: string; requestNo: string; status: RefundRequestStatus; estimatedAmount: number; refundNo: string | null; refundAmount: number | null; idempotentReplay: boolean }>('/api/refund-requests', body);
   }
+  reviewSettings() { return this.request<ReviewSettings>('/api/settings/review'); }
+  saveReviewSettings(body: { giftReview: boolean; refundReview: boolean }) { return this.put<ReviewSettings>('/api/settings/review', body); }
   refundRequests(query: RefundRequestQuery = {}) {
     return this.request<Paged<RefundRequestRow>>('/api/refund-requests' + paged(query));
   }
   approveRefund(id: string, body: { payMethod?: PayMethod; note?: string }) {
-    return this.post<{ id: string; status: RefundRequestStatus; refundNo: string; refundAmount: number; idempotentReplay: boolean }>(`/api/refund-requests/${id}/approve`, body);
+    return this.post<{ id: string; status: RefundRequestStatus; refundNo: string | null; refundAmount: number; idempotentReplay: boolean }>(`/api/refund-requests/${id}/approve`, body);
   }
   rejectRefund(id: string, note: string) {
     return this.post<{ id: string; status: RefundRequestStatus }>(`/api/refund-requests/${id}/reject`, { note });
@@ -233,6 +233,7 @@ export class KunlunApi {
     return this.post<{ depositNo: string; totalAmount: number }>('/api/deposits/collect', body);
   }
   inventory(body: InventoryRequest) { return this.post<InventoryOperation>('/api/containers/inventory', body); }
+  stocktake(body: StocktakeRequest) { return this.post<InventoryOperation>('/api/containers/stocktake', body); }
   inventoryOperations(containerType?: ContainerType) {
     return this.request<Array<{ operation: InventoryOperation; memberName: string }>>('/api/containers/inventory-operations' + (containerType ? `?containerType=${containerType}` : ''));
   }

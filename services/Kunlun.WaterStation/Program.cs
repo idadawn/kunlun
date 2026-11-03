@@ -79,7 +79,6 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
-var miniTestPayments = MiniPayments.IsEnabled(app.Configuration, app.Environment, connStr);
 app.Use(async (context, next) =>
 {
     try { await next(); }
@@ -109,7 +108,7 @@ using (var scope = app.Services.CreateScope())
     await MemberAddresses.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>(), repo.DefaultTenantId);
     await BusinessNumbers.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>());
     await RefundRequests.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>());
-    if (miniTestPayments) await MiniPayments.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>());
+    await ReviewSettings.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>());
 }
 
 app.MapGet("/healthz", async (NpgsqlDataSource ds) =>
@@ -130,17 +129,6 @@ app.MapGet("/healthz", async (NpgsqlDataSource ds) =>
 });
 
 app.MapAuthEndpoints();
-
-// Public capability handshake for the native client. No database names, users or credentials.
-app.MapGet("/api/mini-config", () => Results.Ok(new
-{
-    service = "kunlun.waterstation",
-    apiVersion = 1,
-    environment = app.Environment.IsProduction() ? "production" : "test",
-    environmentLabel = app.Environment.IsProduction() ? "正式服务" : "测试服务",
-    paymentProvider = miniTestPayments ? "MOCK" : "DISABLED",
-    retailPaymentsEnabled = miniTestPayments
-}));
 
 // 3. 当前登录身份与权限自检
 app.MapGet("/api/auth/me", (ClaimsPrincipal user) =>
@@ -177,14 +165,11 @@ app.MapGet("/api/members/{memberId:guid}/profile", async (
     }
 
     await using var conn = await ds.OpenConnectionAsync(ct);
-    await using var cmd = new NpgsqlCommand("""
-        SELECT id, member_no, name, phone, default_address,
-               bucket_delivery_tickets, bucket_pickup_tickets, bag_pickup_tickets, bag_delivery_tickets,
-               deposit_amount, held_buckets, held_bags, status,
-               reserved_bucket_delivery_tickets, reserved_bucket_pickup_tickets,
-               reserved_bag_pickup_tickets, reserved_bag_delivery_tickets, remark
-        FROM plugin_kunlun_waterstation.members
-        WHERE id = @id
+    await using var cmd = new NpgsqlCommand($"""
+        SELECT m.id, m.member_no, m.name, m.phone, m.default_address,
+               m.deposit_amount, m.held_buckets, m.held_bags, m.status, m.remark, {MemberTickets.JsonOf("m")}
+        FROM plugin_kunlun_waterstation.members m
+        WHERE m.id = @id
         """, conn);
     cmd.Parameters.AddWithValue("id", memberId);
     await using var r = await cmd.ExecuteReaderAsync(ct);
@@ -197,19 +182,13 @@ app.MapGet("/api/members/{memberId:guid}/profile", async (
         name = r.GetString(2),
         phone = r.GetString(3),
         defaultAddress = r.IsDBNull(4) ? "" : r.GetString(4),
-        bucketDeliveryTickets = r.GetInt32(5),
-        bucketPickupTickets = r.GetInt32(6),
-        bagPickupTickets = r.GetInt32(7),
-        bagDeliveryTickets = r.GetInt32(8),
-        depositAmount = r.GetDecimal(9),
-        heldBuckets = r.GetInt32(10),
-        heldBags = r.GetInt32(11),
-        status = r.GetString(12),
-        reservedBucketDeliveryTickets = r.GetInt32(13),
-        reservedBucketPickupTickets = r.GetInt32(14),
-        reservedBagPickupTickets = r.GetInt32(15),
-        reservedBagDeliveryTickets = r.GetInt32(16),
-        remark = r.IsDBNull(17) ? null : r.GetString(17)
+        depositAmount = r.GetDecimal(5),
+        heldBuckets = r.GetInt32(6),
+        heldBags = r.GetInt32(7),
+        status = r.GetString(8),
+        remark = r.IsDBNull(9) ? null : r.GetString(9),
+        // 每种水品、每种领取方式的可用和预占水票，各水品互不通用
+        tickets = JsonSerializer.Deserialize<JsonElement>(r.GetString(10))
     });
 }).RequireAuthorization();
 
@@ -251,12 +230,12 @@ app.MapContainerInventory();
 app.MapContainerCirculation();
 app.MapMembershipEndpoints();
 app.MapRefundRequests();
+app.MapReviewSettings();
 app.MapMemberAddresses();
 app.MapWaterProducts();
 app.MapOrderEndpoints();
 app.MapReportEndpoints();
 app.MapOverviewEndpoints();
-app.MapMiniPayments(miniTestPayments);
 app.Run();
 
 public partial class Program;

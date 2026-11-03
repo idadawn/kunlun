@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  KUNLUN_PERMISSIONS as P,
+  KUNLUN_PERMISSIONS as P, rememberProducts,
   type ContainerSummaryItem, type FinanceSummaryReport, type MemberProfile, type MemberQuery,
   type OverviewReport, type RechargePlan, type WaterOrder, type WaterProduct,
 } from '@kunlun/shared';
@@ -82,6 +82,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       reviews ? api.refundRequests({ status: 'PENDING', pageSize: 1 }).then(p => p.total) : Promise.resolve(null),
     ]);
     if (mine !== generation.current) return;
+    rememberProducts(products);
     setSnapshot({ members: members.rows, memberTotal: members.total, plans, products, orders: orders.rows, orderTotal: orders.total, containers, finance, overview, pendingRefunds });
     setLoaded(true);
     setVersion(v => v + 1);

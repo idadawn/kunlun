@@ -7,7 +7,7 @@ namespace Kunlun.WaterStation.Operations;
 public sealed record CreateMemberRequest(string Name, string Phone, string? DefaultAddress, string? Remark, string? DoorNo = null);
 public sealed record SaveRechargePlanRequest(
     string Name,
-    string WaterType,     // BUCKET_18_9L | BAG_7_5L
+    string WaterType,     // a water product code, e.g. BUCKET_18_9L
     string FulfillMode,   // DELIVERY | PICKUP
     decimal Price,
     int BuyQty,
@@ -20,7 +20,7 @@ public sealed record CreateRechargeOrderRequest(
     string PayMethod,
     string IdempotencyKey,
     string? Remark = null,
-    Guid? CouponId = null);
+    int GiftQty = 0); // 店员手动赠送的张数，按审核开关当场到账或待管理员批准
 
 public sealed record CollectDepositRequest(
     Guid MemberId,
@@ -90,6 +90,8 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 UNIQUE (tenant_id, idempotency_key)
             );
+            -- 店员登记时手动填的赠送张数；gift_qty 只记已到账的，待审核的赠送在 refund_requests(kind=GIFT)。
+            ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS manual_gift_qty INT NOT NULL DEFAULT 0;
 
             CREATE TABLE IF NOT EXISTS ticket_ledgers (
                 id BIGSERIAL PRIMARY KEY,
@@ -161,7 +163,7 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
             await cmd.ExecuteNonQueryAsync(ct);
         }
 
-        // Fixed quantities are all paid tickets; promotional gifts belong to coupons.
+        // Fixed quantities are all paid tickets; packages carry no gifts.
         var plans = WaterProducts.PostedPlans;
         await using (var upgrade = new NpgsqlCommand("""
             CREATE TABLE IF NOT EXISTS plugin_kunlun_waterstation.finance_migrations (tenant_id UUID NOT NULL,name TEXT NOT NULL,PRIMARY KEY(tenant_id,name));
@@ -244,14 +246,4 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
 
         await tx.CommitAsync(ct);
     }
-
-    public static string GetTicketColumn(string waterType, string fulfillMode) =>
-        (waterType, fulfillMode) switch
-        {
-            ("BUCKET_18_9L", "DELIVERY") => "bucket_delivery_tickets",
-            ("BUCKET_18_9L", "PICKUP") => "bucket_pickup_tickets",
-            ("BAG_7_5L", "PICKUP") => "bag_pickup_tickets",
-            ("BAG_7_5L", "DELIVERY") => "bag_delivery_tickets",
-            _ => throw new ArgumentException($"Unsupported ticket category: {waterType} + {fulfillMode}")
-        };
 }

@@ -72,21 +72,20 @@ public static class FinanceEndpoints
                 return Results.Json(new { error = "无查询会员权限 (kunlun.waterstation:member:read)" }, statusCode: StatusCodes.Status403Forbidden);
 
             await using var conn = await ds.OpenConnectionAsync(ct);
-            return await Paging.From(page, pageSize, legacyLimit: 50).Query(conn, """
-                id, member_no, name, phone, COALESCE(default_address, ''),
-                bucket_delivery_tickets, bucket_pickup_tickets, bag_pickup_tickets, bag_delivery_tickets,
-                deposit_amount, held_buckets, held_bags, status,
-                reserved_bucket_delivery_tickets, reserved_bucket_pickup_tickets,
-                reserved_bag_pickup_tickets, reserved_bag_delivery_tickets, created_at, remark
+            // water: BUCKET / BAG — members holding usable tickets of any water carried in that container.
+            return await Paging.From(page, pageSize, legacyLimit: 50).Query(conn, $"""
+                m.id, m.member_no, m.name, m.phone, COALESCE(m.default_address, ''),
+                m.deposit_amount, m.held_buckets, m.held_bags, m.status, m.created_at, m.remark, {MemberTickets.JsonOf("m")}
                 """, """
-                plugin_kunlun_waterstation.members
-                WHERE tenant_id = @tid
-                  AND (@q IS NULL OR member_no ILIKE @q OR name ILIKE @q OR phone ILIKE @q)
-                  AND (@status IS NULL OR status = @status)
-                  AND (@water IS NULL
-                       OR (@water = 'BUCKET' AND bucket_pickup_tickets + bucket_delivery_tickets > 0)
-                       OR (@water = 'BAG' AND bag_pickup_tickets + bag_delivery_tickets > 0))
-                """, "created_at DESC, id", p =>
+                plugin_kunlun_waterstation.members m
+                WHERE m.tenant_id = @tid
+                  AND (@q IS NULL OR m.member_no ILIKE @q OR m.name ILIKE @q OR m.phone ILIKE @q)
+                  AND (@status IS NULL OR m.status = @status)
+                  AND (@water IS NULL OR EXISTS (
+                       SELECT 1 FROM plugin_kunlun_waterstation.member_tickets t
+                       JOIN plugin_kunlun_waterstation.water_products p ON p.tenant_id = t.tenant_id AND p.water_type = t.water_type
+                       WHERE t.tenant_id = m.tenant_id AND t.member_id = m.id AND t.available > 0 AND p.container_type = @water))
+                """, "m.created_at DESC, m.id", p =>
             {
                 p.AddWithValue("tid", finRepo.TenantId);
                 p.Add(Paging.Like("q", q));
@@ -99,20 +98,13 @@ public static class FinanceEndpoints
                 name = r.GetString(2),
                 phone = r.GetString(3),
                 defaultAddress = r.GetString(4),
-                bucketDeliveryTickets = r.GetInt32(5),
-                bucketPickupTickets = r.GetInt32(6),
-                bagPickupTickets = r.GetInt32(7),
-                bagDeliveryTickets = r.GetInt32(8),
-                depositAmount = r.GetDecimal(9),
-                heldBuckets = r.GetInt32(10),
-                heldBags = r.GetInt32(11),
-                status = r.GetString(12),
-                reservedBucketDeliveryTickets = r.GetInt32(13),
-                reservedBucketPickupTickets = r.GetInt32(14),
-                reservedBagPickupTickets = r.GetInt32(15),
-                reservedBagDeliveryTickets = r.GetInt32(16),
-                createdAt = r.GetDateTime(17),
-                remark = r.IsDBNull(18) ? null : r.GetString(18)
+                depositAmount = r.GetDecimal(5),
+                heldBuckets = r.GetInt32(6),
+                heldBags = r.GetInt32(7),
+                status = r.GetString(8),
+                createdAt = r.GetDateTime(9),
+                remark = r.IsDBNull(10) ? null : r.GetString(10),
+                tickets = JsonSerializer.Deserialize<JsonElement>(r.GetString(11))
             }, ct);
         }).RequireAuthorization();
 
@@ -298,7 +290,7 @@ public static class FinanceEndpoints
             await using var cover = TicketBatches.Command(conn, tx, "SELECT COALESCE(sum(remaining_qty-reserved_damage_qty),0) FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@ct", ("tid", tid), ("mid", req.MemberId), ("ct", ctype));
             var covered = Convert.ToInt32(await cover.ExecuteScalarAsync(ct));
             if (nextHeld > held && nextHeld > covered) throw new BusinessRuleException("押金不足，请先补交押金");
-            if (await TicketBatches.Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.container_configs SET in_station_qty=in_station_qty-@delta,member_held_qty=member_held_qty+@delta WHERE tenant_id=@tid AND container_type=@ct AND in_station_qty-@delta>=0 AND member_held_qty+@delta>=0", ct, ("delta", delta), ("tid", tid), ("ct", ctype)) == 0)
+            if (!await ContainerInventory.MoveToMembers(conn, tx, tid, ctype, delta, ct))
                 throw new BusinessRuleException("容器库存不足或持有台账需要核对");
             await TicketBatches.Exec(conn, tx, $"UPDATE plugin_kunlun_waterstation.members SET {column}=@held WHERE id=@mid AND tenant_id=@tid", ct, ("held", nextHeld), ("mid", req.MemberId), ("tid", tid));
             await TicketBatches.Exec(conn, tx, """

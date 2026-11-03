@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { KUNLUN_PERMISSIONS as P, money, pathFor, type MemberProfile, type WaterOrder } from '@kunlun/shared';
+import { KUNLUN_PERMISSIONS as P, money, pathFor, ticketGroups, type MemberProfile, type WaterOrder } from '@kunlun/shared';
 import {
   AddressBook, CredentialsDialog, DepositDialog, Dialog, FulfillDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog,
   RechargeDialog, useAuth, useDialogs, useRun, useToast, type DepositAction,
@@ -69,9 +69,11 @@ function MemberDetailDialog({ member, onClose }: { member: MemberProfile; onClos
     <Dialog title={`${member.name} · 会员办理`} description={`${member.phone} · ${member.memberNo}`} onClose={onClose}>
       <div className="member-ledgers">
         <section>
-          <header><b>水票</b><button type="button" className="link" onClick={() => ops.assets(member)}>批次 / 优惠券 ›</button></header>
-          <p>自提/配送桶票 <b>{member.bucketPickupTickets}/{member.bucketDeliveryTickets}</b></p>
-          <p>自提/配送袋票 <b>{member.bagPickupTickets}/{member.bagDeliveryTickets}</b></p>
+          <header><b>水票</b><button type="button" className="link" onClick={() => ops.assets(member)}>批次 / 退款 ›</button></header>
+          {member.tickets.length === 0 && <p>暂无水票</p>}
+          {ticketGroups(member.tickets).map(g => (
+            <p key={g.waterType}>{g.name}<br /><b>自提 {g.pickup} · 配送 {g.delivery}</b> {g.unit}{g.reserved > 0 ? `（预占 ${g.reserved}）` : ''}</p>
+          ))}
           <div className="member-ledger-actions"><button type="button" className="btn primary sm" onClick={ops.recharge}>水费充值</button></div>
         </section>
         <section className="deposit">
@@ -80,7 +82,7 @@ function MemberDetailDialog({ member, onClose }: { member: MemberProfile; onClos
           <p>持有桶/袋 <b>{member.heldBuckets}/{member.heldBags}</b></p>
           <div className="member-ledger-actions">
             <button type="button" className="btn sm" onClick={ops.collectDeposit}>收押金</button>
-            <button type="button" className="btn sm" onClick={ops.refundDeposit}>申请退押金</button>
+            <button type="button" className="btn sm" onClick={ops.refundDeposit}>退押金</button>
           </div>
         </section>
       </div>

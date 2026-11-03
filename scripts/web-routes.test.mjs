@@ -19,7 +19,11 @@ test('clean URLs resolve pages and aliases; .html and hash links are not routes'
  assert.equal(resolveRoute('/admin/settings').path,'/admin/plans');
  assert.equal(resolveRoute('/admin/deposit-settings').path,'/admin/products');
  assert.equal(resolveRoute('/member/home/').path,'/member');
- assert.deepEqual(resolveRoute('/member/addresses'),{area:'member',page:'addresses',path:'/member/addresses'});
+ assert.deepEqual(resolveRoute('/member/records'),{area:'member',page:'records',path:'/member/records'});
+ // Retired pages keep old links working: coupons and member self-ordering are gone.
+ assert.equal(resolveRoute('/admin/coupons').path,'/admin/plans');
+ assert.equal(resolveRoute('/member/order').path,'/member');
+ assert.equal(resolveRoute('/member/addresses').path,'/member/profile');
  for(const bad of ['/admin.html','/member.html','/index.html','/admin/index.html','/staff/orders/index.html','/admin/not-a-page','/admin/plans/extra','/admin/%xx','/'])assert.equal(resolveRoute(bad),null,bad);
  for(const [area,route] of Object.entries(WEB_ROUTES))for(const page of route.pages){const path=pathFor(area,page);assert.ok(!path.includes('.html'));assert.equal(resolveRoute(path).page,page);}
 });

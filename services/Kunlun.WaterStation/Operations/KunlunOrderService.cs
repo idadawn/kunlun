@@ -5,7 +5,7 @@ namespace Kunlun.WaterStation.Operations;
 
 public sealed record CreateWaterOrderRequest(
     Guid MemberId,
-    string WaterType,      // BUCKET_18_9L | BAG_7_5L
+    string WaterType,      // a water product code, e.g. BUCKET_18_9L
     string FulfillMode,    // DELIVERY | PICKUP
     int OrderQty,
     string IdempotencyKey,
@@ -45,10 +45,15 @@ public sealed class KunlunOrderRepository(NpgsqlDataSource dataSource, KunlunAut
             SELECT pg_advisory_xact_lock(88482026);
             SET search_path TO plugin_kunlun_waterstation, public;
 
-            ALTER TABLE members ADD COLUMN IF NOT EXISTS reserved_bucket_delivery_tickets INT NOT NULL DEFAULT 0 CHECK (reserved_bucket_delivery_tickets >= 0);
-            ALTER TABLE members ADD COLUMN IF NOT EXISTS reserved_bucket_pickup_tickets INT NOT NULL DEFAULT 0 CHECK (reserved_bucket_pickup_tickets >= 0);
-            ALTER TABLE members ADD COLUMN IF NOT EXISTS reserved_bag_pickup_tickets INT NOT NULL DEFAULT 0 CHECK (reserved_bag_pickup_tickets >= 0);
-            ALTER TABLE members ADD COLUMN IF NOT EXISTS reserved_bag_delivery_tickets INT NOT NULL DEFAULT 0 CHECK (reserved_bag_delivery_tickets >= 0);
+            -- Legacy reservation columns, only until balances move to member_tickets (MemberTickets.EnsureSchema).
+            DO $$ BEGIN
+              IF to_regclass('plugin_kunlun_waterstation.member_tickets') IS NULL THEN
+                ALTER TABLE members ADD COLUMN IF NOT EXISTS reserved_bucket_delivery_tickets INT NOT NULL DEFAULT 0 CHECK (reserved_bucket_delivery_tickets >= 0);
+                ALTER TABLE members ADD COLUMN IF NOT EXISTS reserved_bucket_pickup_tickets INT NOT NULL DEFAULT 0 CHECK (reserved_bucket_pickup_tickets >= 0);
+                ALTER TABLE members ADD COLUMN IF NOT EXISTS reserved_bag_pickup_tickets INT NOT NULL DEFAULT 0 CHECK (reserved_bag_pickup_tickets >= 0);
+                ALTER TABLE members ADD COLUMN IF NOT EXISTS reserved_bag_delivery_tickets INT NOT NULL DEFAULT 0 CHECK (reserved_bag_delivery_tickets >= 0);
+              END IF;
+            END $$;
 
             CREATE TABLE IF NOT EXISTS water_orders (
                 id UUID PRIMARY KEY,
@@ -107,14 +112,4 @@ public sealed class KunlunOrderRepository(NpgsqlDataSource dataSource, KunlunAut
 
         await tx.CommitAsync(ct);
     }
-
-    public static (string AvailableCol, string ReservedCol, string ContainerType) ResolveTicketColumns(string waterType, string fulfillMode) =>
-        (waterType, fulfillMode) switch
-        {
-            ("BUCKET_18_9L", "DELIVERY") => ("bucket_delivery_tickets", "reserved_bucket_delivery_tickets", "BUCKET"),
-            ("BUCKET_18_9L", "PICKUP")   => ("bucket_pickup_tickets",   "reserved_bucket_pickup_tickets",   "BUCKET"),
-            ("BAG_7_5L",     "PICKUP")   => ("bag_pickup_tickets",      "reserved_bag_pickup_tickets",      "BAG"),
-            ("BAG_7_5L",     "DELIVERY") => ("bag_delivery_tickets",    "reserved_bag_delivery_tickets",    "BAG"),
-            _ => throw new ArgumentException($"Unsupported waterType/fulfillMode combination: {waterType}/{fulfillMode}")
-        };
 }

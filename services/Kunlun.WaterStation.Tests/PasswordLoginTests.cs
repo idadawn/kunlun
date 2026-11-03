@@ -70,4 +70,27 @@ public sealed class PasswordLoginTests(TestHost host)
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/staff")).StatusCode);
     }
 
+    [Fact]
+    public async Task Admin_Deletes_Staff_Whose_Token_Stops_Working_But_Not_Self_Or_Last_Admin()
+    {
+        using var admin = host.CreateClient();
+        var auth = (await (await admin.PostAsJsonAsync("/api/auth/staff/login", new StaffLoginRequest("YG0001", TestHost.Password))).Content.ReadFromJsonAsync<AuthTokenResponse>())!;
+        admin.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
+        var username = "leaver_" + Guid.NewGuid().ToString("N")[..12]; var password = Guid.NewGuid().ToString("N");
+        var phone = $"133{Random.Shared.Next(10000000, 99999999)}";
+        var created = await admin.PostAsJsonAsync("/api/staff", new CreateStaffRequest("离职员工", phone, username, password, "COURIER"));
+        var id = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        using var leaver = host.CreateClient();
+        var leaverAuth = (await (await leaver.PostAsJsonAsync("/api/auth/staff/login", new StaffLoginRequest(username, password))).Content.ReadFromJsonAsync<AuthTokenResponse>())!;
+        leaver.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", leaverAuth.AccessToken);
+        Assert.Equal(HttpStatusCode.Forbidden, (await leaver.DeleteAsync($"/api/staff/{auth.SubjectId}")).StatusCode);
+
+        Assert.Equal(HttpStatusCode.OK, (await admin.DeleteAsync($"/api/staff/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await leaver.GetAsync("/api/auth/me")).StatusCode);
+        Assert.DoesNotContain((await admin.GetFromJsonAsync<JsonElement[]>("/api/staff"))!, s => s.GetProperty("id").GetGuid() == id);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.DeleteAsync($"/api/staff/{id}")).StatusCode);
+        // The same phone and username can be used again for a new account.
+        Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync("/api/staff", new CreateStaffRequest("返聘员工", phone, username, password, "COURIER"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.DeleteAsync($"/api/staff/{auth.SubjectId}")).StatusCode);
+    }
 }

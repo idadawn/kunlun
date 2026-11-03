@@ -1,17 +1,27 @@
 import { useState } from 'react';
-import { PHONE_PATTERN, type RoleCode } from '@kunlun/shared';
-import { CredentialsDialog, Field, FormDialog, useApi, useDialogs, useLoader, useRun, useToast } from '@kunlun/ui';
+import { PHONE_PATTERN, type RoleCode, type StaffAccount } from '@kunlun/shared';
+import { ConfirmDialog, CredentialsDialog, Field, FormDialog, useApi, useAuth, useDialogs, useLoader, useRun, useToast } from '@kunlun/ui';
 import { EmptyRow } from '../common';
 
 const ROLES: Record<string, string> = { ADMIN: '管理员', CLERK: '店员', COURIER: '送水员' };
 
 export function StaffAccounts() {
   const api = useApi();
+  const { user } = useAuth();
   const dialogs = useDialogs();
   const run = useRun();
+  const toast = useToast();
   const accounts = useLoader(() => api.listStaff(), [api]);
+  const remove = (s: StaffAccount) => run(async () => {
+    const deleted = await dialogs.open<boolean>(close => <ConfirmDialog title="删除员工账号" confirmLabel="确认删除" onClose={close}
+      message={<>确定删除 <b>{s.name}</b>（{s.username}）吗？删除后该账号立即不能登录，已办理的业务记录仍保留其姓名。</>}
+      onConfirm={() => api.deleteStaff(s.id).then(() => undefined)} />);
+    if (!deleted) return;
+    await accounts.reload();
+    toast(`已删除员工 ${s.name}`);
+  })();
   return <>
-    <div className="page-head"><div><h2>员工账号</h2><p>管理员工账号、角色及启用状态</p></div></div>
+    <div className="page-head"><div><h2>员工账号</h2><p>管理员工账号、角色及启用状态；离职员工可停用或直接删除</p></div></div>
     <div className="table-card">
       <div className="table-toolbar"><b>员工账号与权限</b><button type="button" className="btn primary sm" onClick={() => dialogs.open(close => <NewStaffDialog onClose={close} onDone={accounts.reload} />)}>添加员工</button></div>
       <table>
@@ -25,7 +35,8 @@ export function StaffAccounts() {
               <td>{s.status === 'ACTIVE' ? '启用' : '停用'}</td>
               <td>
                 <button type="button" className="link" onClick={run(async () => { await api.setStaffStatus(s.id, s.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE'); await accounts.reload(); })}>{s.status === 'ACTIVE' ? '停用' : '启用'}</button>{' '}
-                <button type="button" className="link" onClick={() => dialogs.open(close => <CredentialsDialog subjectType="STAFF" id={s.id} initialUsername={s.username} onClose={close} onSaved={accounts.reload} />)}>设置账号 / 重置密码</button>
+                <button type="button" className="link" onClick={() => dialogs.open(close => <CredentialsDialog subjectType="STAFF" id={s.id} initialUsername={s.username} onClose={close} onSaved={accounts.reload} />)}>设置账号 / 重置密码</button>{' '}
+                {s.id !== user.subjectId && <button type="button" className="link danger" aria-label={`删除员工 ${s.name}`} onClick={() => remove(s)}>删除</button>}
               </td>
             </tr>
           ))}

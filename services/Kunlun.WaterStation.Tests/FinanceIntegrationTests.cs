@@ -54,7 +54,7 @@ public sealed class FinanceIntegrationTests(TestHost factory)
 
         // 核对会员配送桶票只增加了 12 桶（未翻倍成 24 桶）
         var profResp = await _client.GetFromJsonAsync<JsonElement>($"/api/members/{memberId}/profile");
-        Assert.Equal(13, profResp.GetProperty("bucketDeliveryTickets").GetInt32());
+        Assert.Equal(13, profResp.Tickets("BUCKET_18_9L", "DELIVERY"));
 
         // 3) AC-13: 修改优惠方案赠送数量后，已发生充值单中的 planSnapshot 保持原值不变
         Assert.Equal(0, j1.GetProperty("planSnapshot").GetProperty("giftQty").GetInt32());

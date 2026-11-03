@@ -14,7 +14,6 @@ import { Inventory } from './pages/Inventory';
 import { Assets } from './pages/Assets';
 import { Products } from './pages/Products';
 import { Plans } from './pages/Plans';
-import { Coupons } from './pages/Coupons';
 import { StaffAccounts } from './pages/StaffAccounts';
 
 export function App() {
@@ -33,7 +32,6 @@ export function App() {
             <Route path="assets" element={<Assets />} />
             <Route path="products" element={<Products />} />
             <Route path="plans" element={<Plans />} />
-            <Route path="coupons" element={<Coupons />} />
             <Route path="staff-accounts" element={<StaffAccounts />} />
             <Route path="settings" element={<Navigate to={pathFor('admin', 'settings')} replace />} />
             <Route path="deposit-settings" element={<Navigate to={pathFor('admin', 'deposit-settings')} replace />} />
@@ -46,14 +44,13 @@ export function App() {
   );
 }
 
-/** Grouped the way the station is run: daily work, money, containers, catalogue, marketing, then settings. Every item has its own icon so the collapsed bar stays readable. */
+/** Grouped the way the station is run: daily work, money, containers, catalogue, then settings. Every item has its own icon so the collapsed bar stays readable. */
 const NAV: Array<{ label?: string; items: Array<[string, IconName]> }> = [
   { items: [['dashboard', 'grid']] },
   { label: '日常业务', items: [['orders', 'order'], ['members', 'users']] },
   { label: '财务管理', items: [['recharges', 'wallet'], ['deposits', 'deposit'], ['refunds', 'check']] },
   { label: '袋桶管理', items: [['inventory', 'box'], ['assets', 'ledger']] },
   { label: '商品管理', items: [['products', 'drop'], ['plans', 'tag']] },
-  { label: '营销管理', items: [['coupons', 'ticket']] },
   { label: '系统设置', items: [['staff-accounts', 'shield']] },
 ];
 const GROUP_OF: Record<string, string | undefined> = Object.fromEntries(NAV.flatMap(group => group.items.map(([id]) => [id, group.label])));
@@ -92,7 +89,7 @@ function AdminLayout() {
   // Work waiting on a page: shown on its menu item so it is visible from anywhere in the console.
   const badges: Record<string, { text: string; hint: string; warn?: boolean }> = {};
   if (pending > 0) badges.orders = { text: String(pending), hint: `待处理水单 ${pending} 单` };
-  if (pendingRefunds) badges.refunds = { text: String(pendingRefunds), hint: `待审核退款 ${pendingRefunds} 笔` };
+  if (pendingRefunds) badges.refunds = { text: String(pendingRefunds), hint: `待审核 ${pendingRefunds} 笔（赠送或退款）` };
   if (lowStock.length) badges.inventory = { text: '预警', hint: `${lowStock.join('、')}站内可用低于预警值`, warn: true };
   if (scrapPending > 0) badges.assets = { text: String(scrapPending), hint: `待确认报废 ${scrapPending} 个` };
 

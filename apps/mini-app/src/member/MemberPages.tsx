@@ -1,6 +1,6 @@
-import { Link, useSearchParams } from 'react-router-dom';
-import { KUNLUN_BRAND, containerLabel, isActiveOrder, modeLabel, money, pathFor, type FulfillMode, type MemberProfile, type WaterOrder } from '@kunlun/shared';
-import { AddressBook, BatchCards, ChangePasswordDialog, CouponCards, Icon, Logo, OrderMenu, useAuth, useDialogs, useLoader, useRun, useToast } from '@kunlun/ui';
+import { Link } from 'react-router-dom';
+import { KUNLUN_BRAND, containerLabel, modeLabel, money, pathFor, type MemberProfile, type WaterOrder } from '@kunlun/shared';
+import { BatchCards, ChangePasswordDialog, Icon, Logo, useAuth, useDialogs, useLoader } from '@kunlun/ui';
 import { OrderCard } from '../shared/OrderCard';
 import { Loading } from '../shared/H5Shell';
 import { useMemberData } from './data';
@@ -8,38 +8,16 @@ import { useMemberData } from './data';
 export interface MemberPageProps {
   profile: MemberProfile;
   go: (page: string) => void;
-  openOrder: (mode: FulfillMode) => void;
-  showPickup: (orderNo: string, code: string) => void;
-  openAssets: () => void;
 }
 
-function MemberOrder({ order, showPickup }: { order: WaterOrder; showPickup: MemberPageProps['showPickup'] }) {
-  const { api } = useAuth();
-  const { refresh } = useMemberData();
-  const toast = useToast();
-  const run = useRun();
-  const cancel = run(async () => {
-    await api.cancelOrder(order.id, '会员取消订单');
-    await refresh();
-    toast(`水单 ${order.orderNo} 已取消，预占水票已释放`);
-  });
-  return (
-    <OrderCard order={order} title={modeLabel(order.fulfillMode)} actions={isActiveOrder(order) && <>
-      {order.pickupCode && <button type="button" className="btn sm" onClick={() => showPickup(order.orderNo, order.pickupCode!)}>取水码 {order.pickupCode}</button>}
-      <button type="button" className="btn sm" onClick={cancel}>取消订单</button>
-    </>} />
-  );
-}
+const MemberOrder = ({ order }: { order: WaterOrder }) => <OrderCard order={order} title={modeLabel(order.fulfillMode)} />;
 
-export function MemberHome({ profile, openOrder, showPickup, openAssets }: MemberPageProps) {
+const StoreHint = () => (
+  <div className="member-hint"><Icon name="info" size="sm" /><span>订水、充值、交退押金请到店里或找送水员办理，店员登记后这里随时可查。</span></div>
+);
+
+export function MemberHome({ profile }: MemberPageProps) {
   const { orders } = useMemberData();
-  const active = orders.find(isActiveOrder);
-  const tickets = [
-    { value: profile.bucketDeliveryTickets, unit: '桶', label: '配送桶票可用', reserved: profile.reservedBucketDeliveryTickets },
-    { value: profile.bucketPickupTickets, unit: '桶', label: '自提桶票可用' },
-    { value: profile.bagPickupTickets, unit: '袋', label: '自提袋票可用' },
-    { value: profile.bagDeliveryTickets, unit: '袋', label: '配送袋票可用' },
-  ];
   return <>
     <div className="member-hero">
       <div className="hero-top">
@@ -51,31 +29,26 @@ export function MemberHome({ profile, openOrder, showPickup, openAssets }: Membe
     </div>
     <div className="h5-body overlap">
       <div className="wallet-card">
-        <div className="wallet-head"><b>我的水票资产</b><button type="button" className="link" onClick={openAssets}>水票 / 优惠券 ›</button></div>
-        <div className="ticket-grid">
-          {tickets.map(t => (
-            <div key={t.label} className="ticket-box">
-              <div className="num">{t.value}<small>{t.unit}</small></div>
-              <div className="label"><span>{t.label}</span>{t.reserved !== undefined && <em>预占 {t.reserved}</em>}</div>
-            </div>
-          ))}
-        </div>
+        <div className="wallet-head"><b>我的水票</b><Link className="link" to={pathFor('member', 'records')}>充值记录 ›</Link></div>
+        {profile.tickets.length ? (
+          <div className="ticket-grid">
+            {profile.tickets.map(t => (
+              <div key={`${t.waterType}:${t.fulfillMode}`} className="ticket-box">
+                <div className="num">{t.available}<small>{t.unit}</small></div>
+                <div className="label"><span>{t.name} · {modeLabel(t.fulfillMode)}票</span>{t.reserved > 0 && <em>预占 {t.reserved}</em>}</div>
+              </div>
+            ))}
+          </div>
+        ) : <p className="membership-note">还没有水票，充值请到店里办理。</p>}
       </div>
-      <div className="member-actions">
-        <button type="button" className="member-action" onClick={() => openOrder('DELIVERY')}>
-          <Icon name="truck" size="xl" /><span><b>送水上门</b><small>像点外卖一样下单</small></span>
-        </button>
-        <button type="button" className="member-action aqua" onClick={() => openOrder('PICKUP')}>
-          <Icon name="store" size="xl" /><span><b>到店自提</b><small>先下单 · 凭取水码领取</small></span>
-        </button>
-      </div>
-      <div className="h5-section-head"><h3>进行中的水单</h3><Link to={pathFor('member', 'orders')}>全部水单 ›</Link></div>
-      {active ? <MemberOrder order={active} showPickup={showPickup} /> : <div className="h5-card"><p className="membership-note">暂无进行中的水单</p></div>}
-      <div className="h5-section-head"><h3>我的容器与押金</h3><Link to={pathFor('member', 'assets')}>查看明细 ›</Link></div>
+      <StoreHint />
+      <div className="h5-section-head"><h3>最近用水</h3><Link to={pathFor('member', 'orders')}>全部记录 ›</Link></div>
+      {orders.length ? orders.slice(0, 3).map(o => <MemberOrder key={o.id} order={o} />) : <div className="h5-card"><p className="membership-note">还没有用水记录</p></div>}
+      <div className="h5-section-head"><h3>我的桶和押金</h3><Link to={pathFor('member', 'assets')}>查看明细 ›</Link></div>
       <div className="h5-card">
         <div className="asset-mini-grid">
-          <div><b>{profile.heldBuckets}</b><small>持有周转桶</small></div>
-          <div><b>{profile.heldBags}</b><small>持有周转水袋</small></div>
+          <div><b>{profile.heldBuckets}</b><small>手里的周转桶</small></div>
+          <div><b>{profile.heldBags}</b><small>手里的周转水袋</small></div>
           <div><b>¥{Number(profile.depositAmount).toFixed(0)}</b><small>已交押金</small></div>
         </div>
       </div>
@@ -83,36 +56,22 @@ export function MemberHome({ profile, openOrder, showPickup, openAssets }: Membe
   </>;
 }
 
-/** 点单：会员自助选水，配送或自提二选一。 */
-export function MemberOrderPage({ profile, go }: MemberPageProps) {
-  const { products, refresh } = useMemberData();
-  const [params] = useSearchParams();
-  const mode: FulfillMode = params.get('mode') === 'pickup' ? 'PICKUP' : 'DELIVERY';
-  return <>
-    <div className="mobile-top"><h2>点单</h2><span className="tag green">{KUNLUN_BRAND.store}</span></div>
-    <div className="h5-body">
-      <OrderMenu key={mode} member={profile} products={products} initialMode={mode} onPlaced={() => refresh()}
-        doneActions={<button type="button" className="btn primary" onClick={() => go('orders')}>查看水单</button>} />
-    </div>
-  </>;
-}
-
-export function MemberOrders({ openOrder, showPickup }: MemberPageProps) {
+export function MemberOrders() {
   const { orders } = useMemberData();
   return <>
-    <div className="mobile-top"><h2>我的水单</h2><button type="button" className="btn primary sm" onClick={() => openOrder('DELIVERY')}><Icon name="plus" size="sm" />去点单</button></div>
+    <div className="mobile-top"><h2>用水记录</h2><span className="tag green">{KUNLUN_BRAND.store}</span></div>
     <div className="h5-body">
-      {orders.length ? orders.map(o => <MemberOrder key={o.id} order={o} showPickup={showPickup} />) : <p className="membership-note">暂无水单</p>}
+      {orders.length ? orders.map(o => <MemberOrder key={o.id} order={o} />) : <p className="membership-note">还没有用水记录</p>}
+      <StoreHint />
     </div>
   </>;
 }
 
 export function MemberAssets({ profile }: MemberPageProps) {
   const { api } = useAuth();
-  const toast = useToast();
   const { data: rows, error, reload } = useLoader(() => api.depositSummary(profile.id), [api, profile.id]);
   return <>
-    <div className="mobile-top"><h2>押金与容器资产</h2><Link to={pathFor('member', 'records')} style={{ fontSize: 12 }}>全部流水 ›</Link></div>
+    <div className="mobile-top"><h2>押金与桶</h2><Link to={pathFor('member', 'records')} style={{ fontSize: 12 }}>充值记录 ›</Link></div>
     {!rows ? <Loading error={error} onRetry={reload} /> : (
       <div className="h5-body">
         <div className="h5-card" style={{ background: 'var(--grad-card)', color: '#fff' }}>
@@ -127,14 +86,14 @@ export function MemberAssets({ profile }: MemberPageProps) {
             <div className="h5-section-head"><h3>{containerLabel(r.containerType)}</h3><span className={`tag ${covered ? 'green' : 'orange'}`}>{covered ? '押金已覆盖' : '需补交押金'}</span></div>
             <div className="h5-card">
               <div className="detail-row"><span>剩余押金（按原收款批次）</span><b>{r.paidQty} 个 / ¥{money(r.paidAmount)}</b></div>
-              <div className="detail-row"><span>当前实际持有</span><b>{r.heldQty} 个</b></div>
-              <div className="detail-row"><span>当前可退押金（已交 − 持有）</span><b style={{ color: 'var(--brand-600)' }}>{r.refundableQty} 个 / ¥{money(r.refundableAmount)}</b></div>
+              <div className="detail-row"><span>当前手里有</span><b>{r.heldQty} 个</b></div>
+              <div className="detail-row"><span>当前可退押金（已交 − 手里有）</span><b style={{ color: 'var(--brand-600)' }}>{r.refundableQty} 个 / ¥{money(r.refundableAmount)}</b></div>
               {r.pendingRefundQty > 0 && <p className="membership-note">退押申请审核中 {r.pendingRefundQty} 个，管理员审核通过后退款。</p>}
               {r.pendingDamageQty > 0 && <p className="membership-note">待报废 {r.pendingDamageQty} 个，占用押金 ¥{money(r.pendingDamageAmount)}，确认报废后扣除。</p>}
             </div>
           </div>
         ); })}
-        <button type="button" className="btn block" onClick={() => toast('请先将空桶归还至绿麒麟水站或交由送水员登记收回，即可退还对应押金')}>如何退押金？</button>
+        <p className="membership-note">退押金：把空桶还到店里或交给送水员登记收回，店里核对后按原收款价退还。</p>
       </div>
     )}
   </>;
@@ -142,15 +101,12 @@ export function MemberAssets({ profile }: MemberPageProps) {
 
 export function MemberRecords({ profile, go }: MemberPageProps) {
   const { api } = useAuth();
-  const { data, error, reload } = useLoader(() => Promise.all([api.ticketBatches(profile.id), api.memberCoupons(profile.id)]), [api, profile.id]);
+  const { data, error, reload } = useLoader(() => api.ticketBatches(profile.id), [api, profile.id]);
   return <>
-    <div className="mobile-top"><h2>业务变动流水</h2><button type="button" className="btn sm" onClick={() => go('home')}>返回</button></div>
+    <div className="mobile-top"><h2>充值记录</h2><button type="button" className="btn sm" onClick={() => go('profile')}><Icon name="back" size="sm" />返回</button></div>
     {!data ? <Loading error={error} onRetry={reload} /> : (
       <div className="h5-body">
-        <h3>充值与退款记录</h3>
-        <BatchCards batches={data[0]} />
-        <h3>我的优惠券</h3>
-        <CouponCards coupons={data[1]} />
+        <BatchCards batches={data} />
       </div>
     )}
   </>;
@@ -159,6 +115,7 @@ export function MemberRecords({ profile, go }: MemberPageProps) {
 export function MemberProfilePage({ profile, go }: MemberPageProps) {
   const { logout } = useAuth();
   const dialogs = useDialogs();
+  const changePassword = () => dialogs.open(close => <ChangePasswordDialog onClose={close} />);
   return <>
     <div className="mobile-top"><h2>个人中心</h2><span className="tag gold">麒麟会员</span></div>
     <div className="h5-body">
@@ -167,13 +124,13 @@ export function MemberProfilePage({ profile, go }: MemberPageProps) {
         <div><b style={{ fontSize: 16, color: 'var(--ink)' }}>{profile.name}</b><div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 2 }}>{profile.phone} · {profile.memberNo}</div></div>
       </div>
       <div className="profile-list">
-        <div className="profile-row" role="button" tabIndex={0} onClick={() => go('addresses')} onKeyDown={e => e.key === 'Enter' && go('addresses')}>
-          <Icon name="location" /><span>我的收货地址</span><small>{profile.defaultAddress || '未设置'}</small><Icon name="chevron" />
+        <div className="profile-row" role="button" tabIndex={0} onClick={() => go('orders')} onKeyDown={e => e.key === 'Enter' && go('orders')}>
+          <Icon name="order" /><span>用水记录</span><Icon name="chevron" />
         </div>
         <div className="profile-row" role="button" tabIndex={0} onClick={() => go('records')} onKeyDown={e => e.key === 'Enter' && go('records')}>
-          <Icon name="order" /><span>充值与用水记录</span><Icon name="chevron" />
+          <Icon name="wallet" /><span>充值记录</span><Icon name="chevron" />
         </div>
-        <div className="profile-row" role="button" tabIndex={0} onClick={() => dialogs.open(close => <ChangePasswordDialog onClose={close} />)} onKeyDown={e => e.key === 'Enter' && dialogs.open(close => <ChangePasswordDialog onClose={close} />)}>
+        <div className="profile-row" role="button" tabIndex={0} onClick={changePassword} onKeyDown={e => e.key === 'Enter' && changePassword()}>
           <Icon name="shield" /><span>修改密码</span><Icon name="chevron" />
         </div>
         <div className="profile-row" role="button" tabIndex={0} style={{ color: 'var(--red-500)' }} onClick={() => void logout()} onKeyDown={e => e.key === 'Enter' && void logout()}>
@@ -183,17 +140,6 @@ export function MemberProfilePage({ profile, go }: MemberPageProps) {
       <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 11.5, marginTop: 18, letterSpacing: 1.5 }}>
         {KUNLUN_BRAND.signage}<br /><span style={{ color: 'var(--brand-600)' }}>{KUNLUN_BRAND.slogan}</span>
       </p>
-    </div>
-  </>;
-}
-
-export function MemberAddresses({ profile, go }: MemberPageProps) {
-  const { refresh } = useMemberData();
-  return <>
-    <div className="mobile-top"><h2>我的收货地址</h2><button type="button" className="btn sm" onClick={() => go('profile')}><Icon name="back" size="sm" />返回</button></div>
-    <div className="h5-body">
-      <div className="address-hint"><Icon name="info" size="sm" /><span>新增地址时联系人和手机号默认带出本人信息，代收时可改为实际收货人。送水下单默认使用默认地址。</span></div>
-      <AddressBook owner={{ id: profile.id, name: profile.name, phone: profile.phone }} onChanged={refresh} />
     </div>
   </>;
 }

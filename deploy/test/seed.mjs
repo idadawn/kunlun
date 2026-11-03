@@ -12,8 +12,8 @@ const call = async (path, method = 'GET', data, token) => {
   if (!response.ok) throw new Error(path + ': HTTP ' + response.status + ' ' + (value.error || 'request failed'));
   return value;
 };
-const server = await call('/api/mini-config');
-assert.equal(server.service, 'kunlun.waterstation'); assert.equal(server.environment, 'test'); assert.equal(server.paymentProvider, 'MOCK');
+const server = await call('/healthz');
+assert.equal(server.plugin, 'kunlun.waterstation'); assert.equal(server.database, 'kunlun_test');
 const login = (type, user) => call('/api/auth/' + type + '/login', 'POST', { account: user.account, password: user.password });
 const admin = await login('staff', access.admin);
 assert.equal(admin.role, 'ADMIN');
@@ -37,6 +37,7 @@ for (const [i, user] of access.members.entries()) {
   await call('/api/recharges', 'POST', { memberId: member.id, planId: plan.id, payMethod: 'CASH', idempotencyKey: 'test-setup-tickets-' + i }, admin.accessToken);
   await call('/api/deposits/collect', 'POST', { memberId: member.id, containerType: 'BUCKET', quantity: 1, payMethod: 'CASH', idempotencyKey: 'test-setup-deposit-' + i }, admin.accessToken);
 }
+// The reason is part of the idempotent request; it stays as first sent so re-runs remain replays.
 for (const containerType of ['BUCKET', 'BAG']) await call('/api/containers/inventory', 'POST', { containerType, action: 'RECEIVE', quantity: 200, reason: '小程序独立测试环境初始化', idempotencyKey: 'test-setup-stock-' + containerType }, admin.accessToken);
 fs.writeFileSync(configPath, JSON.stringify(access, null, 2) + '\n', { mode: 0o600 });
 console.log('Test-only setup complete: administrator, clerk, two members, initial tickets, deposits and inventory.');

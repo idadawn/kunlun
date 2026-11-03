@@ -4,7 +4,7 @@ import {
   type ContainerType, type DateFilter, type DepositFlowType, type DepositLedgerQuery, type DepositLedgerRow,
 } from '@kunlun/shared';
 import { Icon, useAuth } from '@kunlun/ui';
-import { DateFilterSelect, EmptyRow, Pager, StatCard, ledgerEmptyText, useDebounced, useExport, useGo, useLedger, useOperations } from '../common';
+import { DateFilterSelect, EmptyRow, Pager, StatCard, handledBy, ledgerEmptyText, useDebounced, useExport, useGo, useLedger, useOperations } from '../common';
 import { useAdminData } from '../data';
 
 const FLOWS: Array<[DepositFlowType | '', string]> = [['', '全部流水'], ['COLLECT', '收押金'], ['REFUND', '退押金'], ['DEDUCT', '报废扣押']];
@@ -31,7 +31,7 @@ export function Deposits() {
     <div className="page-head">
       <div><h2>押金管理</h2><p>桶、袋押金单独收退，退款按原收款批次单价计算；押金不计入水费实收，也不触发赠水</p></div>
       <div className="head-actions">
-        <button type="button" className="btn" onClick={() => ops.deposit('refund')}>申请退押金</button>
+        <button type="button" className="btn" onClick={() => ops.deposit('refund')}>退押金</button>
         <button type="button" className="btn primary" onClick={() => ops.deposit('collect')}><Icon name="plus" />收押金</button>
       </div>
     </div>
@@ -76,7 +76,7 @@ function DepositTable({ filter, filtered }: { filter: DepositLedgerQuery; filter
     <div className="table-card ledger-table">
       <div style={{ overflowX: 'auto' }}>
         <table>
-          <thead><tr><th>单号 / 时间</th><th>会员</th><th>业务</th><th>容器 × 数量</th><th>批次单价</th><th>押金金额</th><th>收付方式</th><th>未退余量</th><th>操作人</th></tr></thead>
+          <thead><tr><th>单号 / 时间</th><th>会员</th><th>业务</th><th>容器 × 数量</th><th>批次单价</th><th>押金金额</th><th>收付方式</th><th>未退余量</th><th>经办人</th></tr></thead>
           <tbody>
             {rows.length === 0 ? <EmptyRow colSpan={9}>{ledgerEmptyText(table, filtered, '暂无押金流水，请点击右上角「收押金」办理', '押金流水')}</EmptyRow> : rows.map(d => {
               const [label, tone] = FLOW_TAGS[d.flowType] ?? [d.flowType, 'gray'];
@@ -85,13 +85,13 @@ function DepositTable({ filter, filtered }: { filter: DepositLedgerQuery; filter
                 <tr key={d.docNo}>
                   <td><span className="order-no">{d.docNo}</span><br /><small>{shortDateTime(d.createdAt)}</small></td>
                   <td><b>{d.memberName}</b><br /><small>{d.memberNo}</small></td>
-                  <td><span className={`tag ${tone}`}>{label}</span></td>
+                  <td><span className={`tag ${tone}`}>{label}</span>{d.reason && <><br /><small className="ledger-reason">{d.reason}</small></>}</td>
                   <td>{containerLabel(d.containerType)} × {d.qty}</td>
                   <td>¥ {money(d.unitPrice)}</td>
                   <td><b className={collect ? 'amount-in' : 'amount-out'}>{collect ? '+' : '−'}¥ {money(d.amount)}</b></td>
                   <td>{d.payMethod ? payMethodLabel(d.payMethod) : <small>{d.flowType === 'DEDUCT' ? '从押金扣抵' : '未登记'}</small>}</td>
                   <td>{collect ? `${d.remainingQty} 个` : <small>—</small>}</td>
-                  <td>{d.operatorName}</td>
+                  <td>{handledBy(d.applicantName, d.operatorName, '退款')}</td>
                 </tr>
               );
             })}

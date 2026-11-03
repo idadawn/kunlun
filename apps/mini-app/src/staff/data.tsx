@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { ContainerSummaryItem, MemberProfile, Paged, WaterOrder, WaterProduct } from '@kunlun/shared';
+import { rememberProducts, type ContainerSummaryItem, type MemberProfile, type Paged, type WaterOrder, type WaterProduct } from '@kunlun/shared';
 import { useAuth } from '@kunlun/ui';
 
 /** Members per search page; 加载更多 appends the next one. */
@@ -58,6 +58,7 @@ export function StaffDataProvider({ children }: { children: ReactNode }) {
       // Reload from the top but keep as many rows as were already shown, so the member being served stays in the list.
       const rows = Math.min(100, Math.max(MEMBER_PAGE, membersRef.current.length));
       const [m, o, p, c] = await Promise.all([api.membersPage({ q: queryRef.current, pageSize: rows }), api.listOrders(), api.listProducts(), api.containerSummary()]);
+      rememberProducts(p);
       showMembers(m); setOrders(o); setProducts(p); setContainers(c); setLoaded(true); setError('');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

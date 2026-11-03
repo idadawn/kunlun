@@ -36,7 +36,7 @@ public sealed class RemarkTests(TestHost host)
         (await c.GetFromJsonAsync<JsonElement[]>($"/api/orders?memberId={member}"))!.Single(o => o.GetProperty("orderNo").GetString() == orderNo);
 
     [Fact]
-    public async Task Member_Order_Remark_Reaches_Courier_And_Order_Export()
+    public async Task Order_Remark_Reaches_Courier_Member_And_Order_Export()
     {
         using var admin = await Staff(); var id = await DeliveryMember(admin);
         var username = "member_" + Key()[..12]; var password = Key();
@@ -45,11 +45,14 @@ public sealed class RemarkTests(TestHost host)
         var auth = await Ok(await member.PostAsJsonAsync("/api/auth/member/login", new StaffLoginRequest(username, password)));
         member.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.GetProperty("accessToken").GetString());
 
+        // The member area only shows records: orders are registered by the store.
+        Assert.Equal(HttpStatusCode.Forbidden, (await member.PostAsJsonAsync("/api/orders", Delivery(id, "会员自助下单"))).StatusCode);
         var key = Key();
-        var created = await Ok(await member.PostAsJsonAsync("/api/orders", Delivery(id, "  空桶放门口  ", key)));
+        var created = await Ok(await admin.PostAsJsonAsync("/api/orders", Delivery(id, "  空桶放门口  ", key)));
         var orderNo = created.GetProperty("orderNo").GetString()!;
         Assert.Equal("空桶放门口", created.GetProperty("remark").GetString());
-        var replay = await Ok(await member.PostAsJsonAsync("/api/orders", Delivery(id, "  空桶放门口  ", key)));
+        Assert.Equal(HttpStatusCode.Forbidden, (await member.PostAsJsonAsync($"/api/orders/{created.GetProperty("id").GetGuid()}/cancel", new CancelWaterOrderRequest("会员取消"))).StatusCode);
+        var replay = await Ok(await admin.PostAsJsonAsync("/api/orders", Delivery(id, "  空桶放门口  ", key)));
         Assert.True(replay.GetProperty("idempotentReplay").GetBoolean());
         Assert.Equal("空桶放门口", replay.GetProperty("remark").GetString());
 
@@ -76,11 +79,11 @@ public sealed class RemarkTests(TestHost host)
         var none = (await Ok(await admin.PostAsJsonAsync("/api/orders", Delivery(id, null)))).GetProperty("orderNo").GetString()!;
         Assert.Equal(JsonValueKind.Null, (await Listed(admin, id, none)).GetProperty("remark").ValueKind);
 
-        var before = (await admin.GetFromJsonAsync<JsonElement>($"/api/members/{id}/profile")).GetProperty("bucketDeliveryTickets").GetInt32();
+        var before = (await admin.GetFromJsonAsync<JsonElement>($"/api/members/{id}/profile")).Tickets("BUCKET_18_9L", "DELIVERY");
         var tooLong = await admin.PostAsJsonAsync("/api/orders", Delivery(id, new string('长', Remarks.OrderMaxLength + 1)));
         Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
         Assert.Contains("备注", await tooLong.Content.ReadAsStringAsync());
-        Assert.Equal(before, (await admin.GetFromJsonAsync<JsonElement>($"/api/members/{id}/profile")).GetProperty("bucketDeliveryTickets").GetInt32());
+        Assert.Equal(before, (await admin.GetFromJsonAsync<JsonElement>($"/api/members/{id}/profile")).Tickets("BUCKET_18_9L", "DELIVERY"));
         await Ok(await admin.PostAsJsonAsync("/api/orders", Delivery(id, new string('长', Remarks.OrderMaxLength))));
     }
 

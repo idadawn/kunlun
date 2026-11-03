@@ -32,11 +32,6 @@
 .ticket-box .label em{font-style:normal;color:var(--orange-500)}
 
 /* 两大下单入口 */
-.member-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
-.member-action{border:0;border-radius:16px;padding:14px 13px;background:var(--grad-brand);color:#fff;display:flex;align-items:center;gap:10px;text-align:left;box-shadow:0 8px 20px rgba(18,146,95,.22)}
-.member-action.aqua{background:var(--grad-aqua);box-shadow:0 8px 20px rgba(25,169,189,.2)}
-.member-action b{display:block;font-size:14.5px;letter-spacing:.5px}
-.member-action small{font-size:11px;opacity:.88}
 
 .h5-section-head{display:flex;align-items:center;justify-content:space-between;margin:14px 2px 8px}
 .h5-section-head h3{margin:0;font-size:14.5px;color:var(--ink)}
@@ -87,22 +82,6 @@
 .h5-nav{border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;color:var(--muted)}
 .h5-nav.active{color:var(--brand-600);font-weight:600}
 
-/* Sheet */
-.sheet-mask{position:absolute;inset:0;background:rgba(6,40,31,.48);z-index:40;display:none;align-items:flex-end}
-.sheet-mask.open{display:flex}
-.sheet{width:100%;max-height:85%;background:#fff;border-radius:22px 22px 0 0;display:flex;flex-direction:column;overflow:hidden}
-.sheet-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line)}
-.sheet-head h3{margin:0;font-size:15.5px;color:var(--ink)}
-.sheet-close{border:0;background:var(--line-soft);width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:var(--muted)}
-.sheet-body{padding:14px 18px;overflow-y:auto;flex:1}
-.sheet-foot{display:flex;gap:10px;padding:12px 18px 18px;border-top:1px solid var(--line)}
-.sheet-foot .btn{flex:1;height:42px}
-.qty-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0}
-.qty-control{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:9px;overflow:hidden;height:34px}
-.qty-control button{width:34px;height:100%;border:0;background:var(--line-soft);font-size:15px}
-.qty-control input{width:44px;height:100%;border:0;text-align:center;font-weight:700}
-.qr-box{text-align:center;padding:14px;background:var(--brand-50);border-radius:14px;margin:8px 0}
-.qr-code{font-family:var(--font-num);font-size:28px;font-weight:700;letter-spacing:6px;color:var(--brand-700)}
 .hide{display:none!important}
 .h5-product{padding:10px 11px;background:var(--bg);border-radius:12px}
 .h5-product b{display:block;color:var(--ink);font-size:13.5px}
@@ -110,6 +89,5 @@
 .wallet-head .link{font-size:12px}
 .profile-row span{white-space:nowrap}
 .profile-row small{min-width:0;flex:0 1 auto;max-width:58%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.address-hint{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;margin-bottom:12px;border-radius:12px;background:var(--brand-50);color:var(--brand-700);font-size:12px;line-height:1.6}
-.address-hint .icon{flex:none;margin-top:1px}
-.h5-scroll .cart-bar{bottom:74px}
+.member-hint{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;margin-bottom:12px;border-radius:12px;background:var(--brand-50);color:var(--brand-700);font-size:12px;line-height:1.6}
+.member-hint .icon{flex:none;margin-top:1px}

@@ -28,7 +28,8 @@ public static partial class MemberAddresses
     private static bool IsSelf(ClaimsPrincipal user, Guid mid) => user.FindFirstValue("subject_type") == "MEMBER" && user.FindFirstValue("sub") == mid.ToString();
     private static bool IsStaffWith(ClaimsPrincipal user, string permission) => user.FindFirstValue("subject_type") == "STAFF" && user.HasClaim("perm", permission);
     private static bool CanRead(ClaimsPrincipal user, Guid mid) => IsSelf(user, mid) || IsStaffWith(user, KunlunPermissions.MemberRead);
-    private static bool CanWrite(ClaimsPrincipal user, Guid mid) => IsSelf(user, mid) || IsStaffWith(user, KunlunPermissions.MemberWrite);
+    // The member area is read-only: addresses are kept by staff, members may only look.
+    private static bool CanWrite(ClaimsPrincipal user) => IsStaffWith(user, KunlunPermissions.MemberWrite);
 
     public static async Task EnsureSchema(NpgsqlDataSource db, Guid tid, CancellationToken ct = default)
     {
@@ -147,7 +148,7 @@ public static partial class MemberAddresses
     private static async Task<IResult> Mutate(Guid mid, ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct,
         Func<NpgsqlConnection, NpgsqlTransaction, Guid, List<MemberAddress>, Task<Guid?>> change)
     {
-        if (!CanWrite(user, mid)) return Results.Forbid();
+        if (!CanWrite(user)) return Results.Forbid();
         var tid = repo.DefaultTenantId;
         await using var conn = await db.OpenConnectionAsync(ct); await using var tx = await conn.BeginTransactionAsync(ct);
         await using (var member = Command(conn, tx, "SELECT 1 FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND id=@mid FOR UPDATE", ("tid", tid), ("mid", mid)))

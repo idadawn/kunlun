@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {buildPosterModel as buildModel} from '../packages/shared/src/price-poster.ts';
-const products=[{waterType:'BAG_7_5L',name:'5L 袋装水',capacityLiters:5,packaging:'食品级铝箔袋（10斤装）',retailPrice:5,deliveryMinimum:5,deliveryFee:0},{waterType:'BUCKET_18_9L',name:'15L 桶装水',capacityLiters:15,packaging:'桶装',retailPrice:null,deliveryMinimum:1,deliveryFee:0}];
+const products=[{waterType:'BAG_7_5L',name:'5L 袋装水',capacityLiters:5,packaging:'食品级铝箔袋（10斤装）',retailPrice:5,deliveryMinimum:5,deliveryFee:0,containerType:'BAG'},{waterType:'BUCKET_18_9L',name:'15L 桶装水',capacityLiters:15,packaging:'桶装',retailPrice:null,deliveryMinimum:1,deliveryFee:0,containerType:'BUCKET'}];
 const plans=[['BAG_7_5L','PICKUP',100,50],['BAG_7_5L','PICKUP',499,300],['BUCKET_18_9L','PICKUP',100,16],['BUCKET_18_9L','PICKUP',499,95],['BAG_7_5L','DELIVERY',100,40],['BAG_7_5L','DELIVERY',499,220],['BUCKET_18_9L','DELIVERY',100,13],['BUCKET_18_9L','DELIVERY',499,70]].map(([waterType,fulfillMode,price,buyQty],i)=>({id:String(i),waterType,fulfillMode,price,buyQty,giftQty:0,status:'ACTIVE'}));
 const base={plans,products,generatedAt:'2026-10-25T16:01:00Z'};
 test('poster matches the posted eight-package price list and excludes disabled packages',()=>{
@@ -20,9 +20,15 @@ test('fresh data controls prices, volumes, retail price and delivery threshold',
  assert.equal(model.groups[0].rows[0].line,'办理129元水卡：可得60袋水（6升/袋）');
  assert.equal(model.groups[2].title,'免费上门送袋装水（7袋起送）');assert.match(model.retailRows[0],/7元$/);
 });
-test('intrinsic package gifts are disclosed; unrelated coupons never inflate advertised quantities',()=>{
- const model=buildModel({...base,plans:[{...plans[0],giftQty:1}],coupons:[{giftQty:100}]});
+test('intrinsic package gifts are disclosed in advertised quantities',()=>{
+ const model=buildModel({...base,plans:[{...plans[0],giftQty:1}]});
  assert.equal(model.groups[0].rows[0].totalQty,51);assert.equal(model.groups[0].rows[0].giftNote,'其中购买 50袋，赠送 1袋');
+});
+test('an added water gets its own groups, named when it shares a container with another water',()=>{
+ const spring={waterType:'W0A1B2C3D4E',name:'18.9L 矿泉水',capacityLiters:18.9,packaging:'大桶',retailPrice:null,deliveryMinimum:2,deliveryFee:0,containerType:'BUCKET'};
+ const model=buildModel({...base,products:[...products,spring],plans:[...plans,{id:'s',waterType:spring.waterType,fulfillMode:'PICKUP',price:100,buyQty:5,giftQty:0,status:'ACTIVE'}]});
+ assert.deepEqual(model.groups.map(g=>g.title),['来门店自提袋装水','来门店自提15L 桶装水','来门店自提18.9L 矿泉水','免费上门送袋装水（5袋起送）','免费上门送15L 桶装水（1桶起送）']);
+ assert.equal(model.groups[2].rows[0].line,'办理100元水卡：可得5桶水（18.9升/桶）');
 });
 test('missing products and invalid data cannot produce a misleading poster',()=>{
  assert.throws(()=>buildModel({...base,plans:[]}),/没有启用/);
