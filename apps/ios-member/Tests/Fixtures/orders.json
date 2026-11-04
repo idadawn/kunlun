@@ -1,0 +1,79 @@
+{
+  "rows": [
+    {
+      "id": "order-0",
+      "orderNo": "SD-DEMO-001",
+      "memberId": "11111111-1111-4111-8111-111111111111",
+      "waterType": "BUCKET_18_9L",
+      "fulfillMode": "DELIVERY",
+      "orderQty": 2,
+      "reservedQty": 2,
+      "actualQty": null,
+      "pickupCode": null,
+      "addressSnapshot": {
+        "contactName": "林先生",
+        "contactPhone": "13800000000",
+        "address": "清泉花园 2 栋 301"
+      },
+      "productSnapshot": {
+        "waterLabel": "桶装水 15L",
+        "containerType": "BUCKET"
+      },
+      "status": "PENDING",
+      "createdAt": "2026-11-03T02:30:00Z",
+      "remark": "请放门口",
+      "cancelReason": null
+    },
+    {
+      "id": "order-1",
+      "orderNo": "SD-DEMO-002",
+      "memberId": "11111111-1111-4111-8111-111111111111",
+      "waterType": "BUCKET_18_9L",
+      "fulfillMode": "DELIVERY",
+      "orderQty": 2,
+      "reservedQty": 0,
+      "actualQty": 2,
+      "pickupCode": null,
+      "addressSnapshot": {
+        "contactName": "林先生",
+        "contactPhone": "13800000000",
+        "address": "清泉花园 2 栋 301"
+      },
+      "productSnapshot": {
+        "waterLabel": "桶装水 15L",
+        "containerType": "BUCKET"
+      },
+      "status": "COMPLETED",
+      "createdAt": "2026-11-02T02:30:00Z",
+      "remark": null,
+      "cancelReason": null
+    },
+    {
+      "id": "order-2",
+      "orderNo": "SD-DEMO-003",
+      "memberId": "11111111-1111-4111-8111-111111111111",
+      "waterType": "BUCKET_18_9L",
+      "fulfillMode": "DELIVERY",
+      "orderQty": 2,
+      "reservedQty": 0,
+      "actualQty": null,
+      "pickupCode": null,
+      "addressSnapshot": {
+        "contactName": "林先生",
+        "contactPhone": "13800000000",
+        "address": "清泉花园 2 栋 301"
+      },
+      "productSnapshot": {
+        "waterLabel": "桶装水 15L",
+        "containerType": "BUCKET"
+      },
+      "status": "CANCELLED",
+      "createdAt": "2026-11-01T02:30:00Z",
+      "remark": null,
+      "cancelReason": "改日取水"
+    }
+  ],
+  "total": 3,
+  "page": 1,
+  "pageSize": 20
+}

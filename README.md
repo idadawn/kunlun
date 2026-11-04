@@ -9,8 +9,9 @@
 - 管理后台 `/admin`：管理员登录后办理会员、订单、账务与设置。
 - 员工工作台 `/staff`：独立员工登录入口，适配手机。
 - 会员中心 `/member`：会员登录后只读查看本人水票、用水与充值记录、押金和桶袋；下单、充值、交退押金都到店或找送水员办理。
+- iOS 会员客户端：SwiftUI 原生水票、记录、押金与账户页面，支持 iOS 17+，见 [iOS 开发与验证说明](apps/ios-member/README.md)。
 
-根入口跳转管理后台。原生微信小程序已停止建设并移除，手机端即上面两个 H5 入口。
+根入口跳转管理后台。原生微信小程序已停止建设并移除，手机浏览器端继续使用上述两个 H5 入口。
 
 ## 文档导航 (`docs/`)
 
@@ -27,6 +28,7 @@
 | `packages/ui` | `@kunlun/ui` | 品牌样式与 React 组件：登录门禁、弹窗、套餐选择、收货地址簿、员工业务弹窗 |
 | `apps/admin-pc` | `@kunlun/admin-pc` | 管理端 PC（React 18 + Vite + React Router） |
 | `apps/mini-app` | `@kunlun/mini-app` | 员工端 `/staff` + 会员端 `/member` H5（React 18 + Vite） |
+| `apps/ios-member` | `KunlunMember` | 原生 iOS 会员客户端（SwiftUI + App Intents，只读业务记录） |
 
 ## 本地启动与验收
 
