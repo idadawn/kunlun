@@ -14,6 +14,7 @@
 
 ## 文档导航 (`docs/`)
 
+- [Android H5 打包与模拟器验收](docs/android-app.md)
 - [产品需求文档 (`docs/PRD.md`)](./docs/PRD.md)
 - [技术架构、权限与四账数据库设计 (`docs/architecture.md`)](./docs/architecture.md)
 

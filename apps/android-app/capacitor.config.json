@@ -1,0 +1,15 @@
+{
+  "appId": "cn.idalee.lvqilin",
+  "appName": "绿麒麟水站",
+  "webDir": "www",
+  "loggingBehavior": "none",
+  "server": {
+    "appStartPath": "/member",
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}
