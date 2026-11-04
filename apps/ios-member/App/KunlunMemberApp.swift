@@ -26,6 +26,12 @@ enum MemberTab: Hashable { case home, records, assets, account }
             _store = State(initialValue: DemoSession.makeStore(signedIn: !ProcessInfo.processInfo.arguments.contains("--demo-login")))
             _demo = State(initialValue: true)
         }
+        if ProcessInfo.processInfo.arguments.contains("--ui-keychain") {
+            let credentials = KeychainCredentials(service: "cn.idalee.kunlun.member.ui-tests")
+            if ProcessInfo.processInfo.arguments.contains("--reset-test-keychain") { try? credentials.save(nil, for: .test) }
+            _store = State(initialValue: DemoSession.makeStore(signedIn: false, credentials: credentials))
+            _demo = State(initialValue: true)
+        }
         #endif
     }
 

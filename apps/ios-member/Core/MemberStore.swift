@@ -110,8 +110,8 @@ import Observation
     private func handle(_ error: any Error) {
         if (error as? APIError)?.status == 401 { clearSession(message: "登录已失效，请重新登录") }
     }
-    private func load<T>(_ key: ReferenceWritableKeyPath<MemberStore, LoadState<T>>,
-                         operation: (MemberAPI, String, String) async throws -> T) async {
+    private func load<T: Sendable>(_ key: ReferenceWritableKeyPath<MemberStore, LoadState<T>>,
+                                   operation: @MainActor (MemberAPI, String, String) async throws -> T) async {
         guard let identity, let token else { return }
         let current = epoch
         let request = UUID()

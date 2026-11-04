@@ -3,9 +3,11 @@ import Security
 import KunlunCore
 
 @MainActor final class KeychainCredentials: CredentialStore {
+    private let service: String
+    init(service: String = "cn.idalee.kunlun.member") { self.service = service }
     private func query(_ environment: ServiceEnvironment) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: "cn.idalee.kunlun.member",
+         kSecAttrService as String: service,
          kSecAttrAccount as String: environment.rawValue]
     }
     func read(for environment: ServiceEnvironment) throws -> String? {

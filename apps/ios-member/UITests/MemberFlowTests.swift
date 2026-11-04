@@ -1,6 +1,30 @@
 import XCTest
 
 @MainActor final class MemberFlowTests: XCTestCase {
+    func testRealKeychainPersistsAndDeletesSession() {
+        let app = XCUIApplication()
+        let arguments = ["--ui-keychain", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launchArguments = arguments + ["--reset-test-keychain"]
+        app.launch()
+        let account = app.textFields["login.account"]
+        XCTAssertTrue(account.waitForExistence(timeout: 15))
+        account.tap(); account.typeText("demo.member")
+        let password = app.secureTextFields["login.password"]
+        password.tap(); password.typeText("demo-only")
+        app.buttons["login.submit"].tap()
+        XCTAssertTrue(app.staticTexts["你好，林先生"].waitForExistence(timeout: 10))
+        app.terminate()
+        app.launchArguments = arguments
+        app.launch()
+        XCTAssertTrue(app.staticTexts["你好，林先生"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["我的"].tap()
+        app.buttons["account.logout"].tap()
+        app.buttons["退出登录"].firstMatch.tap()
+        XCTAssertTrue(account.waitForExistence(timeout: 5))
+        app.terminate(); app.launch()
+        XCTAssertTrue(account.waitForExistence(timeout: 10))
+    }
+
     func testLoginGatesIntentDestination() {
         let app = XCUIApplication()
         app.launchArguments = ["--demo-login", "--intent-records", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]

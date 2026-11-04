@@ -1,6 +1,6 @@
 # 绿麒麟会员 · iOS
 
-SwiftUI 原生会员客户端，最低 iOS 17，支持 iPhone / iPad。使用 Xcode 16 或更新版本打开 `KunlunMember.xcodeproj`，选择 `KunlunMember` scheme 和 iPhone 模拟器运行；模拟器无需开发者签名。没有第三方 Swift 依赖，`KunlunCore` 是同目录的本地 Swift Package。
+SwiftUI 原生会员客户端，最低 iOS 17，支持 iPhone / iPad。使用 Xcode 16 或更新版本打开 `KunlunMember.xcodeproj`，选择 `KunlunMember` scheme 和 iPhone 模拟器运行；模拟器使用 Xcode 自动生成的本地签名，无需开发者账号。不要禁用模拟器签名，否则钥匙串缺少必要的应用标识权限。没有第三方 Swift 依赖，`KunlunCore` 是同目录的本地 Swift Package。
 
 ## 已实现
 
@@ -29,10 +29,10 @@ Debug 登录页提供“体验演示”，或使用启动参数 `--demo`。演�
 swift test --package-path apps/ios-member
 xcodebuild -project apps/ios-member/KunlunMember.xcodeproj \
   -scheme KunlunMember -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
-  -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
+  -parallel-testing-enabled NO test
 ```
 
-将模拟器名称替换为本机已安装的 iPhone。CI 自动选择可用设备。Swift Testing 覆盖接口契约、会员身份限制、分页、错误语义、会话撤销、临时网络故障、退出后迟到响应隔离；XCUITest 验证只读会员流程和 App Intent 的 `perform()` 到导航的交接。`--intent-records` 仅 Debug 可用，测试实际调用 Intent 的 `perform()`，不代表已通过 Siri 语音识别验收。
+将模拟器名称替换为本机已安装的 iPhone。CI 自动选择可用设备。Swift Testing 覆盖接口契约、会员身份限制、分页、错误语义、会话撤销、临时网络故障、退出后迟到响应隔离；XCUITest 验证登录门禁、只读会员流程和 App Intent 的 `perform()` 到导航的交接。`--intent-records` 仅 Debug 可用，测试实际调用 Intent 的 `perform()`，不代表已通过 Siri 语音识别验收。另有 `--ui-keychain` 测试模式，使用演示网络和独立的 `cn.idalee.kunlun.member.ui-tests` 钥匙串服务，验证真实钥匙串写入、跨进程恢复与退出删除；只写入虚构测试令牌，不触碰正式登录项。
 
 本次模拟器验收使用演示传输。真实会员凭据下的全链路联调、真机签名、Siri 语音调用和 TestFlight / App Store 发布需要后续验收；没有创建会员或更改生产数据。
 

@@ -3,7 +3,7 @@ import Foundation
 import KunlunCore
 
 @MainActor enum DemoSession {
-    static func makeStore(signedIn: Bool = true) -> MemberStore {
+    static func makeStore(signedIn: Bool = true, credentials: (any CredentialStore)? = nil) -> MemberStore {
         let api = MemberAPI(baseURL: ServiceEnvironment.test.baseURL) { request in
             let path = request.url!.path
             let file: String
@@ -26,7 +26,7 @@ import KunlunCore
             }
             return (data, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
         }
-        return MemberStore(environment: .test, credentials: DemoCredentials(signedIn: signedIn), api: api)
+        return MemberStore(environment: .test, credentials: credentials ?? DemoCredentials(signedIn: signedIn), api: api)
     }
 }
 
