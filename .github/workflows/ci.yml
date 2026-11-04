@@ -37,3 +37,41 @@ jobs:
       - run: pnpm test:web
       - run: pnpm typecheck
       - run: dotnet test Kunlun.slnx --configuration Release
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test member API and session lifecycle
+        run: swift test --package-path apps/ios-member
+      - name: Select an available iPhone simulator
+        run: |
+          xcrun simctl list devices available --json > "$RUNNER_TEMP/ios-simulators.json"
+          python3 - <<'PY'
+          import json, os
+          with open(os.path.join(os.environ['RUNNER_TEMP'], 'ios-simulators.json')) as f:
+              runtimes = json.load(f)['devices']
+          phones = [d for runtime, devices in sorted(runtimes.items(), reverse=True)
+                    if 'iOS' in runtime for d in devices if d['name'].startswith('iPhone') and d['isAvailable']]
+          if not phones:
+              raise SystemExit('No available iPhone simulator')
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write('IOS_SIMULATOR_ID=' + phones[0]['udid'] + '\n')
+          PY
+      - name: Build and test member journeys
+        run: >-
+          xcodebuild -project apps/ios-member/KunlunMember.xcodeproj
+          -scheme KunlunMember -configuration Debug
+          -destination "platform=iOS Simulator,id=$IOS_SIMULATOR_ID"
+          -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
+          -resultBundlePath "$RUNNER_TEMP/KunlunMember.xcresult" test
+      - name: Build release for iOS devices
+        run: >-
+          xcodebuild -project apps/ios-member/KunlunMember.xcodeproj
+          -scheme KunlunMember -configuration Release
+          -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ios-test-result
+          path: ${{ runner.temp }}/KunlunMember.xcresult
