@@ -20,7 +20,7 @@ export function FulfillDialog({ order, onClose, onDone }: { order?: WaterOrder; 
   const [fullOut, setFullOut] = useState(initial);
   const [emptyInInput, setEmptyIn] = useState<number | null>(null);
   const [diffReason, setDiffReason] = useState('');
-  const container = order ? order.productSnapshot?.containerType ?? containerOf(order.waterType) : null;
+  const container = order ? order.productSnapshot?.containerId ?? containerOf(order.waterType) : null;
   const position = container ? deposits.data?.[container] : undefined;
   // Full-for-empty swap: by default collect as many empties as the member holds, up to the quantity delivered.
   const emptyIn = emptyInInput ?? (position ? Math.min(position.held, initial) : initial);

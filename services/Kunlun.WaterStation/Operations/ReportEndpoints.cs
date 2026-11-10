@@ -166,6 +166,8 @@ public static class ReportEndpoints
 
             var tenantId = authRepo.DefaultTenantId;
             await using var conn = await db.OpenConnectionAsync(ct);
+            var containerNames = (await WaterProducts.List(conn, tenantId, ct)).ToDictionary(p => p.ContainerId, p => $"{p.Name} · 配套{p.Unit}");
+            string ContainerName(string id) => Csv(containerNames.GetValueOrDefault(id, id));
             var sb = new StringBuilder();
             sb.Append('\uFEFF'); // UTF-8 BOM for Excel
 
@@ -236,7 +238,7 @@ public static class ReportEndpoints
                     await using var r = await cmd.ExecuteReaderAsync(ct);
                     while (await r.ReadAsync(ct))
                     {
-                        sb.AppendLine($"{Csv(r.GetString(0))},{r.GetString(1)},{r.GetGuid(2)},{r.GetString(3)},{r.GetInt32(4)},{r.GetDecimal(5):F2},{r.GetDecimal(6):F2},{r.GetInt32(7)},{Csv(r.GetString(8))},{r.GetDateTime(9):O},{(r.IsDBNull(10) ? "" : r.GetString(10))}");
+                        sb.AppendLine($"{Csv(r.GetString(0))},{r.GetString(1)},{r.GetGuid(2)},{ContainerName(r.GetString(3))},{r.GetInt32(4)},{r.GetDecimal(5):F2},{r.GetDecimal(6):F2},{r.GetInt32(7)},{Csv(r.GetString(8))},{r.GetDateTime(9):O},{(r.IsDBNull(10) ? "" : r.GetString(10))}");
                     }
                     break;
                 }
@@ -264,7 +266,7 @@ public static class ReportEndpoints
                     sb.AppendLine("库存单号,容器,业务,来源,数量,总量变化,调整后现存总量,调整后破损,累计报废,原因,操作人,时间");
                     await using var cmd = TicketBatches.Command(conn, null, "SELECT operation_no,container_type,action,source_state,quantity,delta_total,after_state->>'totalQty',after_state->>'damagedQty',after_state->>'scrappedQty',reason,operator_name,created_at FROM plugin_kunlun_waterstation.container_inventory_operations WHERE tenant_id=@tid AND action IN ('RECEIVE','SCRAP','COUNT') ORDER BY created_at DESC,id DESC", ("tid", tenantId));
                     await using var r = await cmd.ExecuteReaderAsync(ct);
-                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{r.GetString(1)},{r.GetString(2)},{r.GetString(3)},{r.GetInt32(4)},{r.GetInt32(5)},{r.GetString(6)},{r.GetString(7)},{r.GetString(8)},{Csv(r.GetString(9))},{Csv(r.GetString(10))},{r.GetDateTime(11):O}");
+                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{ContainerName(r.GetString(1))},{r.GetString(2)},{r.GetString(3)},{r.GetInt32(4)},{r.GetInt32(5)},{r.GetString(6)},{r.GetString(7)},{r.GetString(8)},{Csv(r.GetString(9))},{Csv(r.GetString(10))},{r.GetDateTime(11):O}");
                     break;
                 }
                 case "container-ledgers":
@@ -272,7 +274,7 @@ public static class ReportEndpoints
                     sb.AppendLine("流水号,会员ID,容器类型,领出,归还,持有变化,持有余额,操作人,时间,业务类型,扣押金额,关联单号,原因,报废数量");
                     await using var cmd = TicketBatches.Command(conn, null, "SELECT ledger_no,member_id,container_type,full_out_qty,empty_in_qty,delta_held,held_after,operator_name,created_at,business_type,deposit_deducted_amount,COALESCE(order_no,''),COALESCE(remark,''),scrapped_qty FROM plugin_kunlun_waterstation.container_ledgers WHERE tenant_id=@tid ORDER BY id DESC", ("tid", tenantId));
                     await using var r = await cmd.ExecuteReaderAsync(ct);
-                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{r.GetGuid(1)},{r.GetString(2)},{r.GetInt32(3)},{r.GetInt32(4)},{r.GetInt32(5)},{r.GetInt32(6)},{Csv(r.GetString(7))},{r.GetDateTime(8):O},{r.GetString(9)},{r.GetDecimal(10):F2},{Csv(r.GetString(11))},{Csv(r.GetString(12))},{r.GetInt32(13)}");
+                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{r.GetGuid(1)},{ContainerName(r.GetString(2))},{r.GetInt32(3)},{r.GetInt32(4)},{r.GetInt32(5)},{r.GetInt32(6)},{Csv(r.GetString(7))},{r.GetDateTime(8):O},{r.GetString(9)},{r.GetDecimal(10):F2},{Csv(r.GetString(11))},{Csv(r.GetString(12))},{r.GetInt32(13)}");
                     break;
                 }
                 case "recharges":

@@ -23,11 +23,10 @@ public static class MembershipEndpoints
             if (!CanRead(user, mid)) return Results.Forbid();
             await using var conn = await db.OpenConnectionAsync(ct);
             var result = new List<object>();
-            foreach (var container in new[] { "BUCKET", "BAG" })
+            foreach (var product in await WaterProducts.List(conn, repo.DefaultTenantId, ct))
             {
-                var heldColumn = container == "BUCKET" ? "held_buckets" : "held_bags";
-                await using var heldCmd = Command(conn, null, $"SELECT {heldColumn} FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND id=@mid", ("tid", repo.DefaultTenantId), ("mid", mid));
-                var held = Convert.ToInt32(await heldCmd.ExecuteScalarAsync(ct));
+                var container = product.ContainerId;
+                var held = await ProductContainers.Held(conn, null, repo.DefaultTenantId, mid, container, ct);
                 var lots = new List<(int Qty, decimal Price, int Reserved)>();
                 await using (var cmd = Command(conn, null, "SELECT remaining_qty,unit_price,reserved_damage_qty FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@container ORDER BY created_at,id", ("tid", repo.DefaultTenantId), ("mid", mid), ("container", container)))
                 await using (var r = await cmd.ExecuteReaderAsync(ct)) while (await r.ReadAsync(ct)) lots.Add((r.GetInt32(0), r.GetDecimal(1), r.GetInt32(2)));
@@ -38,7 +37,7 @@ public static class MembershipEndpoints
                 var pendingRefundQty = Convert.ToInt32(await pendingCmd.ExecuteScalarAsync(ct));
                 await using var configCmd = Command(conn, null, "SELECT unit_deposit FROM plugin_kunlun_waterstation.container_configs WHERE tenant_id=@tid AND container_type=@container", ("tid", repo.DefaultTenantId), ("container", container));
                 var unitDeposit = (decimal?)await configCmd.ExecuteScalarAsync(ct) ?? throw new BusinessRuleException("押金标准尚未配置", 503);
-                result.Add(new { containerType = container, unitDeposit, paidQty, paidAmount = lots.Sum(l => l.Price * l.Qty), heldQty = held, pendingDamageQty = reservedQty, pendingDamageAmount = lots.Sum(l => l.Price * l.Reserved), refundableQty = refundQty, refundableAmount = amount, pendingRefundQty });
+                result.Add(new { containerType = container, waterType = product.WaterType, name = product.Name, containerKind = product.ContainerType, unitDeposit, paidQty, paidAmount = lots.Sum(l => l.Price * l.Qty), heldQty = held, pendingDamageQty = reservedQty, pendingDamageAmount = lots.Sum(l => l.Price * l.Reserved), refundableQty = refundQty, refundableAmount = amount, pendingRefundQty });
             }
             return Results.Ok(result);
         }).RequireAuthorization();

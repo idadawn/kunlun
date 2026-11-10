@@ -78,12 +78,12 @@ export function MemberAssets({ profile }: MemberPageProps) {
           <small style={{ opacity: 0.8 }}>我的在池押金总额</small>
           <div className="num" style={{ fontSize: 30, fontWeight: 700, margin: '4px 0' }}>¥ {money(rows.reduce((sum, r) => sum + r.paidAmount, 0))}</div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, opacity: 0.88 }}>
-            {rows.map(r => <span key={r.containerType}>{r.containerType === 'BUCKET' ? '桶押金' : '袋押金'} ¥{money(r.paidAmount)}（{r.paidQty}个）</span>)}
+            {rows.map(r => <span key={r.containerType}>{r.name}配套桶袋押金 ¥{money(r.paidAmount)}（{r.paidQty}个）</span>)}
           </div>
         </div>
         {rows.map(r => { const covered = r.heldQty <= r.paidQty - r.pendingDamageQty; return (
           <div key={r.containerType}>
-            <div className="h5-section-head"><h3>{containerLabel(r.containerType)}</h3><span className={`tag ${covered ? 'green' : 'orange'}`}>{covered ? '押金已覆盖' : '需补交押金'}</span></div>
+            <div className="h5-section-head"><h3>{r.name} · 配套{r.containerKind === 'BAG' ? '水袋' : '桶'}</h3><span className={`tag ${covered ? 'green' : 'orange'}`}>{covered ? '押金已覆盖' : '需补交押金'}</span></div>
             <div className="h5-card">
               <div className="detail-row"><span>剩余押金（按原收款批次）</span><b>{r.paidQty} 个 / ¥{money(r.paidAmount)}</b></div>
               <div className="detail-row"><span>当前手里有</span><b>{r.heldQty} 个</b></div>

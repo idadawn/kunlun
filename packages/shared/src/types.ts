@@ -1,7 +1,9 @@
 /** A water product code from /api/products: BUCKET_18_9L and BAG_7_5L for the two original products, generated codes for added ones. */
 export type WaterType = string;
 export type FulfillMode = 'DELIVERY' | 'PICKUP';
-export type ContainerType = 'BUCKET' | 'BAG';
+export type ContainerKind = 'BUCKET' | 'BAG';
+/** Stable per-product container account ID; BUCKET/BAG are the two original accounts. */
+export type ContainerType = string;
 export type RoleCode = 'ADMIN' | 'CLERK' | 'COURIER' | 'MEMBER';
 export type SubjectType = 'STAFF' | 'MEMBER';
 export type PayMethod = 'CASH' | 'WECHAT' | 'ALIPAY' | 'BANK';
@@ -94,8 +96,10 @@ export interface WaterProduct {
   retailPrice: number | null;
   deliveryMinimum: number;
   deliveryFee: number;
-  /** The reusable container (and deposit) this water travels in; chosen when the product is added and fixed after. */
-  containerType: ContainerType;
+  /** Physical packaging kind; accounting uses the unique containerId. */
+  containerType: ContainerKind;
+  containerId: ContainerType;
+  unitDeposit: number;
 }
 
 export interface SaveWaterProductRequest {
@@ -105,7 +109,8 @@ export interface SaveWaterProductRequest {
   retailPrice: number | null;
   deliveryMinimum: number;
   /** Required when adding a product; an edit keeps the container. */
-  containerType?: ContainerType;
+  containerType?: ContainerKind;
+  unitDeposit?: number;
 }
 
 export interface RechargePlan {
@@ -131,6 +136,7 @@ export interface OrderAddressSnapshot {
 }
 
 export interface OrderProductSnapshot {
+  containerId?: ContainerType;
   waterLabel: string;
   capacityLiters: number;
   deliveryMinimum: number;
@@ -427,6 +433,9 @@ export interface TicketBatch {
 }
 
 export interface DepositSummaryRow {
+  waterType: WaterType;
+  name: string;
+  containerKind: ContainerKind;
   /** Current standard for estimating the next hand-over; historical lots keep their original prices. */
   unitDeposit: number;
   containerType: ContainerType;
@@ -522,6 +531,7 @@ export interface Paged<T> {
 }
 
 export interface ContainerHoldingRow {
+  holdings: Array<{ containerType: ContainerType; name: string; containerKind: ContainerKind; quantity: number }>;
   id: string;
   memberNo: string;
   name: string;
