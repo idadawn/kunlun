@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { KUNLUN_PERMISSIONS as P, containerLabel, containerUnit, money, type ContainerSummaryItem, type ContainerType, type DepositSummaryRow, type PayMethod } from '@kunlun/shared';
+import { KUNLUN_PERMISSIONS as P, containerKind, containerLabel, containerUnit, money, type ContainerSummaryItem, type ContainerType, type DepositSummaryRow, type PayMethod } from '@kunlun/shared';
 import { useAuth } from '../auth';
 import { Field, FormDialog, useToast } from '../feedback';
-import { useIdempotencyKey } from '../hooks';
+import { useLoader, useIdempotencyKey } from '../hooks';
 import { Icon } from '../icons';
 import { Stepper } from '../ordering';
 import { MemberPicker, PayButtons, ReasonChips, UnavailableDialog, errorText, usePickedMember, useReviewSettings, waitsForReview, type Done } from './common';
@@ -12,7 +12,7 @@ export type DepositAction = 'collect' | 'refund';
 const REFUND_REASONS = ['不再订水', '搬家', '容器已全部归还', '退回多交押金'] as const;
 
 /**
- * 押金收退：与水费充值分开办理。先选业务和会员，再从桶、袋两张卡片里选容器，卡片上直接显示该会员已交、持有和可退数量。
+ * 押金收退：与水费充值分开办理。先选业务和会员，再选水品配套容器，直接显示该会员对应的已交、持有和可退数量。
  * 收押金当场登记；退押金在后台要求审核时店员只提交申请，管理员通过才退款，否则当场退款。
  */
 export function DepositDialog({ containers, memberId, action: initialAction, onClose, onDone }: {
@@ -81,14 +81,14 @@ export function DepositDialog({ containers, memberId, action: initialAction, onC
         </div>
       )}
       <Field label="会员" htmlFor="depositMember"><MemberPicker id="depositMember" value={member} onChange={setMember} /></Field>
-      <label id="depositContainerLabel">容器</label>
+      <label id="depositContainerLabel">水品配套桶袋</label>
       <div className="mode-switch deposit-containers" role="group" aria-labelledby="depositContainerLabel">
-        {CONTAINERS.map(type => {
+        {containers.map(c => c.containerType).map(type => {
           const r = summary?.find(x => x.containerType === type);
           const unit = containers.find(c => c.containerType === type)?.unitDeposit;
           return (
             <button key={type} type="button" className={container === type ? 'active' : ''} aria-pressed={container === type} onClick={() => setContainer(type)}>
-              <Icon name={type === 'BUCKET' ? 'drop' : 'box'} />
+              <Icon name={containerKind(type) === 'BUCKET' ? 'drop' : 'box'} />
               <span>
                 <b>{containerLabel(type)}</b>
                 <small>{unit === undefined ? '押金标准加载中' : `押金 ¥${money(unit)}/个`}</small>
@@ -115,7 +115,6 @@ export function DepositDialog({ containers, memberId, action: initialAction, onC
   );
 }
 
-const CONTAINERS: ContainerType[] = ['BUCKET', 'BAG'];
 /** What a new refund request may still cover: refundable now, less what is already waiting for review. */
 const applicable = (row: DepositSummaryRow) => Math.max(0, row.refundableQty - row.pendingRefundQty);
 
@@ -161,9 +160,10 @@ export function MovementDialog({ memberId, onClose, onDone }: { memberId?: strin
   const [container, setContainer] = useState<ContainerType>('BUCKET');
   const [fullOut, setFullOut] = useState(0);
   const [emptyIn, setEmptyIn] = useState(1);
+  const summary = useLoader(() => member ? api.depositSummary(member.id) : Promise.resolve([]), [api, member?.id]);
   if (!can(P.ContainerRegister) && !can(P.OrderFulfill)) return <UnavailableDialog title="登记领还桶袋" message="当前账号没有容器登记权限" onClose={onClose} />;
   const unit = containerUnit(container);
-  const held = (type: ContainerType) => member ? (type === 'BUCKET' ? member.heldBuckets : member.heldBags) : null;
+  const held = (type: ContainerType) => summary.data?.find(r => r.containerType === type)?.heldQty ?? null;
   const before = held(container);
   const after = before === null ? null : before + fullOut - emptyIn;
   return (
@@ -175,11 +175,11 @@ export function MovementDialog({ memberId, onClose, onDone }: { memberId?: strin
       toast(`已登记，${member.name}手里现有 ${result.currentHeld} 个${containerLabel(container)}`);
     }}>
       <Field label="会员" htmlFor="moveMember"><MemberPicker id="moveMember" value={member} onChange={setMember} /></Field>
-      <label id="moveContainerLabel">桶还是袋</label>
+      <label id="moveContainerLabel">水品配套桶袋</label>
       <div className="mode-switch" role="group" aria-labelledby="moveContainerLabel">
-        {(['BUCKET', 'BAG'] as const).map(type => (
+        {(summary.data ?? []).map(row => row.containerType).map(type => (
           <button key={type} type="button" className={container === type ? 'active' : ''} aria-pressed={container === type} onClick={() => setContainer(type)}>
-            <Icon name={type === 'BUCKET' ? 'drop' : 'box'} />
+            <Icon name={containerKind(type) === 'BUCKET' ? 'drop' : 'box'} />
             <span><b>{containerLabel(type)}</b><small>{member ? `会员手里 ${held(type)} 个` : '选择会员后显示手里数量'}</small></span>
           </button>
         ))}

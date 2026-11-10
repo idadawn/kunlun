@@ -24,7 +24,7 @@ export function Deposits() {
   const q = useDebounced(query.trim());
   const filter: DepositLedgerQuery = { q, from: dateFilterFrom(date), flowType: flow || undefined, containerType: container || undefined };
   const filtered = !!(q || filter.from || flow || container);
-  const standards = (['BUCKET', 'BAG'] as const).flatMap(type => containers.filter(c => c.containerType === type))
+  const standards = containers
     .map(c => `${containerLabel(c.containerType)} ¥${money(c.unitDeposit)}/个`).join(' · ');
 
   return <>
@@ -58,7 +58,7 @@ export function Deposits() {
     <div className="filter-card">
       <label className="field-search"><Icon name="search" /><input placeholder="搜索会员、手机号或单号" aria-label="搜索会员、手机号或单号" value={query} onChange={e => setQuery(e.target.value)} /></label>
       <select className="select" aria-label="容器" value={container} onChange={e => setContainer(e.target.value as ContainerType | '')}>
-        <option value="">全部容器</option><option value="BUCKET">{containerLabel('BUCKET')}</option><option value="BAG">{containerLabel('BAG')}</option>
+        <option value="">全部容器</option>{containers.map(c => <option key={c.containerType} value={c.containerType}>{containerLabel(c.containerType)}</option>)}
       </select>
       <DateFilterSelect label="业务时间" value={date} onChange={setDate} />
       <div className="filter-spacer" />

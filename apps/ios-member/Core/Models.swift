@@ -123,6 +123,8 @@ public struct TicketBatch: Decodable, Identifiable, Sendable {
 }
 
 public struct DepositSummary: Decodable, Identifiable, Sendable {
+    public let name: String?
+    public let containerKind: String?
     public let containerType: String
     public let paidQty: Int
     public let paidAmount: Decimal
@@ -133,7 +135,11 @@ public struct DepositSummary: Decodable, Identifiable, Sendable {
     public let refundableAmount: Decimal
     public let pendingRefundQty: Int
     public var id: String { containerType }
-    public var title: String { containerType == "BUCKET" ? "周转桶" : "周转水袋" }
+    public var title: String {
+        let kind = containerKind ?? containerType
+        let container = kind == "BUCKET" ? "配套桶" : kind == "BAG" ? "配套水袋" : "配套容器"
+        return name.map { "\($0) · \(container)" } ?? (kind == "BUCKET" ? "周转桶" : kind == "BAG" ? "周转水袋" : "配套容器")
+    }
 }
 
 public struct MemberAddress: Decodable, Identifiable, Sendable {
