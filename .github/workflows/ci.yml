@@ -54,6 +54,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
       - run: pnpm install --frozen-lockfile
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'

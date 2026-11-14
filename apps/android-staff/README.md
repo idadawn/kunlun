@@ -14,6 +14,8 @@ pnpm android:staff
 
 APK：`app/build/outputs/apk/debug/app-debug.apk`。包内没有账号密码，安装后用已有员工账号登录。当前登录凭据仅保存在 WebView 会话中，不另行持久保存密码。
 
+一键脚本默认把 Gradle 缓存放在本项目忽略的 `.gradle-user-home`，避免与其他 Android 工程争用缓存；可通过 `GRADLE_USER_HOME` 覆盖。构建关闭文件系统监视，不启动常驻 Gradle 服务。
+
 ## 构建与检查
 
 ```sh
