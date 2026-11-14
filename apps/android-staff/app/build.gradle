@@ -1,0 +1,57 @@
+plugins { id 'com.android.application' }
+
+def repositoryRoot = rootProject.projectDir.toPath().resolve('../..').normalize().toFile()
+def webAssets = layout.buildDirectory.dir('generated/assets/www')
+def releaseOrigin = providers.gradleProperty('staffReleaseOrigin').getOrElse('https://kunlun.idalee.cn')
+def releaseUri = new URI(releaseOrigin)
+if (releaseUri.scheme != 'https' || !releaseUri.host || releaseUri.userInfo || releaseUri.query || releaseUri.fragment || (releaseUri.path && releaseUri.path != '/')) {
+    throw new GradleException('staffReleaseOrigin must be an HTTPS origin without credentials, path, query or fragment')
+}
+
+android {
+    namespace 'cn.idalee.kunlun.staff'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'cn.idalee.kunlun.staff'
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName '0.1.0'
+    }
+    buildFeatures { buildConfig true }
+    buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+            buildConfigField 'String', 'STAFF_ORIGIN', '"http://127.0.0.1:5188"'
+        }
+        release {
+            buildConfigField 'String', 'STAFF_ORIGIN', '"' + releaseOrigin.replaceAll('/$', '') + '"'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    sourceSets.main.assets.srcDir layout.buildDirectory.dir('generated/assets')
+}
+
+def checkWeb = tasks.register('checkStaffWeb', Exec) {
+    workingDir repositoryRoot
+    commandLine 'pnpm', '--filter', '@kunlun/mini-app', 'typecheck'
+}
+def bundleWeb = tasks.register('bundleStaffWeb', Exec) {
+    dependsOn checkWeb
+    workingDir repositoryRoot
+    inputs.files(fileTree(new File(repositoryRoot, 'apps/mini-app')) { exclude 'node_modules/**', 'dist/**' })
+    inputs.files(fileTree(new File(repositoryRoot, 'packages')) { exclude '**/node_modules/**', '**/dist/**', '**/.turbo/**' })
+    inputs.dir new File(repositoryRoot, 'scripts')
+    inputs.file new File(repositoryRoot, 'pnpm-lock.yaml')
+    outputs.dir webAssets
+    commandLine 'pnpm', '--filter', '@kunlun/mini-app', 'exec', 'vite', 'build', '--outDir', webAssets.get().asFile.absolutePath, '--emptyOutDir'
+}
+tasks.named('preBuild').configure { dependsOn bundleWeb }
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.14.0'
+    testImplementation 'junit:junit:4.13.2'
+}
