@@ -37,7 +37,7 @@ public sealed class ContainerInventoryTests(TestHost host)
         Assert.Equal(["containerType","unitDeposit","totalQty","inStationQty","withCustomersQty","memberHeldQty","damagedQty","scrappedQty","warnThreshold","countedAt","identityValid","lowStockWarning"],before.EnumerateObject().Select(p=>p.Name));
         foreach(var action in new[]{"DAMAGE","REPAIR","COUNT","ADJUST"})
             Assert.Equal(HttpStatusCode.BadRequest,(await c.PostAsJsonAsync("/api/containers/inventory",new InventoryRequest("BAG",action,"旧库存维护不可再提交",Key(),1))).StatusCode);
-        Assert.Equal(HttpStatusCode.OK,(await c.GetAsync("/api/exports/inventory-operations")).StatusCode);
+        var csv=await c.GetStringAsync("/api/exports/inventory-operations");Assert.Contains(",新购,",csv);Assert.Contains(",报废,",csv);
     }
 
     [Fact]

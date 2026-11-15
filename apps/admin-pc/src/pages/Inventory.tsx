@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   KUNLUN_PERMISSIONS as P, containerKind, containerLabel, containerUnit, money, shortDateTime,
-  type ContainerSummaryItem, type ContainerType, type InventoryBalance, type InventoryOperation, type UpdateStockRequest,
+  type ContainerSummaryItem, type ContainerType, type InventoryAction, type InventoryBalance, type InventoryOperation, type UpdateStockRequest,
 } from '@kunlun/shared';
 import { FormDialog, Icon, ReasonChips, Stepper, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
 import { EmptyRow, useExport, useGo } from '../common';
@@ -9,6 +9,11 @@ import { useAdminData } from '../data';
 
 const MAX = 1_000_000;
 type Count = 'inStationQty' | 'withCustomersQty' | 'scrappedQty';
+type CardActions = { edit: (focus: Count) => void; quick: (action: InventoryAction) => void };
+/** Notes the system writes when none is given; the tag beside them already says as much, so the note column shows a dash. */
+const PLAIN_REASONS = ['修改数量', '盘点', '新购', '报废'];
+const RECEIVE_REASONS = ['新买了一批', '供应商补货', '供应商赠送'];
+const SCRAP_REASONS = ['破了', '漏水', '太旧了', '清点时发现坏了'];
 
 /** 客户手里 of records written before it was its own count: what members held plus what stock-takes found unregistered. */
 const customersOf = (b: InventoryBalance) => b.withCustomersQty ?? b.memberHeldQty + (b.unregisteredOutQty ?? 0);
@@ -24,23 +29,25 @@ export function Inventory() {
   const history = useLoader(() => permitted ? api.inventoryOperations(filter || undefined) : Promise.resolve([]), [api, permitted, filter, version]);
   const edit = (config: ContainerSummaryItem, focus: Count = 'inStationQty') =>
     run(() => dialogs.open(close => <StockDialog config={config} focus={focus} onClose={close} onDone={refresh} />))();
+  const quick = (config: ContainerSummaryItem, action: InventoryAction) =>
+    run(() => dialogs.open(close => <QuickDialog config={config} action={action} onClose={close} onDone={refresh} />))();
 
   return <>
     <div className="page-head">
-      <div><h2>袋桶库存</h2><p>店里、客户手里、报废的数量随时点开就能改；领桶、还桶、破损登记会自动跟着变</p></div>
+      <div><h2>袋桶库存</h2><p>新买的点「新购」，坏了扔掉的点「报废」，数量不对随时点数字改；领桶、还桶、破损登记会自动跟着变</p></div>
       {permitted && <div className="head-actions"><button type="button" className="btn" onClick={() => exportCsv('inventory-operations')}><Icon name="export" size="sm" />导出修改记录</button></div>}
     </div>
 
     <div className="stock-grid">
       {!loaded ? <p className="stock-placeholder">正在加载库存…</p>
         : containers.length === 0 ? <p className="stock-placeholder">还没有水品，先到「水品与押金标准」添加，配套桶袋会自动出现在这里。</p>
-        : containers.map(c => <StockCard key={c.containerType} c={c} onEdit={permitted ? focus => edit(c, focus) : undefined} />)}
+        : containers.map(c => <StockCard key={c.containerType} c={c} actions={permitted ? { edit: focus => edit(c, focus), quick: action => quick(c, action) } : undefined} />)}
     </div>
 
     {permitted && (
       <div className="table-card">
         <div className="table-toolbar">
-          <div><b>修改记录</b><small>最近 100 笔，含入库、报废和会员破损报废</small></div>
+          <div><b>修改记录</b><small>最近 100 笔，含新购、报废和会员破损报废</small></div>
           <select className="select stock-filter" aria-label="按桶袋筛选" value={filter} onChange={e => setFilter(e.target.value as ContainerType | '')}>
             <option value="">全部桶袋</option>
             {containers.map(c => <option key={c.containerType} value={c.containerType}>{containerLabel(c.containerType)}</option>)}
@@ -52,13 +59,13 @@ export function Inventory() {
             <tbody>
               {history.error ? <EmptyRow colSpan={5}>{history.error}</EmptyRow>
                 : !history.data ? <EmptyRow colSpan={5}>正在加载…</EmptyRow>
-                : !history.data.length ? <EmptyRow colSpan={5}>还没有修改记录，点上面的数字就能改</EmptyRow>
+                : !history.data.length ? <EmptyRow colSpan={5}>还没有记录，点上面的按钮或数字就能登记</EmptyRow>
                 : history.data.map(({ operation: o, memberName }) => (
                   <tr key={o.id}>
                     <td>{shortDateTime(o.createdAt)}<br /><small title={o.operationNo}>{o.operationNo.slice(0, 10)}</small></td>
                     <td>{containerLabel(o.containerType)}</td>
                     <td><OperationChanges operation={o} /></td>
-                    <td className="inventory-reason">{memberName && <><b>{memberName}</b><br /></>}{['修改数量', '盘点'].includes(o.reason) ? <span className="stock-muted">—</span> : o.reason}</td>
+                    <td className="inventory-reason">{memberName && <><b>{memberName}</b><br /></>}{PLAIN_REASONS.includes(o.reason) ? <span className="stock-muted">—</span> : o.reason}</td>
                     <td>{o.operatorName}</td>
                   </tr>
                 ))}
@@ -70,8 +77,8 @@ export function Inventory() {
   </>;
 }
 
-/** One container: three numbers that open the edit dialog, the total, and member returns still waiting for a scrap decision. */
-function StockCard({ c, onEdit }: { c: ContainerSummaryItem; onEdit?: (focus: Count) => void }) {
+/** One container: three numbers that open the edit dialog, quick 新购 / 报废, the total, and member returns still waiting for a scrap decision. */
+function StockCard({ c, actions }: { c: ContainerSummaryItem; actions?: CardActions }) {
   const go = useGo();
   const bag = containerKind(c.containerType) === 'BAG';
   const unregistered = c.withCustomersQty - c.memberHeldQty;
@@ -87,13 +94,19 @@ function StockCard({ c, onEdit }: { c: ContainerSummaryItem; onEdit?: (focus: Co
         {c.lowStockWarning && <span className="tag orange dot">店里偏少</span>}
       </header>
       <div className="stock-tiles">
-        <Tile label="店里" value={c.inStationQty} note={c.warnThreshold > 0 ? `少于 ${c.warnThreshold} 个时提醒` : '空的满的都算'} tone={c.lowStockWarning ? 'warn' : 'store'} onEdit={onEdit && (() => onEdit('inStationQty'))} />
-        <Tile label="客户手里" value={c.withCustomersQty} note={customersNote} onEdit={onEdit && (() => onEdit('withCustomersQty'))} />
-        <Tile label="已报废" value={c.scrappedQty} note="累计，不算在合计里" tone="scrapped" onEdit={onEdit && (() => onEdit('scrappedQty'))} />
+        <Tile label="店里" value={c.inStationQty} note={c.warnThreshold > 0 ? `少于 ${c.warnThreshold} 个时提醒` : '空的满的都算'} tone={c.lowStockWarning ? 'warn' : 'store'} onEdit={actions && (() => actions.edit('inStationQty'))} />
+        <Tile label="客户手里" value={c.withCustomersQty} note={customersNote} onEdit={actions && (() => actions.edit('withCustomersQty'))} />
+        <Tile label="已报废" value={c.scrappedQty} note="累计，不算在合计里" tone="scrapped" onEdit={actions && (() => actions.edit('scrappedQty'))} />
       </div>
       <footer className="stock-card-foot">
         <span className="stock-sum">合计 <b>{c.totalQty}</b> 个<small>店里 + 客户手里{c.damagedQty > 0 ? ' + 待确认报废' : ''}</small></span>
-        {onEdit && <button type="button" className="btn primary sm" onClick={() => onEdit('inStationQty')}><Icon name="edit" size="sm" />修改数量</button>}
+        {actions && (
+          <div className="stock-actions">
+            <button type="button" className="btn sm" onClick={() => actions.quick('RECEIVE')}><Icon name="plus" size="sm" />新购</button>
+            <button type="button" className="btn sm" disabled={c.inStationQty === 0} title={c.inStationQty === 0 ? '店里没有可报废的' : undefined} onClick={() => actions.quick('SCRAP')}><Icon name="trash" size="sm" />报废</button>
+            <button type="button" className="btn primary sm" onClick={() => actions.edit('inStationQty')}><Icon name="edit" size="sm" />修改数量</button>
+          </div>
+        )}
       </footer>
       {c.damagedQty > 0 && (
         <button type="button" className="stock-pending" onClick={() => go('assets')}>
@@ -119,7 +132,7 @@ function Tile({ label, value, note, tone, onEdit }: { label: string; value: numb
 const FIELDS: Array<[string, (b: InventoryBalance) => number]> = [
   ['店里', b => b.inStationQty], ['客户手里', customersOf], ['待确认报废', b => b.damagedQty], ['已报废', b => b.scrappedQty],
 ];
-const TAGS = { ADJUST: ['修改', 'blue'], COUNT: ['盘点', 'gray'], RECEIVE: ['入库', 'green'], SCRAP: ['报废', 'orange'] } as const;
+const TAGS = { ADJUST: ['修改', 'blue'], COUNT: ['盘点', 'gray'], RECEIVE: ['新购', 'green'], SCRAP: ['报废', 'orange'] } as const;
 
 /** Every record, old stock-takes included, reads as "店里 198 → 196" for each number that changed. */
 function OperationChanges({ operation: o }: { operation: InventoryOperation }) {
@@ -174,7 +187,7 @@ function StockDialog({ config: c, focus, onClose, onDone }: { config: ContainerS
         <span className="stock-dialog-total">合计 {total === c.totalQty ? <b>{total}</b> : <><s>{c.totalQty}</s> → <b>{total}</b></>} 个</span>
         <button type="button" className="btn" onClick={onClose}>取消</button>
       </>}>
-      <p className="stock-dialog-lead">直接填现在的数量，没变的不用动。</p>
+      <p className="stock-dialog-lead">直接填现在的数量，没变的不用动。新买、报废用卡片上的「新购」「报废」更快。</p>
       <CountField id="stock-inStationQty" label="店里能用的" value={store} original={c.inStationQty} onChange={setStore}>
         空的、满的都算，坏了的不算。
       </CountField>
@@ -195,8 +208,55 @@ function StockDialog({ config: c, focus, onClose, onDone }: { config: ContainerS
         <span>个时在菜单上提醒（填 0 不提醒）</span>
       </div>
       <label htmlFor="stockNote">备注（选填）</label>
-      <input id="stockNote" className="input" maxLength={500} placeholder="如：新买了 20 个" value={note} onChange={e => setNote(e.target.value)} />
-      <ReasonChips label="常用备注" options={['新买了一批', '核对实际数量', `${unit}坏了报废`, `会员还${unit}没登记`]} value={note} onPick={setNote} />
+      <input id="stockNote" className="input" maxLength={500} placeholder="如：核对实际数量" value={note} onChange={e => setNote(e.target.value)} />
+      <ReasonChips label="常用备注" options={['核对实际数量', `会员还${unit}没登记`, '之前记错了']} value={note} onPick={setNote} />
+    </FormDialog>
+  );
+}
+
+/** 新购 / 报废：一步登记一个数量。新购加到店里；报废从店里拿出来、加到已报废，最多报废店里现有的。 */
+function QuickDialog({ config: c, action, onClose, onDone }: { config: ContainerSummaryItem; action: InventoryAction; onClose: () => void; onDone: () => Promise<void> }) {
+  const api = useApi();
+  const toast = useToast();
+  const key = useIdempotencyKey();
+  const unit = containerUnit(c.containerType);
+  const scrap = action === 'SCRAP';
+  const verb = scrap ? '报废' : '新购';
+  const max = scrap ? c.inStationQty : MAX - c.inStationQty;
+  const [qty, setQty] = useState(1);
+  const [reason, setReason] = useState('');
+  useEffect(() => {
+    const input = document.getElementById('quickQty') as HTMLInputElement | null;
+    input?.focus(); input?.select();
+  }, []);
+  const delta = scrap ? -qty : qty;
+
+  const submit = async () => {
+    await api.inventory({ containerType: c.containerType, action, quantity: qty, reason: reason.trim() || verb, idempotencyKey: key });
+    await onDone();
+    toast(`已${verb} ${qty} 个${unit}，店里现在 ${c.inStationQty + delta} 个`);
+  };
+
+  return (
+    <FormDialog title={`${verb}${unit}`} description={containerLabel(c.containerType)} className="stock-dialog" submitLabel={`确认${verb}`} onClose={onClose} onSubmit={submit}
+      extraActions={<>
+        <span className="stock-dialog-total">合计 <s>{c.totalQty}</s> → <b>{c.totalQty + delta}</b> 个</span>
+        <button type="button" className="btn" onClick={onClose}>取消</button>
+      </>}>
+      <p className="stock-dialog-lead">{scrap
+        ? `店里坏了、要扔掉的${unit}在这里登记：店里减掉，已报废加上。会员退回的破损请到袋桶台账登记。`
+        : `新买回来的${unit}在这里登记，直接加到店里。`}</p>
+      <div className="stock-field changed">
+        <div className="stock-field-main">
+          <label htmlFor="quickQty">{scrap ? '报废几个' : '买了几个'}</label>
+          <small>店里 {c.inStationQty} → <b>{c.inStationQty + delta} 个</b>{scrap && <> · 已报废 {c.scrappedQty} → <b>{c.scrappedQty + qty} 个</b></>}</small>
+        </div>
+        <Stepper id="quickQty" label={`${verb}数量`} value={qty} onChange={setQty} min={1} max={max} />
+        {scrap && qty >= max && <p className="stock-field-hint">店里只有 {max} 个，最多报废这么多。</p>}
+      </div>
+      <label htmlFor="quickReason">{scrap ? '原因' : '备注'}（选填）</label>
+      <input id="quickReason" className="input" maxLength={500} placeholder={scrap ? '如：破了' : '如：新买了一批'} value={reason} onChange={e => setReason(e.target.value)} />
+      <ReasonChips label={scrap ? '常用原因' : '常用备注'} options={scrap ? SCRAP_REASONS : RECEIVE_REASONS} value={reason} onPick={setReason} />
     </FormDialog>
   );
 }

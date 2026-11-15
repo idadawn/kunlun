@@ -94,7 +94,7 @@ function ProductDialog({ product: p, onClose, onDone }: { product?: WaterProduct
       <Field label="配送起送数量" htmlFor="productMinimum"><input id="productMinimum" className="input" type="number" required min={1} max={10000} step={1} value={minimum} onChange={e => setMinimum(e.target.value)} /></Field>
       <p className="membership-note">{p
         ? '押金修改只影响本水品后续收款；历史押金按原收款单价退还。'
-        : '配套桶袋库存从零开始，到「袋桶库存」登记入库，再到「充值套餐」建套餐。各水品的水票、桶袋和押金都不能互相抵用。'}</p>
+        : '配套桶袋库存从零开始，到「袋桶库存」点「新购」登记，再到「充值套餐」建套餐。各水品的水票、桶袋和押金都不能互相抵用。'}</p>
     </FormDialog>
   );
 }

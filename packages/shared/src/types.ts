@@ -459,10 +459,10 @@ export interface StaffAccount {
 }
 
 export type InventoryAction = 'RECEIVE' | 'SCRAP';
-/** EXTERNAL：入库；AVAILABLE：门店报废；DAMAGED：会员破损确认报废；MANUAL：修改数量；COUNT：早期的盘点。 */
+/** EXTERNAL：新购；AVAILABLE：门店报废；DAMAGED：会员破损确认报废；MANUAL：修改数量；COUNT：早期的盘点。 */
 export type InventorySource = 'EXTERNAL' | 'AVAILABLE' | 'DAMAGED' | 'MANUAL' | 'COUNT';
 
-/** 入库计入店里，报废从店里扣减。 */
+/** 新购计入店里，报废从店里扣减并计入累计报废。 */
 export interface InventoryRequest {
   containerType: ContainerType;
   action: InventoryAction;
