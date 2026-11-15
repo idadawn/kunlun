@@ -39,11 +39,11 @@ function assertArea(area: AppArea, me: CurrentUser) {
 }
 
 /** Requires a signed-in account for the given area; renders the login page until then. */
-export function AuthGate({ area, children }: { area: AppArea; children: ReactNode }) {
+export function AuthGate({ area, apiBaseUrl = '', loginFooter, children }: { area: AppArea; apiBaseUrl?: string; loginFooter?: ReactNode; children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [restoring, setRestoring] = useState(true);
   const toast = useToast();
-  const api = useMemo(() => new KunlunApi({ onUnauthorized: () => { forget(area); api.token = null; setUser(null); } }), [area]);
+  const api = useMemo(() => new KunlunApi({ baseUrl: apiBaseUrl, onUnauthorized: () => { forget(area); api.token = null; setUser(null); } }), [area, apiBaseUrl]);
 
   const endSession = useCallback(() => { forget(area); api.token = null; setUser(null); }, [api, area]);
 
@@ -80,11 +80,11 @@ export function AuthGate({ area, children }: { area: AppArea; children: ReactNod
   }, [api, endSession, toast, user]);
 
   if (restoring) return <div className="login-gate" aria-busy="true"><p className="membership-note">正在恢复登录状态…</p></div>;
-  if (!value) return <LoginPage area={area} onLogin={login} />;
+  if (!value) return <LoginPage area={area} onLogin={login} footer={loginFooter} />;
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-function LoginPage({ area, onLogin }: { area: AppArea; onLogin: (account: string, password: string) => Promise<void> }) {
+function LoginPage({ area, onLogin, footer }: { area: AppArea; onLogin: (account: string, password: string) => Promise<void>; footer?: ReactNode }) {
   const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -113,6 +113,7 @@ function LoginPage({ area, onLogin }: { area: AppArea; onLogin: (account: string
         <p role="alert" className="account-error">{error}</p>
         <button className="btn primary login-submit" type="submit" disabled={busy}>{busy ? '正在登录…' : '登录'}</button>
         <p className="login-help">{area === 'admin' ? '仅限水站管理员' : '首次使用或忘记密码，请联系水站设置账号'}</p>
+        {footer}
       </form>
     </div>
   );

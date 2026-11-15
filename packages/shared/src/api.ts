@@ -93,7 +93,13 @@ export class KunlunApi {
     const headers: Record<string, string> = { ...(init.headers as Record<string, string>) };
     if (init.body !== undefined) headers['Content-Type'] = 'application/json';
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
-    const res = await fetch(this.baseUrl + path, { ...init, headers });
+    let res: Response;
+    try {
+      res = await fetch(this.baseUrl + path, { ...init, headers });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') throw error;
+      throw new ApiError('网络连接失败，请检查网络后重试', 0);
+    }
     if (res.ok) return res;
     const body = await res.json().catch(() => ({} as Record<string, string>));
     if (res.status === 401 && this.token && !path.startsWith('/api/auth/')) this.options.onUnauthorized?.();

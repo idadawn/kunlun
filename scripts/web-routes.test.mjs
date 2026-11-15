@@ -89,6 +89,21 @@ test('paged client calls always send page and drop empty filters; legacy list ca
  ]);
 });
 
+test('browser and native transport failures get a readable message without masking HTTP errors or cancellation',async()=>{
+ const real=globalThis.fetch,api=new KunlunApi({baseUrl:'https://kunlun-test.idalee.cn'});
+ try{
+  for(const failure of [new TypeError('Failed to fetch'),new Error('Unable to resolve host "kunlun-test.idalee.cn"')]){
+   globalThis.fetch=async url=>{assert.equal(url,'https://kunlun-test.idalee.cn/api/auth/member/login');throw failure;};
+   await assert.rejects(api.memberLogin('test','test'),{name:'ApiError',status:0,message:'网络连接失败，请检查网络后重试'});
+  }
+  const aborted=new DOMException('Cancelled','AbortError');
+  globalThis.fetch=async()=>{throw aborted;};
+  await assert.rejects(api.memberLogin('test','test'),error=>error===aborted);
+  globalThis.fetch=async()=>new Response(JSON.stringify({error:'用户名或密码错误，或账号已停用'}),{status:401});
+  await assert.rejects(api.memberLogin('test','test'),{name:'ApiError',status:401,message:'用户名或密码错误，或账号已停用'});
+ }finally{globalThis.fetch=real;}
+});
+
 async function freePort(){const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const port=s.address().port;await new Promise(r=>s.close(r));return port;}
 for(const [app,areas] of Object.entries(APPS))for(const mode of ['dev','preview']){
  test(`${app} ${mode}: direct navigation, refresh and assets use the correct app`,async()=>{
