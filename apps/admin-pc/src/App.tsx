@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { KUNLUN_BRAND, containerLabel, pathFor, resolveRoute } from '@kunlun/shared';
 import { ChangePasswordDialog, DialogProvider, Icon, Logo, useAuth, useDialogs, useToast, type IconName } from '@kunlun/ui';
@@ -55,31 +55,45 @@ const NAV: Array<{ label?: string; items: Array<[string, IconName]> }> = [
 ];
 const GROUP_OF: Record<string, string | undefined> = Object.fromEntries(NAV.flatMap(group => group.items.map(([id]) => [id, group.label])));
 const COLLAPSE_KEY = 'kunlun.sidebar.collapsed';
+/** Below this width the menu shrinks to icons by itself so the page keeps its room; the toggle still opens it. */
+const NARROW_QUERY = '(max-width: 1080px)';
 const readCollapsed = () => { try { return localStorage.getItem(COLLAPSE_KEY) === 'true'; } catch { return false; } };
+const matchesNarrow = () => typeof window.matchMedia === 'function' && window.matchMedia(NARROW_QUERY).matches;
 
 function useSidebarCollapsed() {
-  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const [saved, setSaved] = useState(readCollapsed);
+  const [narrow, setNarrow] = useState(matchesNarrow);
+  // On a narrow window the menu opens only for a moment: choosing a page closes it again.
+  const [opened, setOpened] = useState(false);
+  const collapsed = narrow ? !opened : saved;
   useEffect(() => {
     document.documentElement.classList.toggle('sidebar-collapsed', collapsed);
     return () => document.documentElement.classList.remove('sidebar-collapsed');
   }, [collapsed]);
   useEffect(() => {
-    const sync = (e: StorageEvent) => { if (e.key === COLLAPSE_KEY) setCollapsed(e.newValue === 'true'); };
+    const sync = (e: StorageEvent) => { if (e.key === COLLAPSE_KEY) setSaved(e.newValue === 'true'); };
     window.addEventListener('storage', sync);
-    return () => window.removeEventListener('storage', sync);
+    const query = typeof window.matchMedia === 'function' ? window.matchMedia(NARROW_QUERY) : null;
+    const resize = () => { setNarrow(Boolean(query?.matches)); setOpened(false); };
+    query?.addEventListener('change', resize);
+    return () => { window.removeEventListener('storage', sync); query?.removeEventListener('change', resize); };
   }, []);
-  const toggle = () => setCollapsed(value => {
-    try { localStorage.setItem(COLLAPSE_KEY, String(!value)); } catch { /* The control still works without persistence. */ }
-    return !value;
-  });
-  return [collapsed, toggle] as const;
+  const toggle = () => {
+    if (narrow) { setOpened(value => !value); return; }
+    setSaved(value => {
+      try { localStorage.setItem(COLLAPSE_KEY, String(!value)); } catch { /* The control still works without persistence. */ }
+      return !value;
+    });
+  };
+  const close = useCallback(() => setOpened(false), []);
+  return [collapsed, toggle, close] as const;
 }
 
 function AdminLayout() {
   const location = useLocation();
   const page = resolveRoute(location.pathname)?.page ?? 'dashboard';
   const { orders, overview, containers, pendingRefunds, refresh } = useAdminData();
-  const [collapsed, toggle] = useSidebarCollapsed();
+  const [collapsed, toggle, closeSidebar] = useSidebarCollapsed();
   const toast = useToast();
   const go = useGo();
   const pending = overview ? overview.pendingDelivery + overview.pendingPickup + overview.dispatched
@@ -99,7 +113,7 @@ function AdminLayout() {
     if (firstPage.current) { firstPage.current = false; return; }
     refresh().catch(e => toast(e.message));
   }, [page, refresh, toast]);
-  useEffect(() => { document.querySelector('.main-wrap')?.scrollTo(0, 0); }, [page]);
+  useEffect(() => { document.querySelector('.main-wrap')?.scrollTo(0, 0); closeSidebar(); }, [page, closeSidebar]);
 
   return (
     <div id="adminApp" className="admin-app">

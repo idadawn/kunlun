@@ -4,19 +4,19 @@
 .brand{display:flex;align-items:center;gap:11px;padding:0 10px 24px}
 .brand .gq-logo{width:40px;height:40px;border-radius:12px}
 .brand h1{font-size:18px;margin:0;color:var(--ink);letter-spacing:1.5px;font-weight:700}
-.brand small{display:block;font-size:10.5px;color:var(--muted);letter-spacing:.8px;margin-top:2px}
-.nav-label{padding:12px 13px 6px;color:var(--faint);font-size:11px;letter-spacing:1.2px;font-weight:600}
+.brand small{display:block;font-size:12px;color:var(--muted);letter-spacing:.8px;margin-top:2px}
+.nav-label{padding:12px 13px 6px;color:var(--muted);font-size:12px;letter-spacing:1px;font-weight:600}
 .nav-item{width:100%;border:0;background:none;display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:10px;color:var(--text);margin:2px 0;text-align:left;position:relative;transition:.15s;font-weight:500}
 .nav-item:hover{background:var(--line-soft);color:var(--ink)}
 .nav-item.active{background:var(--brand-50);color:var(--brand-600);font-weight:600}
-.nav-item .nav-badge{margin-left:auto;background:var(--orange-500);color:#fff;border-radius:999px;font-size:10.5px;min-width:20px;text-align:center;padding:1px 6px;font-weight:700}
+.nav-item .nav-badge{margin-left:auto;background:var(--orange-500);color:#fff;border-radius:999px;font-size:11px;min-width:20px;text-align:center;padding:1px 6px;font-weight:700}
 .nav-item .nav-badge.warn{background:var(--gold-500)}
 
 .main-wrap{overflow:auto;min-width:0;background:var(--bg)}
 .topbar{height:64px;padding:0 30px;display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.88);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:9;backdrop-filter:blur(12px)}
 .breadcrumb{color:var(--muted);font-size:13px;min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .breadcrumb b{color:var(--ink);font-weight:600}
-.breadcrumb .pill{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--brand-50);color:var(--brand-600);font-weight:600}
+.breadcrumb .pill{font-size:12px;padding:2px 8px;border-radius:999px;background:var(--brand-50);color:var(--brand-600);font-weight:600}
 .top-actions{display:flex;align-items:center;gap:16px;flex-shrink:0;white-space:nowrap}
 .search-mini{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line);padding:7px 12px;border-radius:9px;color:var(--muted)}
 .search-mini input{border:0;background:none;outline:0;width:180px;font-size:12.5px;color:var(--text)}
@@ -26,7 +26,7 @@
 .user{display:flex;align-items:center;gap:9px}
 .avatar{width:36px;height:36px;border-radius:50%;background:var(--brand-100);color:var(--brand-700);display:grid;place-items:center;font-weight:700;flex:none}
 .user-text b{display:block;color:var(--ink);font-size:12.5px}
-.user-text small{font-size:10.5px;color:var(--muted)}
+.user-text small{font-size:12px;color:var(--muted)}
 
 .page-content{padding:24px 30px 44px;max-width:1560px;margin:auto}
 .section{display:none}.section.active{display:block}
@@ -36,9 +36,9 @@
 .head-actions{display:flex;gap:10px}
 
 /* Hero Banner（浅色水雾风，清爽不压抑） */
-.hero-banner{background:var(--grad-hero);color:var(--ink);border:1px solid #ccece4;border-radius:var(--r-xl);padding:22px 26px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:24px;position:relative;overflow:hidden}
+.hero-banner{background:var(--grad-hero);color:var(--ink);border:1px solid var(--brand-100);border-radius:var(--r-xl);padding:22px 26px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:24px;position:relative;overflow:hidden}
 .hero-banner:after{content:"";position:absolute;right:-50px;top:-60px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,rgba(14,165,233,.14),transparent 70%);pointer-events:none}
-.hero-banner .eyebrow{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;border-radius:999px;background:#fff;border:1px solid #ccece4;font-size:11.5px;color:var(--brand-600);font-weight:600;letter-spacing:.5px}
+.hero-banner .eyebrow{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;border-radius:999px;background:#fff;border:1px solid var(--brand-100);font-size:12px;color:var(--brand-600);font-weight:600;letter-spacing:.5px}
 .hero-banner h2{margin:9px 0 5px;font-size:22px;color:var(--ink);letter-spacing:.5px}
 .hero-banner p{margin:0;color:var(--muted);font-size:13px}
 .hero-banner .slogan-pill{text-align:right;position:relative;z-index:1}
@@ -55,7 +55,6 @@
 .stat-value{font-family:var(--font-num);font-size:28px;font-weight:700;color:var(--ink);margin:8px 0 6px;letter-spacing:.3px}
 .stat-value small{font-size:13px;font-weight:500;color:var(--muted);margin-left:4px}
 .stat-foot{font-size:12px;color:var(--muted)}
-.trend-up{color:var(--brand-600);font-weight:600;margin-right:4px}
 
 .dashboard-grid{display:grid;grid-template-columns:1.65fr 1fr;gap:18px;margin-bottom:18px}
 .bottom-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:18px}
@@ -70,6 +69,8 @@
 .chart{width:100%;height:205px;display:block}
 .chart .gridline{stroke:var(--line-soft);stroke-width:1}
 .chart text{fill:var(--muted);font-size:11px}
+.chart .bar{fill:var(--aqua-500);opacity:.3}
+.chart .line{fill:none;stroke:var(--brand-500);stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
 
 .todo-list{padding:8px 16px 14px}
 .todo-item{display:flex;align-items:center;gap:12px;padding:11px 4px;border-bottom:1px solid var(--line-soft)}
@@ -79,20 +80,20 @@
 .todo-symbol.blue{background:var(--aqua-50);color:var(--aqua-600)}
 .todo-text{flex:1;min-width:0}
 .todo-text b{display:block;color:var(--ink);font-size:13px}
-.todo-text small{color:var(--muted);font-size:11.5px}
+.todo-text small{color:var(--muted);font-size:12px}
 .todo-num{font-family:var(--font-num);font-weight:700;font-size:16px;color:var(--orange-500);padding:0 6px}
 
 .order-mini{padding:6px 20px 16px}
 .order-row{display:grid;grid-template-columns:1.3fr .8fr 1.2fr .8fr;align-items:center;padding:11px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px}
 .order-row:last-child{border-bottom:0}
-.order-row.head{color:var(--muted);font-size:11.5px;padding:8px 0}
+.order-row.head{color:var(--muted);font-size:12px;padding:8px 0}
 
 .asset-content{padding:16px 20px 20px}
 .asset-line{display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px}
 .asset-line b{color:var(--ink)}
 .progress{height:8px;background:var(--line-soft);border-radius:999px;overflow:hidden}
 .progress i{display:block;height:100%;background:var(--grad-brand);border-radius:999px}
-.asset-meta{display:flex;justify-content:space-between;color:var(--muted);font-size:11.5px;margin-top:6px}
+.asset-meta{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin-top:6px}
 .identity-formula{margin-top:14px;padding:9px 12px;border-radius:9px;background:var(--brand-50);color:var(--brand-700);font-size:12px;display:flex;align-items:center;justify-content:space-between}
 .identity-formula.warn{background:var(--orange-50);color:var(--orange-500)}
 
@@ -111,17 +112,16 @@
 .table-toolbar b{color:var(--ink)}
 .table-toolbar small{color:var(--muted);margin-left:8px}
 table{width:100%;border-collapse:collapse}
-th{text-align:left;background:#f8fbf9;color:var(--muted);font-size:11.5px;font-weight:600;padding:12px 18px;white-space:nowrap}
+th{text-align:left;background:var(--bg);color:var(--muted);font-size:12px;font-weight:600;padding:12px 18px;white-space:nowrap}
 td{padding:14px 18px;border-top:1px solid var(--line-soft);font-size:13px;white-space:nowrap}
-tbody tr:hover{background:#f9fcfa}
+tbody tr{transition:background-color .12s}
+tbody tr:hover{background:var(--bg)}
 td b{color:var(--ink)}
 .order-no{font-family:var(--font-num);font-weight:600;color:var(--ink)}
 .member-cell{display:flex;align-items:center;gap:10px}
 .member-avatar{width:36px;height:36px;border-radius:10px;background:var(--brand-50);color:var(--brand-600);display:grid;place-items:center;font-weight:700;flex:none}
-.member-cell small{display:block;color:var(--muted);font-size:11.5px;margin-top:1px}
-.link{color:var(--brand-600);border:0;background:none;padding:0;font-weight:500}
-.link:hover{text-decoration:underline}
-.ledger-table td small{color:var(--muted);font-size:11.5px}.ledger-reason{white-space:normal;min-width:140px;max-width:260px}
+.member-cell small{display:block;color:var(--muted);font-size:12px;margin-top:1px}
+.ledger-table td small{color:var(--muted);font-size:12px}.ledger-reason{white-space:normal;min-width:140px;max-width:260px}
 .amount-in{color:var(--brand-600)!important}.amount-out{color:var(--orange-500)!important}
 .ledger-hint{display:flex;align-items:center;gap:8px;margin:-4px 0 18px;padding:10px 14px;border-radius:var(--r-md);background:var(--brand-50);color:var(--brand-700);font-size:12.5px}
 .detail-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}.detail-card-head h4{margin:0}
@@ -140,28 +140,18 @@ td b{color:var(--ink)}
 .tab.active:after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2.5px;background:var(--brand-500);border-radius:2px}
 
 /* Settings */
-.setting-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
 .setting-card{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);padding:20px;position:relative;overflow:hidden}
-.plan-card{border-top:3px solid var(--brand-500)}
-.plan-card.orange-top{border-top-color:var(--gold-500)}
-.plan-price{font-family:var(--font-num);font-size:28px;font-weight:700;color:var(--ink);margin:10px 0 4px}
-.plan-price small{font-size:12px;color:var(--muted);font-weight:400}
 .setting-card h3{margin:0 0 6px;color:var(--ink);font-size:16px}
-.plan-gift{color:var(--brand-600);font-size:12.5px;font-weight:600;margin-bottom:12px}
 .setting-row{display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line-soft);font-size:12.5px;color:var(--muted)}
 .setting-row b{color:var(--ink)}
-.setting-icon{width:40px;height:40px;border-radius:11px;background:var(--brand-50);color:var(--brand-600);display:grid;place-items:center;margin-bottom:12px}
 
 /* Modal & Drawer */
-.modal-mask,.drawer-mask{position:fixed;inset:0;background:rgba(6,40,31,.46);backdrop-filter:blur(3px);z-index:100;display:none;align-items:center;justify-content:center;padding:20px}
-.modal-mask.open,.drawer-mask.open{display:flex}
+.drawer-mask{position:fixed;inset:0;background:var(--backdrop);backdrop-filter:blur(2px);z-index:100;display:none;align-items:center;justify-content:center;padding:20px}
+.drawer-mask.open{display:flex}
 .modal{background:#fff;border-radius:var(--r-xl);width:100%;max-width:520px;max-height:90vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg);overflow:hidden}
-.modal.wide{max-width:620px}
-.modal-head,.drawer-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--line)}
-.modal-head h3,.drawer-head h3{margin:0;color:var(--ink);font-size:16px}
+.drawer-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--line)}
+.drawer-head h3{margin:0;color:var(--ink);font-size:16px}
 .modal-close{border:0;background:var(--line-soft);width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--muted)}
-.modal-body{padding:20px 22px;overflow:auto}
-.modal-foot{display:flex;justify-content:flex-end;gap:10px;padding:14px 22px;border-top:1px solid var(--line);background:#fafcfb}
 .drawer-mask{justify-content:flex-end;padding:0}
 .drawer{width:460px;max-width:100%;height:100%;background:#fff;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)}
 .drawer-body{padding:20px 22px;overflow:auto;flex:1}
@@ -170,7 +160,7 @@ td b{color:var(--ink)}
 .member-profile p{margin:3px 0 0;color:var(--muted);font-size:12px}
 .profile-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;background:var(--brand-50);padding:14px;border-radius:var(--r-md);text-align:center;margin-bottom:14px}
 .profile-stats b{display:block;font-family:var(--font-num);font-size:18px;color:var(--brand-700)}
-.profile-stats small{font-size:11px;color:var(--muted)}
+.profile-stats small{font-size:12px;color:var(--muted)}
 .drawer-actions{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:18px}
 .drawer-actions .btn{padding:0 8px;font-size:12px}
 .detail-card{border:1px solid var(--line);border-radius:var(--r-md);padding:14px 16px;margin-bottom:12px}
@@ -178,50 +168,17 @@ td b{color:var(--ink)}
 .detail-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px;color:var(--muted)}
 .detail-row:last-child{border-bottom:0}
 .detail-row b{color:var(--ink)}
-.record-item{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--line-soft)}
-.record-item:last-child{border-bottom:0}
-.record-icon{width:34px;height:34px;border-radius:9px;background:var(--brand-50);color:var(--brand-600);display:grid;place-items:center;flex:none}
-.record-icon.blue{background:var(--aqua-50);color:var(--aqua-600)}
-.record-icon.orange{background:var(--orange-50);color:var(--orange-500)}
-.record-main{flex:1}
-.record-main b{display:block;font-size:13px;color:var(--ink)}
-.record-main small{color:var(--muted);font-size:11.5px}
 
-/* Modal form helpers */
-.selected-member{display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--brand-50);border-radius:var(--r-md);margin-bottom:16px}
-.selected-member b{display:block;color:var(--ink)}
-.selected-member small{color:var(--muted);font-size:11.5px}
-.selected-member .text-btn{margin-left:auto}
-.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.form-group{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
-.form-group.full{grid-column:1 / -1}
-.form-group label{font-size:12px;color:var(--muted);font-weight:500}
 .required{color:var(--red-500);margin-right:2px}
 /* 水品与押金标准 */
-.product-section-title{font-size:14px;color:var(--ink);margin:4px 0 12px}
-.product-config-grid+.product-section-title{margin-top:26px}
 .product-config-heading .head-actions{gap:6px}
-.setting-card>.product-deposit-summary:first-child{margin-top:0}
 /* 会员水票：每种水品一行 */
 .ticket-line{white-space:nowrap;line-height:1.7}
 .ticket-line small{color:var(--muted);margin-right:6px}
 .choice-row{display:flex;gap:8px;flex-wrap:wrap}
 .choice{flex:1;min-width:110px;border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 12px;text-align:left;font-weight:600;color:var(--ink);transition:.15s}
-.choice small{display:block;color:var(--muted);font-weight:400;font-size:11px;margin-top:2px}
+.choice small{display:block;color:var(--muted);font-weight:400;font-size:12px;margin-top:2px}
 .choice.active{border-color:var(--brand-500);background:var(--brand-50);color:var(--brand-700);box-shadow:inset 0 0 0 1px var(--brand-500)}
-.qty-control{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden;height:38px}
-.qty-control button{width:38px;height:100%;border:0;background:var(--line-soft);font-size:16px}
-.qty-control input{width:54px;height:100%;border:0;text-align:center;font-weight:700}
-.amount-summary{background:#f8fbf9;border:1px solid var(--line);border-radius:var(--r-md);padding:12px 15px;margin-top:10px}
-.amount-line{display:flex;justify-content:space-between;padding:5px 0;font-size:12.5px;color:var(--muted)}
-.amount-line b{color:var(--ink)}
-.amount-line.total{border-top:1px dashed var(--line);margin-top:4px;padding-top:9px;font-size:14px}
-.amount-line.total b{color:var(--brand-600);font-size:18px;font-family:var(--font-num)}
-.form-note{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:9px;background:var(--line-soft);color:var(--muted);font-size:12px;margin-top:12px}
-.success-state{text-align:center;padding:8px 0}
-.success-icon{width:52px;height:52px;border-radius:50%;background:var(--brand-50);color:var(--brand-600);display:grid;place-items:center;margin:0 auto 10px}
-.success-detail{text-align:left;border:1px solid var(--line);border-radius:var(--r-md);padding:12px 15px;margin-top:14px}
-.hide{display:none!important}
 /* 袋桶库存：每种桶袋一张卡片，店里 / 客户手里 / 已报废三个数点开就能改。 */
 .stock-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,440px),1fr));gap:18px;margin-bottom:22px}
 .stock-placeholder{grid-column:1/-1;margin:0;padding:40px 20px;text-align:center;color:var(--muted);font-size:13px;background:#fff;border:1px dashed var(--line);border-radius:var(--r-lg)}
@@ -236,28 +193,27 @@ td b{color:var(--ink)}
 .stock-tile{position:relative;display:flex;flex-direction:column;gap:3px;min-width:0;padding:13px 14px 12px;border:1px solid var(--line-soft);border-radius:14px;background:var(--bg);color:var(--text);text-align:left;font:inherit}
 button.stock-tile{cursor:pointer;transition:border-color .15s,background .15s,box-shadow .15s,transform .15s}
 button.stock-tile:hover{border-color:var(--brand-300);background:#fff;box-shadow:var(--shadow-md);transform:translateY(-1px)}
-button.stock-tile:focus-visible{outline:2px solid var(--brand-500);outline-offset:2px}
 .stock-tile-label{display:flex;align-items:center;justify-content:space-between;gap:6px;color:var(--muted);font-size:12.5px;font-weight:500}
 .stock-tile-label .icon{color:var(--faint);opacity:.55;transition:opacity .15s,color .15s}
 button.stock-tile:hover .stock-tile-label .icon,button.stock-tile:focus-visible .stock-tile-label .icon{opacity:1;color:var(--brand-600)}
 .stock-tile-value{font-family:var(--font-num);font-size:30px;line-height:1.15;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:.2px}
 .stock-tile-value small{margin-left:4px;font-family:var(--font);font-size:12.5px;font-weight:500;color:var(--muted)}
-.stock-tile-note{color:var(--muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stock-tile-note{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stock-tile.store .stock-tile-value{color:var(--brand-700)}
 .stock-tile.scrapped .stock-tile-value{color:var(--faint)}
-.stock-tile.warn{background:var(--orange-50);border-color:#fed7aa}
+.stock-tile.warn{background:var(--orange-50);border-color:var(--orange-200)}
 .stock-tile.warn .stock-tile-value,.stock-tile.warn .stock-tile-note{color:var(--orange-500)}
 .stock-card-foot{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px 12px;padding-top:14px;border-top:1px dashed var(--line)}
 .stock-sum{display:flex;align-items:baseline;flex-wrap:wrap;gap:0 6px;color:var(--muted);font-size:13px}
 .stock-sum b{font-family:var(--font-num);font-size:22px;color:var(--ink);font-variant-numeric:tabular-nums}
-.stock-sum small{font-size:11.5px;color:var(--faint)}
+.stock-sum small{font-size:12px;color:var(--muted)}
 .stock-actions{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}
 .stock-pending{display:flex;align-items:center;gap:8px;width:100%;margin-top:-4px;padding:9px 12px;border:1px solid var(--gold-100);border-radius:10px;background:var(--gold-50);color:var(--gold-600);font-size:12.5px;text-align:left;cursor:pointer}
 .stock-pending span{flex:1;min-width:0}.stock-pending em{font-style:normal;font-weight:600;white-space:nowrap}
 .stock-pending:hover{border-color:var(--gold-500)}
 .stock-filter{width:auto;min-width:150px;height:32px;font-size:12.5px}
 .stock-history td{vertical-align:middle}
-.stock-history td small{color:var(--muted);font-size:11px;font-family:var(--font-num)}
+.stock-history td small{color:var(--muted);font-size:12px;font-family:var(--font-num)}
 .stock-changes{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-width:220px;white-space:normal}
 .stock-change{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:6px;background:var(--line-soft);color:var(--muted);font-size:12px}
 .stock-change b{color:var(--ink);font-family:var(--font-num);font-weight:600;font-variant-numeric:tabular-nums}
@@ -296,7 +252,7 @@ button.stock-tile:hover .stock-tile-label .icon,button.stock-tile:focus-visible 
 @media(max-width:560px){.stock-card{padding:16px}.stock-field{grid-template-columns:1fr}.stock-field .stepper{justify-self:start}}
 /* Narrow windows: page titles sit above their actions instead of being squeezed beside them. */
 @media(max-width:700px){.page-content{padding:18px 16px 36px}.page-head{flex-direction:column;align-items:stretch;gap:12px}.head-actions{flex-wrap:wrap}}
-@media(max-width:1100px){.stats-grid{grid-template-columns:repeat(2,1fr)}.dashboard-grid,.bottom-grid,.setting-grid{grid-template-columns:1fr}}
+@media(max-width:1100px){.stats-grid{grid-template-columns:repeat(2,1fr)}.dashboard-grid,.bottom-grid{grid-template-columns:1fr}}
 @media(max-width:1150px){.topbar{gap:12px;padding:0 20px}.topbar .search-mini,.breadcrumb .pill,.user-text small{display:none}.top-actions{gap:8px}}
 
 /* Water details and its dedicated container account are kept together. */

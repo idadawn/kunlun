@@ -9,11 +9,11 @@
 .hero-top{display:flex;align-items:center;gap:11px;position:relative;z-index:1}
 .hero-top .gq-logo{width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.18);box-shadow:inset 0 0 0 1px rgba(255,255,255,.28)}
 .hero-top b{display:block;font-size:16px;letter-spacing:1.2px}
-.hero-top small{color:rgba(255,255,255,.82);font-size:11px;letter-spacing:.6px}
-.vip-badge{margin-left:auto;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.16);color:#fff;font-size:11px;font-weight:600;border:1px solid rgba(255,255,255,.25)}
+.hero-top small{color:rgba(255,255,255,.82);font-size:12px;letter-spacing:.6px}
+.vip-badge{margin-left:auto;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.16);color:#fff;font-size:12px;font-weight:600;border:1px solid rgba(255,255,255,.25)}
 .hero-slogan{margin-top:14px;padding:9px 12px;border-radius:12px;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:space-between;position:relative;z-index:1;font-size:12px}
 .hero-slogan b{color:#fff;letter-spacing:2px}
-.hero-slogan span{color:rgba(255,255,255,.8);font-size:11px}
+.hero-slogan span{color:rgba(255,255,255,.8);font-size:12px}
 
 .h5-body{padding:14px 16px}
 .h5-body.overlap{margin-top:-38px;position:relative;z-index:2}
@@ -28,7 +28,7 @@
 .ticket-box{padding:10px 12px;border-radius:12px;background:var(--bg);border:1px solid var(--line-soft)}
 .ticket-box .num{font-size:24px;font-weight:700;color:var(--ink);line-height:1.1}
 .ticket-box .num small{font-size:12px;font-weight:500;color:var(--muted);margin-left:3px}
-.ticket-box .label{font-size:11.5px;color:var(--muted);margin-top:3px;display:flex;justify-content:space-between}
+.ticket-box .label{font-size:12px;color:var(--muted);margin-top:3px;display:flex;justify-content:space-between}
 .ticket-box .label em{font-style:normal;color:var(--orange-500)}
 
 /* 两大下单入口 */
@@ -40,36 +40,24 @@
 .h5-order{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px 15px;margin-bottom:11px;box-shadow:var(--shadow-sm)}
 .h5-order-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .h5-order-top b{color:var(--ink);font-size:14.5px}
-.h5-order-top small{color:var(--muted);font-size:11.5px;margin-left:6px}
+.h5-order-top small{color:var(--muted);font-size:12px;margin-left:6px}
 .h5-address{display:flex;align-items:center;gap:6px;color:var(--text);font-size:12px;margin:6px 0 10px}
 .h5-address .icon{width:14px;height:14px;color:var(--brand-500)}
 .progress{height:5px;background:var(--line-soft);border-radius:999px;overflow:hidden}
 .progress i{display:block;height:100%;background:var(--grad-brand);border-radius:999px}
-.step-labels{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin-top:6px}
-.step-labels .active{color:var(--brand-600);font-weight:600}
 .h5-order-foot{display:flex;align-items:center;justify-content:space-between;margin-top:11px;padding-top:10px;border-top:1px solid var(--line-soft)}
 
 .asset-mini-grid{display:grid;grid-template-columns:repeat(3,1fr);text-align:center}
 .asset-mini-grid b{display:block;font-family:var(--font-num);font-size:19px;color:var(--ink)}
-.asset-mini-grid small{font-size:11px;color:var(--muted)}
+.asset-mini-grid small{font-size:12px;color:var(--muted)}
 
 .mobile-top{display:flex;align-items:center;justify-content:space-between;padding:10px 16px 4px}
 .mobile-top h2{margin:0;font-size:19px;color:var(--ink)}
 .choice-row{display:flex;gap:7px;margin-bottom:12px}
-.choice-pill{flex:1;height:34px;border:1px solid var(--line);background:#fff;border-radius:999px;font-size:12.5px;color:var(--muted)}
-.choice-pill.active{background:var(--brand-500);border-color:var(--brand-500);color:#fff;font-weight:600}
 
 .detail-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px;color:var(--muted)}
 .detail-row:last-child{border-bottom:0}
 .detail-row b{color:var(--ink)}
-.record-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line-soft)}
-.record-item:last-child{border-bottom:0}
-.record-icon{width:34px;height:34px;border-radius:10px;background:var(--brand-50);color:var(--brand-600);display:grid;place-items:center;flex:none}
-.record-main{flex:1}
-.record-main b{display:block;font-size:13px;color:var(--ink)}
-.record-main small{color:var(--muted);font-size:11px}
-.record-amount{text-align:right;font-family:var(--font-num);font-weight:700;color:var(--ink)}
-.record-amount small{display:block;font-weight:400;color:var(--muted);font-size:10.5px}
 
 .profile-list{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-bottom:12px}
 .profile-row{display:flex;align-items:center;gap:11px;padding:13px 15px;border-bottom:1px solid var(--line-soft);font-size:13.5px;color:var(--ink);cursor:pointer}
@@ -79,13 +67,12 @@
 .profile-row small{color:var(--muted);font-size:12px}
 
 .h5-bottom{position:absolute;left:0;right:0;bottom:0;height:64px;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-top:1px solid var(--line);display:grid;grid-auto-flow:column;grid-auto-columns:1fr;z-index:20}
-.h5-nav{border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;color:var(--muted)}
+.h5-nav{border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;color:var(--muted)}
 .h5-nav.active{color:var(--brand-600);font-weight:600}
 
-.hide{display:none!important}
 .h5-product{padding:10px 11px;background:var(--bg);border-radius:12px}
 .h5-product b{display:block;color:var(--ink);font-size:13.5px}
-.h5-product small{color:var(--muted);font-size:11.5px}
+.h5-product small{color:var(--muted);font-size:12px}
 .wallet-head .link{font-size:12px}
 .profile-row span{white-space:nowrap}
 .profile-row small{min-width:0;flex:0 1 auto;max-width:58%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
