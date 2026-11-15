@@ -32,6 +32,8 @@ export interface CurrentUser {
   phone: string;
   role: RoleCode;
   permissions: string[];
+  /** Staff only: the mobile features their role has, in workbench order (see `mobileLayout`). */
+  mobileFeatures?: string[] | null;
 }
 
 export interface MemberProfile {
@@ -456,6 +458,27 @@ export interface StaffAccount {
   username: string;
   role: Exclude<RoleCode, 'MEMBER'>;
   status: ActiveStatus;
+}
+
+/** 一个角色的手机端功能：店员、送水员的权限即这些功能所需权限的并集；管理员权限不变。 */
+export interface RoleMobileConfig {
+  role: Exclude<RoleCode, 'MEMBER'>;
+  /** Enabled feature keys in workbench order. */
+  features: string[];
+  /** What the role's accounts hold now. */
+  permissions: string[];
+  /** The role's starting features, for 恢复默认. */
+  defaults: string[];
+  /** Accounts with this role, enabled or not. */
+  staffCount: number;
+  updatedBy: string | null;
+  updatedAt: string | null;
+}
+
+export interface MobileConfigOverview {
+  /** Every feature the server knows with the permissions it grants. */
+  catalog: Array<{ key: string; permissions: string[] }>;
+  roles: RoleMobileConfig[];
 }
 
 export type InventoryAction = 'RECEIVE' | 'SCRAP';

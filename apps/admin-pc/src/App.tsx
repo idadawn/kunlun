@@ -15,6 +15,7 @@ import { Assets } from './pages/Assets';
 import { Products } from './pages/Products';
 import { Plans } from './pages/Plans';
 import { StaffAccounts } from './pages/StaffAccounts';
+import { MobileConfig } from './pages/MobileConfig';
 
 export function App() {
   return (
@@ -33,6 +34,7 @@ export function App() {
             <Route path="products" element={<Products />} />
             <Route path="plans" element={<Plans />} />
             <Route path="staff-accounts" element={<StaffAccounts />} />
+            <Route path="mobile" element={<MobileConfig />} />
             <Route path="settings" element={<Navigate to={pathFor('admin', 'settings')} replace />} />
             <Route path="deposit-settings" element={<Navigate to={pathFor('admin', 'deposit-settings')} replace />} />
             <Route path="finance" element={<Navigate to={pathFor('admin', 'finance')} replace />} />
@@ -51,7 +53,7 @@ const NAV: Array<{ label?: string; items: Array<[string, IconName]> }> = [
   { label: '财务管理', items: [['recharges', 'wallet'], ['deposits', 'deposit'], ['refunds', 'check']] },
   { label: '袋桶管理', items: [['inventory', 'box'], ['assets', 'ledger']] },
   { label: '商品管理', items: [['products', 'drop'], ['plans', 'tag']] },
-  { label: '系统设置', items: [['staff-accounts', 'shield']] },
+  { label: '系统设置', items: [['staff-accounts', 'shield'], ['mobile', 'mobile']] },
 ];
 const GROUP_OF: Record<string, string | undefined> = Object.fromEntries(NAV.flatMap(group => group.items.map(([id]) => [id, group.label])));
 const COLLAPSE_KEY = 'kunlun.sidebar.collapsed';

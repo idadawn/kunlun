@@ -1,6 +1,15 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { rememberProducts, type ContainerSummaryItem, type MemberProfile, type Paged, type WaterOrder, type WaterProduct } from '@kunlun/shared';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  KUNLUN_PERMISSIONS as P, mobileLayout, rememberProducts,
+  type ContainerSummaryItem, type MemberProfile, type OverviewReport, type Paged, type WaterOrder, type WaterProduct,
+} from '@kunlun/shared';
 import { useAuth } from '@kunlun/ui';
+
+/** The signed-in staff member's workbench: their role's features in the configured order. */
+export function useMobileLayout() {
+  const { user } = useAuth();
+  return useMemo(() => mobileLayout(user.mobileFeatures), [user.mobileFeatures]);
+}
 
 /** Members per search page; 加载更多 appends the next one. */
 const MEMBER_PAGE = 20;
@@ -13,6 +22,8 @@ interface StaffData {
   orders: WaterOrder[];
   products: WaterProduct[];
   containers: ContainerSummaryItem[];
+  /** 今日经营, when the role has it; null otherwise. */
+  overview: OverviewReport | null;
   loaded: boolean;
   error: string;
   query: string;
@@ -32,12 +43,16 @@ export function useStaffData() {
 }
 
 export function StaffDataProvider({ children }: { children: ReactNode }) {
-  const { api } = useAuth();
+  const { api, can } = useAuth();
+  const layout = useMobileLayout();
+  const readsMembers = can(P.MemberRead);
+  const readsOverview = layout.has('overview') && can(P.ReportExport);
   const [members, setMembers] = useState<MemberProfile[]>([]);
   const [memberTotal, setMemberTotal] = useState(0);
   const [orders, setOrders] = useState<WaterOrder[]>([]);
   const [products, setProducts] = useState<WaterProduct[]>([]);
   const [containers, setContainers] = useState<ContainerSummaryItem[]>([]);
+  const [overview, setOverview] = useState<OverviewReport | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
@@ -57,14 +72,20 @@ export function StaffDataProvider({ children }: { children: ReactNode }) {
     try {
       // Reload from the top but keep as many rows as were already shown, so the member being served stays in the list.
       const rows = Math.min(100, Math.max(MEMBER_PAGE, membersRef.current.length));
-      const [m, o, p, c] = await Promise.all([api.membersPage({ q: queryRef.current, pageSize: rows }), api.listOrders(), api.listProducts(), api.containerSummary()]);
+      // Only what the role may read: a courier without member lookup still sees orders and stock.
+      const [m, o, p, c, v] = await Promise.all([
+        readsMembers ? api.membersPage({ q: queryRef.current, pageSize: rows }) : Promise.resolve(null),
+        api.listOrders(), api.listProducts(), api.containerSummary(),
+        readsOverview ? api.overview() : Promise.resolve(null),
+      ]);
       rememberProducts(p);
-      showMembers(m); setOrders(o); setProducts(p); setContainers(c); setLoaded(true); setError('');
+      if (m) showMembers(m); else { setMembers([]); setMemberTotal(0); }
+      setOrders(o); setProducts(p); setContainers(c); setOverview(v); setLoaded(true); setError('');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       throw e;
     }
-  }, [api, showMembers]);
+  }, [api, showMembers, readsMembers, readsOverview]);
   useEffect(() => { refresh().catch(() => undefined); }, [refresh]);
 
   const loadMoreMembers = useCallback(async () => {
@@ -80,15 +101,16 @@ export function StaffDataProvider({ children }: { children: ReactNode }) {
   const searched = useRef(false);
   useEffect(() => {
     if (!searched.current) { searched.current = true; return; }
+    if (!readsMembers) return;
     let alive = true;
     const timer = window.setTimeout(() => {
       api.membersPage({ q: query, pageSize: MEMBER_PAGE }).then(m => alive && showMembers(m)).catch(e => alive && setError(e.message));
     }, 200);
     return () => { alive = false; window.clearTimeout(timer); };
-  }, [api, query, showMembers]);
+  }, [api, query, showMembers, readsMembers]);
 
   return (
-    <StaffDataContext.Provider value={{ members, memberTotal, loadMoreMembers, orders, products, containers, loaded, error, query, setQuery, selectedMemberId, setSelectedMemberId, refresh }}>
+    <StaffDataContext.Provider value={{ members, memberTotal, loadMoreMembers, orders, products, containers, overview, loaded, error, query, setQuery, selectedMemberId, setSelectedMemberId, refresh }}>
       {children}
     </StaffDataContext.Provider>
   );

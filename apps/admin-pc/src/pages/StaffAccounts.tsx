@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { PHONE_PATTERN, type RoleCode, type StaffAccount } from '@kunlun/shared';
-import { ConfirmDialog, CredentialsDialog, Field, FormDialog, useApi, useAuth, useDialogs, useLoader, useRun, useToast } from '@kunlun/ui';
-import { EmptyRow } from '../common';
+import { ConfirmDialog, CredentialsDialog, Field, FormDialog, Icon, useApi, useAuth, useDialogs, useLoader, useRun, useToast } from '@kunlun/ui';
+import { EmptyRow, useGo } from '../common';
 
 const ROLES: Record<string, string> = { ADMIN: '管理员', CLERK: '店员', COURIER: '送水员' };
 
@@ -12,6 +12,7 @@ export function StaffAccounts() {
   const run = useRun();
   const toast = useToast();
   const accounts = useLoader(() => api.listStaff(), [api]);
+  const go = useGo();
   const remove = (s: StaffAccount) => run(async () => {
     const deleted = await dialogs.open<boolean>(close => <ConfirmDialog title="删除员工账号" confirmLabel="确认删除" onClose={close}
       message={<>确定删除 <b>{s.name}</b>（{s.username}）吗？删除后该账号立即不能登录，已办理的业务记录仍保留其姓名。</>}
@@ -21,7 +22,10 @@ export function StaffAccounts() {
     toast(`已删除员工 ${s.name}`);
   })();
   return <>
-    <div className="page-head"><div><h2>员工账号</h2><p>管理员工账号、角色及启用状态；离职员工可停用或直接删除</p></div></div>
+    <div className="page-head">
+      <div><h2>员工账号</h2><p>管理员工账号、角色及启用状态；离职员工可停用或直接删除</p></div>
+      <div className="head-actions"><button type="button" className="btn" onClick={() => go('mobile')}><Icon name="mobile" size="sm" />各角色手机端能办理什么</button></div>
+    </div>
     <div className="table-card">
       <div className="table-toolbar"><b>员工账号与权限</b><button type="button" className="btn primary sm" onClick={() => dialogs.open(close => <NewStaffDialog onClose={close} onDone={accounts.reload} />)}>添加员工</button></div>
       <table>

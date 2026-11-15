@@ -1,48 +1,4 @@
-/* Staff workbench H5 styles. */
-.h5-scroll{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:76px}
-.h5-page{display:none}.h5-page.active{display:block}
-.h5-hero{background:var(--grad-card);color:#fff;padding:12px 18px 46px;border-radius:0 0 26px 26px;position:relative;overflow:hidden}
-.h5-hero:after{content:"";position:absolute;right:-40px;top:-40px;width:170px;height:170px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.16),transparent 70%)}
-.h5-status{display:flex;align-items:center;justify-content:space-between;position:relative;z-index:1}
-.h5-greeting small{display:block;color:rgba(255,255,255,.8);font-size:12px;letter-spacing:.8px}
-.h5-greeting h2{margin:3px 0 0;font-size:20px;letter-spacing:.5px}
-.hero-bell{border:0;background:rgba(255,255,255,.15);color:#fff;width:36px;height:36px;border-radius:10px;display:grid;place-items:center;position:relative}
-.hero-bell .dot{position:absolute;right:7px;top:7px;width:6px;height:6px;border-radius:50%;background:var(--orange-500)}
-.shift-card{margin-top:12px;display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:10px;background:rgba(255,255,255,.14);font-size:12px;color:#fff;position:relative;z-index:1}
-.shift-card em{font-style:normal;color:var(--brand-100);font-weight:600;letter-spacing:1px}
-
-.h5-body{padding:14px 16px}
-.h5-body.overlap{margin-top:-32px;position:relative;z-index:2}
-.h5-card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px 15px;margin-bottom:12px;box-shadow:var(--shadow-sm)}
-.work-numbers{display:grid;grid-template-columns:repeat(3,1fr);text-align:center}
-.work-number b{display:block;font-family:var(--font-num);font-size:22px;color:var(--ink)}
-.work-number small{color:var(--muted);font-size:12px}
-
-.h5-section-head{display:flex;align-items:center;justify-content:space-between;margin:14px 2px 8px}
-.h5-section-head h3{margin:0;font-size:14.5px;color:var(--ink)}
-.h5-section-head a,.h5-section-head span{font-size:12px;color:var(--muted)}
-
-.quick-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.quick-item{border:1px solid var(--line-soft);background:var(--bg);border-radius:13px;padding:12px 6px;display:flex;flex-direction:column;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--ink);transition:.15s}
-.quick-item:active{transform:scale(.97);background:var(--brand-50)}
-.quick-icon{width:42px;height:42px;border-radius:12px;background:var(--brand-50);color:var(--brand-600);display:grid;place-items:center}
-.quick-icon.aqua{background:var(--aqua-50);color:var(--aqua-600)}
-.quick-icon.gold{background:var(--gold-50);color:var(--gold-600)}
-.quick-icon.orange{background:var(--orange-50);color:var(--orange-500)}
-.quick-icon.violet{background:var(--violet-50);color:var(--violet-500)}
-
-.h5-order{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px 15px;margin-bottom:11px;box-shadow:var(--shadow-sm)}
-.h5-order-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-.h5-order-top b{color:var(--ink);font-size:14.5px}
-.h5-order-top small{color:var(--muted);font-size:12px;margin-left:8px}
-.h5-product{display:flex;align-items:center;gap:11px;padding:10px 11px;background:var(--bg);border-radius:12px}
-.h5-product b{display:block;color:var(--ink);font-size:13.5px}
-.h5-product small{color:var(--muted);font-size:12px}
-.h5-address{display:flex;align-items:center;gap:6px;color:var(--text);font-size:12.5px;margin-top:9px}
-.h5-address .icon{width:15px;height:15px;color:var(--brand-500)}
-.h5-order-foot{display:flex;align-items:center;justify-content:space-between;margin-top:11px;padding-top:10px;border-top:1px solid var(--line-soft)}
-.h5-order-foot small{color:var(--muted);font-size:12px;font-family:var(--font-num)}
-
+/* Staff workbench H5 pages. The workbench home, order cards and tab bar come from @kunlun/ui/src/workbench.css. */
 .mobile-top{display:flex;align-items:center;justify-content:space-between;padding:10px 16px 4px}
 .mobile-top h2{margin:0;font-size:19px;color:var(--ink)}
 .choice-row{display:flex;gap:7px}
@@ -76,10 +32,6 @@
 .profile-row span{flex:1}
 .profile-row small{color:var(--muted);font-size:12px}
 
-.h5-bottom{position:absolute;left:0;right:0;bottom:0;height:64px;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-top:1px solid var(--line);display:grid;grid-auto-flow:column;grid-auto-columns:1fr;z-index:20}
-.h5-nav{border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;color:var(--muted)}
-.h5-nav.active{color:var(--brand-600);font-weight:600}
-
 /* Phone internal bottom sheet */
 .sheet-mask{position:absolute;inset:0;background:var(--backdrop);z-index:40;display:none;align-items:flex-end}
 .sheet-mask.open{display:flex}
@@ -91,4 +43,23 @@
 .sheet-foot{display:flex;gap:10px;padding:12px 18px 18px;border-top:1px solid var(--line)}
 .sheet-foot .btn{flex:1;height:42px}
 
-.h5-scroll .cart-bar{bottom:74px}
+
+/* 袋桶库存（手机端）：每种桶袋一张卡片，三个数可点开修改 */
+.stock-lead{margin:0 2px 10px}
+.m-stock header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.m-stock header>div{flex:1;min-width:0}
+.m-stock header b{display:block;color:var(--ink);font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.m-stock header small{color:var(--muted);font-size:12px}
+.m-stock header .quick-icon{width:36px;height:36px;border-radius:10px}
+.m-stock.low{border-color:var(--orange-200)}
+.m-stock-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.m-stock-tile{display:flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:0;padding:9px 10px;border:1px solid var(--line-soft);border-radius:12px;background:var(--bg);text-align:left;color:var(--text)}
+.m-stock-tile small{font-size:12px;color:var(--muted)}
+.m-stock-tile b{font-family:var(--font-num);font-size:22px;color:var(--ink);line-height:1.2}
+.m-stock-tile em{font-style:normal;font-size:12px;color:var(--faint);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.m-stock-tile.warn{background:var(--orange-50);border-color:var(--orange-200)}
+.m-stock-tile.warn b{color:var(--orange-600)}
+button.m-stock-tile:active{transform:scale(.98);background:var(--brand-50)}
+.m-stock footer{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line-soft);font-size:12.5px;color:var(--muted)}
+.m-stock footer b{font-family:var(--font-num);color:var(--ink);font-size:15px}
+.profile-features{display:flex;flex-wrap:wrap;gap:6px}

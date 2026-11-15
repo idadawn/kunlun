@@ -35,14 +35,18 @@ public static class AuthEndpoints
             if (string.IsNullOrWhiteSpace(req.Name) || req.Name.Length > 64 || !Regex.IsMatch(req.Phone ?? "", @"^1\d{10}$") || !ValidUsername(req.Username) || !ValidPassword(req.Password) || req.Role is not ("ADMIN" or "CLERK" or "COURIER"))
                 return Results.BadRequest(new { error = "请填写有效姓名、手机号、用户名、8–128 位密码和角色" });
             var id = Guid.NewGuid();
-            var permissions = req.Role == "ADMIN" ? KunlunPermissions.AdminAll : req.Role == "CLERK" ? KunlunPermissions.ClerkDefault : KunlunPermissions.CourierDefault;
             await using var conn = await db.OpenConnectionAsync(ct);
-            await using var cmd = new NpgsqlCommand("INSERT INTO plugin_kunlun_waterstation.staff(id,tenant_id,staff_no,name,phone,username,password_hash,role,permissions) VALUES(@id,@tid,@no,@name,@phone,@username,@hash,@role,@perms::jsonb)", conn);
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            await MobileFeatures.LockRoles(conn, tx, repo.DefaultTenantId, ct);
+            // A new account holds what its role's mobile features grant (everything for an administrator).
+            var permissions = MobileFeatures.PermissionsFor(req.Role, await MobileFeatures.ForRole(conn, tx, repo.DefaultTenantId, req.Role, ct));
+            await using var cmd = new NpgsqlCommand("INSERT INTO plugin_kunlun_waterstation.staff(id,tenant_id,staff_no,name,phone,username,password_hash,role,permissions) VALUES(@id,@tid,@no,@name,@phone,@username,@hash,@role,@perms::jsonb)", conn, tx);
             cmd.Parameters.AddWithValue("id", id); cmd.Parameters.AddWithValue("tid", repo.DefaultTenantId); cmd.Parameters.AddWithValue("no", "YG" + id.ToString("N")[..12]);
             cmd.Parameters.AddWithValue("name", req.Name.Trim()); cmd.Parameters.AddWithValue("phone", req.Phone!); cmd.Parameters.AddWithValue("username", req.Username.Trim().ToLowerInvariant());
             cmd.Parameters.AddWithValue("hash", PasswordHasher.Hash(req.Password)); cmd.Parameters.AddWithValue("role", req.Role); cmd.Parameters.AddWithValue("perms", JsonSerializer.Serialize(permissions));
             try { await cmd.ExecuteNonQueryAsync(ct); }
             catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation) { return Results.Conflict(new { error = "用户名或手机号已被使用" }); }
+            await tx.CommitAsync(ct);
             return Results.Ok(new { id });
         }).RequireAuthorization();
 

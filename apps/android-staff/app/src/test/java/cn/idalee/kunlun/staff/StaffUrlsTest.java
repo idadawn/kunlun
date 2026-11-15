@@ -8,6 +8,7 @@ public final class StaffUrlsTest {
 
     @Test public void staffPagesAndChunksLoadFromApkWhileApiUsesServer() {
         assertEquals("www/index.html", urls.asset("http://127.0.0.1:5188/staff/orders?q=1"));
+        assertEquals("www/index.html", urls.asset("http://127.0.0.1:5188/staff/inventory"));
         assertEquals("www/static/h5/index-Ab12.js", urls.asset("http://127.0.0.1:5188/static/h5/index-Ab12.js"));
         assertNull(urls.asset("http://127.0.0.1:5188/api/auth/staff/login"));
         assertTrue(urls.api("http://127.0.0.1:5188/api/auth/staff/login"));

@@ -54,15 +54,25 @@ builder.Services
                 if (subjectType is not ("STAFF" or "MEMBER") || !Guid.TryParse(sub, out var id)
                     || !Guid.TryParse(tenant, out var tenantId) || !int.TryParse(verStr, out var version))
                 { ctx.Fail("登录凭证无效"); return; }
-                var table = subjectType == "STAFF" ? "staff" : "members";
+                var staff = subjectType == "STAFF";
+                var table = staff ? "staff" : "members";
                 var ds = ctx.HttpContext.RequestServices.GetRequiredService<NpgsqlDataSource>();
                 await using var conn = await ds.OpenConnectionAsync(ctx.HttpContext.RequestAborted);
-                await using var cmd = new NpgsqlCommand($"SELECT status, token_version FROM plugin_kunlun_waterstation.{table} WHERE id = @id AND tenant_id = @tid", conn);
+                await using var cmd = new NpgsqlCommand($"SELECT status, token_version, {(staff ? "permissions::text" : "'[]'")} FROM plugin_kunlun_waterstation.{table} WHERE id = @id AND tenant_id = @tid", conn);
                 cmd.Parameters.AddWithValue("id", id);
                 cmd.Parameters.AddWithValue("tid", tenantId);
                 await using var reader = await cmd.ExecuteReaderAsync(ctx.HttpContext.RequestAborted);
                 if (!await reader.ReadAsync(ctx.HttpContext.RequestAborted) || reader.GetString(0) != "ACTIVE" || reader.GetInt32(1) != version)
+                {
                     ctx.Fail("登录已失效，请重新登录");
+                    return;
+                }
+                // Staff act with the permissions they hold now, so turning a mobile feature off takes effect on the next request.
+                if (staff && ctx.Principal?.Identity is ClaimsIdentity identity)
+                {
+                    foreach (var claim in identity.FindAll("perm").ToList()) identity.RemoveClaim(claim);
+                    foreach (var perm in JsonSerializer.Deserialize<string[]>(reader.GetString(2)) ?? []) identity.AddClaim(new Claim("perm", perm));
+                }
             }
         };
     });
@@ -100,6 +110,7 @@ using (var scope = app.Services.CreateScope())
     await repo.EnsureSchemaAndSeedAsync();
     var finRepo = scope.ServiceProvider.GetRequiredService<KunlunFinanceRepository>();
     await finRepo.EnsureFinanceSchemaAndSeedAsync();
+    await MobileFeatures.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>(), repo.DefaultTenantId);
     var ordRepo = scope.ServiceProvider.GetRequiredService<KunlunOrderRepository>();
     await ordRepo.EnsureOrderSchemaAsync();
     await TicketBatches.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>(), repo.DefaultTenantId);
@@ -131,8 +142,8 @@ app.MapGet("/healthz", async (NpgsqlDataSource ds) =>
 
 app.MapAuthEndpoints();
 
-// 3. 当前登录身份与权限自检
-app.MapGet("/api/auth/me", (ClaimsPrincipal user) =>
+// 3. 当前登录身份与权限自检；员工另带角色开通的手机端功能（工作台顺序）
+app.MapGet("/api/auth/me", async (ClaimsPrincipal user, NpgsqlDataSource ds, CancellationToken ct) =>
 {
     var sub = user.FindFirstValue(JwtRegisteredClaimNames.Sub);
     var subjectType = user.FindFirstValue("subject_type");
@@ -141,7 +152,13 @@ app.MapGet("/api/auth/me", (ClaimsPrincipal user) =>
     var phone = user.FindFirstValue("phone");
     var role = user.FindFirstValue("role");
     var perms = user.FindAll("perm").Select(c => c.Value).ToArray();
-    return Results.Ok(new { sub, subjectId = sub, subjectType, displayName, codeOrNo, phone, role, permissions = perms });
+    string[]? mobileFeatures = null;
+    if (subjectType == "STAFF" && role is not null)
+    {
+        await using var conn = await ds.OpenConnectionAsync(ct);
+        mobileFeatures = await MobileFeatures.ForRole(conn, null, Guid.Parse(user.FindFirstValue("tenant_id")!), role, ct);
+    }
+    return Results.Ok(new { sub, subjectId = sub, subjectType, displayName, codeOrNo, phone, role, permissions = perms, mobileFeatures });
 }).RequireAuthorization();
 
 // 4. 会员端本人资产查询（强制服务端按当前登录会员过滤，或者员工拥有 member:read 权限）
@@ -226,6 +243,7 @@ app.MapPatch("/api/staff/{staffId:guid}/status", async (
     return Results.Ok(new { id = staffId, status = req.Status });
 }).RequireAuthorization();
 
+app.MapMobileFeatures();
 app.MapFinanceEndpoints();
 app.MapContainerInventory();
 app.MapContainerCirculation();

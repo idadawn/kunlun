@@ -342,3 +342,26 @@ a{color:var(--brand-600);text-decoration:none}
 .counter-search>.btn{align-self:flex-start}
 .membership-dialog.counter-order-dialog{width:min(560px,96vw);background:var(--bg)}
 .member-picker{display:flex;flex-direction:column;gap:6px;width:100%}.member-picker .input,.member-picker .select{width:100%}.member-picker small{font-size:12px}
+
+/* 袋桶库存弹窗：新购、报废、修改数量（管理端与员工手机端共用） */
+.stock-dialog{width:min(580px,94vw)}
+.stock-dialog-lead{margin:-8px 0 2px;color:var(--muted);font-size:13px}
+.stock-field{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px 16px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:#fff;transition:border-color .15s,background .15s}
+.stock-field.changed{border-color:var(--brand-300);background:var(--brand-50)}
+.stock-field-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.stock-field-main label{font-size:14px;font-weight:600;color:var(--ink)}
+.stock-field-main small{font-size:12px;color:var(--muted)}
+.stock-field-main small b{color:var(--brand-700)}
+.stock-field .stepper{gap:8px}
+.stock-field .stepper button{width:34px;height:34px;font-size:19px}
+.stock-field .stepper-input{width:92px;height:40px;font-size:19px;font-family:var(--font-num);border-radius:10px}
+.stock-field-hint{grid-column:1/-1;margin:2px 0 0;color:var(--muted);font-size:12px;line-height:1.6}
+.stock-field-hint .warn{color:var(--orange-500)}
+.stock-dialog-more{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 14px;border-radius:12px;background:var(--bg);color:var(--text);font-size:13px}
+.stock-dialog-more label{font-size:13px!important;font-weight:500!important}
+.stock-dialog-more .input{width:84px;height:34px;text-align:center;font-family:var(--font-num)}
+.stock-dialog footer{align-items:center;gap:10px}
+.stock-dialog-total{margin-right:auto;color:var(--muted);font-size:13px}
+.stock-dialog-total b{font-family:var(--font-num);font-size:18px;color:var(--ink)}
+.stock-dialog-total s{color:var(--faint)}
+@media(max-width:560px){.stock-field{grid-template-columns:1fr}.stock-field .stepper{justify-self:start}}
