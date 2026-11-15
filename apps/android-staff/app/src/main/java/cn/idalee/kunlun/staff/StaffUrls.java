@@ -7,7 +7,7 @@ import java.util.Set;
 
 /** Local assets share the API origin; only staff routes and the configured server are allowed. */
 final class StaffUrls {
-    private static final Set<String> PAGES = new HashSet<>(Arrays.asList("/staff", "/staff/home", "/staff/order", "/staff/orders", "/staff/members", "/staff/profile"));
+    private static final Set<String> PAGES = new HashSet<>(Arrays.asList("/staff", "/staff/home", "/staff/order", "/staff/orders", "/staff/members", "/staff/inventory", "/staff/profile"));
     private final URI origin;
 
     StaffUrls(String origin) { this.origin = URI.create(origin); }

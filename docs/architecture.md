@@ -67,6 +67,8 @@ kunlun/
 | `CLERK` | 驻店店员 | 含送水员全部权限 + `member:write`、`recharge:create`、`order:create`、`pickup:verify`、`container:register`、`deposit:refund_apply` |
 | `ADMIN` | 站长/管理员 | `kunlun.waterstation:*`（含 `deposit:refund_approve`、`order:correct`、`plan:manage`、`report:export`、`staff:manage`） |
 
+店员、送水员的实际权限由「移动端配置」按角色开通的手机端功能决定（见第 7 节），上表为默认开通时的权限；送水员默认另含 `pickup:verify`、`container:register`（原本即可通过 `order:fulfill` 核销自提、登记领还）。
+
 ---
 
 ## 3. 四账分离数据库设计（PostgreSQL 16）
@@ -179,6 +181,28 @@ kunlun/
 - 流水接口：`/api/ledgers/recharges` 增加 `giftReview`（赠送审核状态、张数、审核人、备注），`/api/ledgers/recharge-refunds` 与 `/api/ledgers/deposits` 增加 `applicantName`，押金流水另带 `reason`（退款或报废原因）。
 
 报废扣押可选免扣：`POST /api/containers/damages/{id}/scrap` 的 `deductDeposit=false` 时只释放押金批次的 `reserved_damage_qty`，不减少批次剩余、不扣会员押金；`container_damages.deposit_waived` 标记，周转流水业务类型为 `SCRAP_WAIVED`、扣押金额 0。财务汇总、押金流水和导出中的扣押统计排除免扣记录，剩余押金 = 累计收押 − 累计退押 − 累计报废扣押 仍成立。
+
+## 7. 员工手机端功能与角色权限（2026-11-16）
+
+功能目录有两份对照：`services/Kunlun.WaterStation/Auth/MobileFeatures.cs` 的 `Catalog`（功能 → 授予的权限码，服务端以它为准）与 `packages/shared/src/mobile.ts` 的 `MOBILE_FEATURES`（名称、图标、说明、所在页面）。`scripts/mobile-features.test.mjs` 比对两边的功能顺序与权限，防止漂移。
+
+| 功能 | 授予权限（店员/送水员） |
+| --- | --- |
+| `order` 门店点单 | `member:read`、`order:create`、`order:fulfill`、`deposit:collect` |
+| `orders` 水单履约 | `member:read`、`order:accept`、`order:fulfill`、`deposit:collect` |
+| `pickup` 自提核销 | `pickup:verify`、`order:fulfill` |
+| `members` 会员查询 | `member:read` |
+| `newMember` 新建会员 | `member:read`、`member:write` |
+| `recharge` 水费充值 | `member:read`、`recharge:create` |
+| `depositCollect` 收押金 / `depositRefund` 退押金 | `member:read` + `deposit:collect` / `deposit:refund_apply` |
+| `movement` 登记领还 | `member:read`、`container:register` |
+| `inventory` 袋桶库存（高风险） | `container:inventory_manage` |
+| `overview` 今日经营（高风险） | `report:export` |
+
+- `role_mobile_configs(tenant_id, role, features JSONB, updated_by, updated_at)` 保存每个角色已开通的功能（有序，即工作台顺序）。首次启动按默认功能插入，并把店员、送水员的 `staff.permissions` 设为对应权限并集；之后重复启动不覆盖。
+- `GET /api/mobile/roles`（需 `staff:manage`）：功能目录及各角色的功能、当前权限、默认功能、员工人数、上次保存人和时间。`PUT /api/mobile/roles/{role}` 保存 `{ features }`：只接受目录中的功能且不得重复；店员、送水员在同一事务里改写该角色全部员工的 `permissions`，管理员始终为全部权限；写 `auth_audit_logs`（`MOBILE_FEATURES`）。保存与新建员工（`POST /api/staff`，按角色当前功能取权限）共用一把事务级咨询锁。
+- JWT 校验（`OnTokenValidated`）在核对状态和 `token_version` 的同一查询里读出员工当前 `permissions`，替换令牌中的 `perm` 声明，所以收回或授予功能在下一次请求即生效，无需重新登录或递增令牌版本。`GET /api/auth/me` 对员工另返回 `mobileFeatures`。
+- 前端 `mobileLayout(features)` 是员工端与管理端预览共用的布局规则：前 `MOBILE_TAB_LIMIT`（3）个有独立页面的功能进入底部导航，其余非卡片功能为首页快捷入口。`@kunlun/ui` 的 `WorkbenchHome`、`WorkbenchTabBar`、`OrderCard` 与 `workbench.css`（由使用方显式引入，会员端不加载）同时用于员工端 `/staff` 和管理端 `/admin/mobile` 的手机框；袋桶库存的「新购 / 报废 / 修改数量」弹窗（`StockQuickDialog`、`StockEditDialog`）也移入 `@kunlun/ui`，管理端库存页与员工端 `/staff/inventory` 共用。员工端切换页面时重新读取 `me`，功能变化即时反映到导航和首页。
 
 ## 独立测试服务（2026-10-30，2026-11-01 更新）
 

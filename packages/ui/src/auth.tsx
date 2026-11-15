@@ -11,6 +11,8 @@ export interface AuthContextValue {
   logout(): Promise<void>;
   /** Clears the local session after the server has revoked it (e.g. after a password change). */
   endSession(): void;
+  /** Re-reads the account from the server, picking up permission and mobile-feature changes. */
+  refreshUser(): Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -67,17 +69,25 @@ export function AuthGate({ area, apiBaseUrl = '', loginFooter, children }: { are
     } catch (e) { api.token = null; throw e; }
   };
 
+  const refreshUser = useCallback(async () => {
+    const me = await api.me();
+    assertArea(area, me);
+    // Keep the same object while nothing changed, so screens depending on the account do not reload for nothing.
+    setUser(current => current && JSON.stringify(current) === JSON.stringify(me) ? current : me);
+  }, [api, area]);
+
   const value = useMemo<AuthContextValue | null>(() => user && {
     api,
     user,
     can: permission => user.subjectType === 'STAFF' && user.permissions.includes(permission),
     endSession,
+    refreshUser,
     logout: async () => {
       try { await api.logout(); }
       catch (e) { if (api.token) { toast('退出失败，请重试：' + (e instanceof Error ? e.message : e)); return; } }
       endSession();
     },
-  }, [api, endSession, toast, user]);
+  }, [api, endSession, refreshUser, toast, user]);
 
   if (restoring) return <div className="login-gate" aria-busy="true"><p className="membership-note">正在恢复登录状态…</p></div>;
   if (!value) return <LoginPage area={area} onLogin={login} footer={loginFooter} />;

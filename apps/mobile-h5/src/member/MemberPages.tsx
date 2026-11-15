@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom';
 import { KUNLUN_BRAND, containerLabel, modeLabel, money, pathFor, type MemberProfile, type WaterOrder } from '@kunlun/shared';
-import { BatchCards, ChangePasswordDialog, Icon, Logo, useAuth, useDialogs, useLoader } from '@kunlun/ui';
-import { OrderCard } from '../shared/OrderCard';
+import { BatchCards, ChangePasswordDialog, Icon, Logo, OrderCard, useAuth, useDialogs, useLoader } from '@kunlun/ui';
 import { Loading } from '../shared/H5Shell';
 import { useMemberData } from './data';
 

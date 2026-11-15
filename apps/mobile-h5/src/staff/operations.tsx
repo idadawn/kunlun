@@ -1,10 +1,10 @@
 import { useNavigate } from 'react-router-dom';
-import { KUNLUN_PERMISSIONS as P, money, pathFor, ticketGroups, type MemberProfile, type WaterOrder } from '@kunlun/shared';
+import { KUNLUN_PERMISSIONS as P, money, pathFor, ticketGroups, type MemberProfile, type MobileFeatureKey, type WaterOrder } from '@kunlun/shared';
 import {
   AddressBook, CredentialsDialog, DepositDialog, Dialog, FulfillDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog,
   RechargeDialog, useAuth, useDialogs, useRun, useToast, type DepositAction,
 } from '@kunlun/ui';
-import { useStaffData } from './data';
+import { useMobileLayout, useStaffData } from './data';
 
 /** Opens the shared staff operation dialogs, preselecting the member last opened from the list, and refreshes afterwards. */
 export function useStaffOperations() {
@@ -56,40 +56,51 @@ export function useStaffOperations() {
       void dialogs.open(close => <MemberDetailDialog member={member} onClose={close} />);
     },
   };
-  return ops;
+  /** Opens a workbench shortcut that works in a dialog; features with a page navigate instead. */
+  const open = (key: MobileFeatureKey) => {
+    const action: Partial<Record<MobileFeatureKey, () => void>> = {
+      recharge: ops.recharge, depositCollect: ops.collectDeposit, depositRefund: ops.refundDeposit,
+      pickup: ops.pickup, movement: ops.container, newMember: ops.newMember,
+    };
+    action[key]?.();
+  };
+  return { ...ops, open };
 }
 
+/** One member's tickets, deposit and addresses, with the businesses this role has on the phone. */
 function MemberDetailDialog({ member, onClose }: { member: MemberProfile; onClose: () => void }) {
   const { refresh, setSelectedMemberId } = useStaffData();
   const { can } = useAuth();
+  const layout = useMobileLayout();
   const ops = useStaffOperations();
   const navigate = useNavigate();
   const order = () => { setSelectedMemberId(member.id); onClose(); navigate(pathFor('staff', 'order')); };
+  const depositActions = layout.has('depositCollect') || layout.has('depositRefund');
   return (
     <Dialog title={`${member.name} · 会员办理`} description={`${member.phone} · ${member.memberNo}`} onClose={onClose}>
       <div className="member-ledgers">
         <section>
-          <header><b>水票</b><button type="button" className="link" onClick={() => ops.assets(member)}>批次 / 退款 ›</button></header>
+          <header><b>水票</b><button type="button" className="link" onClick={() => ops.assets(member)}>批次{layout.has('recharge') ? ' / 退款' : ''} ›</button></header>
           {member.tickets.length === 0 && <p>暂无水票</p>}
           {ticketGroups(member.tickets).map(g => (
             <p key={g.waterType}>{g.name}<br /><b>自提 {g.pickup} · 配送 {g.delivery}</b> {g.unit}{g.reserved > 0 ? `（预占 ${g.reserved}）` : ''}</p>
           ))}
-          <div className="member-ledger-actions"><button type="button" className="btn primary sm" onClick={ops.recharge}>水费充值</button></div>
+          {layout.has('recharge') && <div className="member-ledger-actions"><button type="button" className="btn primary sm" onClick={ops.recharge}>水费充值</button></div>}
         </section>
         <section className="deposit">
           <header><b>押金</b><small>独立记账</small></header>
           <p>在池押金 <b>¥{money(member.depositAmount)}</b></p>
           <p>持有桶/袋 <b>{member.heldBuckets}/{member.heldBags}</b></p>
-          <div className="member-ledger-actions">
-            <button type="button" className="btn sm" onClick={ops.collectDeposit}>收押金</button>
-            <button type="button" className="btn sm" onClick={ops.refundDeposit}>退押金</button>
-          </div>
+          {depositActions && <div className="member-ledger-actions">
+            {layout.has('depositCollect') && <button type="button" className="btn sm" onClick={ops.collectDeposit}>收押金</button>}
+            {layout.has('depositRefund') && <button type="button" className="btn sm" onClick={ops.refundDeposit}>退押金</button>}
+          </div>}
         </section>
       </div>
-      <div className="membership-actions" style={{ margin: '12px 0 14px' }}>
-        {can(P.OrderCreate) && <button type="button" className="btn sm" onClick={order}>点单</button>}
-        <button type="button" className="btn sm" onClick={ops.container}>登记领还</button>
-      </div>
+      {(layout.has('order') || layout.has('movement')) && <div className="membership-actions" style={{ margin: '12px 0 14px' }}>
+        {layout.has('order') && can(P.OrderCreate) && <button type="button" className="btn sm" onClick={order}>点单</button>}
+        {layout.has('movement') && <button type="button" className="btn sm" onClick={ops.container}>登记领还</button>}
+      </div>}
       <AddressBook owner={member} onChanged={refresh} compact />
     </Dialog>
   );

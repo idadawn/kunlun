@@ -24,6 +24,7 @@ import type {
   MemberAddress,
   MemberProfile,
   MemberQuery,
+  MobileConfigOverview,
   OrderQuery,
   OverviewReport,
   Paged,
@@ -37,6 +38,7 @@ import type {
   RefundRequestStatus,
   RechargePlan,
   ReviewSettings,
+  RoleMobileConfig,
   RoleCode,
   SaveMemberAddressRequest,
   SaveWaterProductRequest,
@@ -142,6 +144,12 @@ export class KunlunApi {
     return this.request<{ id: string; status: ActiveStatus }>(`/api/staff/${id}/status`, { method: 'PATCH', ...json({ status }) });
   }
   deleteStaff(id: string) { return this.request<{ id: string; deleted: boolean }>(`/api/staff/${id}`, { method: 'DELETE' }); }
+  /** Each role's mobile features; administrators only. */
+  mobileRoles() { return this.request<MobileConfigOverview>('/api/mobile/roles'); }
+  /** Saves a role's features in workbench order; for clerks and couriers this also sets every such account's permissions. */
+  saveMobileRole(role: Exclude<RoleCode, 'MEMBER'>, features: string[]) {
+    return this.put<RoleMobileConfig>(`/api/mobile/roles/${role}`, { features });
+  }
 
   // Members & address books
   /** The newest 50 matches, for pickers; tables use `membersPage`. */
