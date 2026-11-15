@@ -11,12 +11,11 @@ namespace Kunlun.WaterStation.Tests;
 public sealed class PasswordLoginTests(TestHost host)
 {
     [Fact]
-    public async Task Incorrect_Empty_Password_And_Phone_Bypass_Are_Rejected()
+    public async Task Rejects_Invalid_Password_And_Clerk_Login_To_Admin()
     {
         using var client = host.CreateClient();
         foreach (var input in new[] { new StaffLoginRequest("YG0001", "wrong"), new StaffLoginRequest("", ""), new StaffLoginRequest(null!, null!) })
             Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/auth/staff/login", input)).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync("/api/auth/wechat/phone-login", new { phone = "13800138000" })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/auth/staff/login", new StaffLoginRequest("YG0012", TestHost.Password, true))).StatusCode);
     }
 

@@ -49,4 +49,4 @@ ssh al 'cd /opt/kunlun-test && docker compose ps'
 curl -fsS https://kunlun-test.idalee.cn/healthz
 ```
 
-回退时只修改测试目录 `.env` 的 `RELEASE_DIR` 到先前版本并 `up -d --wait`。不执行 `down -v`，不接触 `/opt/kunlun` 的生产数据库。测试环境清理须另行确认，不随代码部署删除测试数据。
+回退时将测试目录 `.env` 的 `RELEASE_DIR` 改为先前版本，恢复与其匹配的 `compose.yaml` 后运行 `up -d --wait`。不执行 `down -v`，不接触 `/opt/kunlun` 的生产数据库。测试环境清理须另行确认，不随代码部署删除测试数据。

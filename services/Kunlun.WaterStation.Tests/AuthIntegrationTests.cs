@@ -64,7 +64,7 @@ public sealed class AuthIntegrationTests(TestHost factory)
     [Fact]
     public async Task Courier_Without_StaffManage_Should_Be_Blocked_AC16_And_Disabled_Staff_Token_Revoked()
     {
-        // 送水员王师傅 (13800000008) 微信手机号一键登录
+        // 送水员王师傅 (13800000008) 使用员工账号登录
         var courierResp = await _client.PostAsJsonAsync("/api/auth/staff/login",
             new StaffLoginRequest("YG0008", TestHost.Password));
         var courier = await courierResp.Content.ReadFromJsonAsync<AuthTokenResponse>();

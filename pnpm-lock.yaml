@@ -49,7 +49,7 @@ importers:
         specifier: ^6.0.3
         version: 6.4.5
 
-  apps/mini-app:
+  apps/mobile-h5:
     dependencies:
       '@kunlun/shared':
         specifier: workspace:*

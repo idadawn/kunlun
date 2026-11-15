@@ -11,7 +11,7 @@ import {pageCount,pageWindow} from '../packages/shared/src/paging.ts';
 import {dateFilterFrom} from '../packages/shared/src/format.ts';
 import {KunlunApi} from '../packages/shared/src/api.ts';
 const root=fileURLToPath(new URL('..',import.meta.url));
-const APPS={'admin-pc':['admin'],'mini-app':['member','staff']};
+const APPS={'admin-pc':['admin'],'mobile-h5':['member','staff']};
 const allPaths=area=>[`/${area}`,...WEB_ROUTES[area].pages.map(p=>`/${area}/${p}`),...Object.keys(WEB_ROUTES[area].aliases||{}).map(p=>`/${area}/${p}`)];
 
 test('clean URLs resolve pages and aliases; .html and hash links are not routes',()=>{
