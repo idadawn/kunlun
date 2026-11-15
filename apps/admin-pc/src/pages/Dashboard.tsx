@@ -132,30 +132,38 @@ function AssetLine({ label, c, aqua = false }: { label: string; c: ContainerSumm
   </>;
 }
 
+/** Rounds an axis top up so the three gridlines land on whole, round steps (1, 2 or 5 × 10ⁿ apart). */
+function axisMax(values: number[]) {
+  const step = Math.max(0, ...values) / 3;
+  if (step <= 1) return 3;
+  const power = 10 ** Math.floor(Math.log10(step));
+  return [1, 2, 5, 10].map(n => n * power).find(n => n >= step)! * 3;
+}
+
 function TrendChart({ overview }: { overview: OverviewReport | null }) {
   if (!overview) return <svg className="chart" viewBox="0 0 700 210" preserveAspectRatio="none"><text x="300" y="100">需要报表权限查看趋势</text></svg>;
   const points = overview.trend;
-  const cashMax = Math.max(1, ...points.map(p => Number(p.rechargeAmount)));
-  const qtyMax = Math.max(1, ...points.map(p => Number(p.waterQty)));
+  const cashMax = axisMax(points.map(p => Number(p.rechargeAmount)));
+  const qtyMax = axisMax(points.map(p => Number(p.waterQty)));
   return (
     <svg className="chart" viewBox="0 0 700 210" preserveAspectRatio="none" role="img" aria-label="近七日实际水费收款与核销水量">
       {Array.from({ length: 4 }, (_, i) => (
         <g key={i}>
           <line className="gridline" x1="45" x2="650" y1={20 + i * 45} y2={20 + i * 45} />
-          <text x="2" y={24 + i * 45}>{Math.round(cashMax * (3 - i) / 3)}</text>
-          <text x="658" y={24 + i * 45}>{Math.round(qtyMax * (3 - i) / 3)}</text>
+          <text x="2" y={24 + i * 45}>{cashMax * (3 - i) / 3}</text>
+          <text x="658" y={24 + i * 45}>{qtyMax * (3 - i) / 3}</text>
         </g>
       ))}
       {points.map((p, i) => {
         const h = Number(p.waterQty) / qtyMax * 135;
         return (
           <g key={p.date}>
-            <rect x={45 + i * 95} y={155 - h} width="22" height={h} fill="#7fd3a8" opacity=".4" />
+            <rect className="bar" x={45 + i * 95} y={155 - h} width="22" height={h} />
             <text x={55 + i * 95} y="185" textAnchor="middle">{p.date.slice(5).replace('-', '/')}</text>
           </g>
         );
       })}
-      <polyline points={points.map((p, i) => `${55 + i * 95},${155 - Number(p.rechargeAmount) / cashMax * 135}`).join(' ')} fill="none" stroke="#12925f" strokeWidth="3" />
+      <polyline points={points.map((p, i) => `${55 + i * 95},${155 - Number(p.rechargeAmount) / cashMax * 135}`).join(' ')} className="line" />
     </svg>
   );
 }
