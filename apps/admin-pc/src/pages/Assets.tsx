@@ -6,7 +6,20 @@ import {
 import { Field, FormDialog, MemberPicker, ReasonChips, Stepper, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
 import { EmptyRow, Pager, useExport, useOperations } from '../common';
 import { useAdminData } from '../data';
-import { DAMAGE_REASONS, ReasonField } from './Inventory';
+
+/** Common ways a bucket or bag gets damaged, offered as one-tap reasons when registering damage or scrapping. */
+const DAMAGE_REASONS: Record<ContainerType, readonly string[]> = {
+  BUCKET: ['桶身开裂漏水', '桶口破损', '提手断裂', '磕碰变形', '污染异味无法清洗', '自然老化'],
+  BAG: ['袋体破损漏水', '袋口/阀门损坏', '封口不严', '污染无法清洗', '自然老化'],
+};
+
+function ReasonField({ value, onChange, placeholder = '填写来源或处理原因' }: { value: string; onChange: (value: string) => void; placeholder?: string }) {
+  return (
+    <Field label="原因 / 备注" htmlFor="operationReason">
+      <textarea id="operationReason" className="input" maxLength={500} rows={3} required placeholder={placeholder} value={value} onChange={e => onChange(e.target.value)} />
+    </Field>
+  );
+}
 
 type Tab = 'holdings' | 'movements' | 'damages';
 type Member = Pick<ContainerHoldingRow, 'id' | 'name' | 'memberNo' | 'heldBags' | 'heldBuckets' | 'depositAmount'>;
@@ -175,7 +188,7 @@ function DamageDialog({ member, onClose, onDone }: { member?: Member; onClose: (
   };
   return (
     <FormDialog title="登记破损归还" className="inventory-dialog" submitLabel="登记破损归还" onClose={() => onClose()} onSubmit={submit}>
-      <div className="membership-summary">实物收回后登记。减少会员持有、转入待报废；此时不扣押金，对应押金暂不可退款或用于新领用。</div>
+      <div className="membership-summary">实物收回后登记：会员手里减掉，袋桶库存里的客户手里也跟着减，记为待确认报废。此时不扣押金，对应押金暂不可退款或用于新领用。</div>
       <Field label="会员" htmlFor="damageMember"><MemberPicker id="damageMember" value={selected} onChange={setSelected} /></Field>
       <Field label="容器类型" htmlFor="damageType">
         <select id="damageType" className="select" value={type} onChange={e => setType(e.target.value as ContainerType)}>
@@ -222,7 +235,7 @@ function ScrapDialog({ row, onClose, onDone }: { row: ContainerDamageRow; onClos
             <small>占用的 ¥{money(row.depositAmount)} 押金退回会员可用余额，会员可申请退还或用于新领用。</small>
           </>}
       </div>
-      <p className="membership-note">确认后减少现存库存、增加累计报废；{deduct ? '并扣除会员押金余额' : '不动会员押金余额，也不计入报废扣押金'}。不会再减少会员持有数量。</p>
+      <p className="membership-note">确认后袋桶库存的合计减掉、已报废加上；{deduct ? '并扣除会员押金余额' : '不动会员押金余额，也不计入报废扣押金'}。会员手里的数量不再变。</p>
       <ReasonField value={reason} onChange={setReason} />
       <ReasonChips options={DAMAGE_REASONS[containerKind(row.containerType)]} value={reason} onPick={setReason} />
     </FormDialog>

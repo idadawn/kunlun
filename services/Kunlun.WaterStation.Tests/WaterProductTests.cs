@@ -84,7 +84,7 @@ public sealed class WaterProductTests(TestHost host)
         Assert.Equal(80m, scrap.GetProperty("deductedAmount").GetDecimal());
         var inventory = (await c.GetFromJsonAsync<JsonElement[]>("/api/containers/summary"))!.Single(x => x.GetProperty("containerType").GetString() == container);
         Assert.Equal(4, inventory.GetProperty("totalQty").GetInt32()); Assert.Equal(4, inventory.GetProperty("inStationQty").GetInt32());
-        Assert.Equal(0, inventory.GetProperty("memberHeldQty").GetInt32()); Assert.Equal(1, inventory.GetProperty("scrappedQty").GetInt32());
+        Assert.Equal(0, inventory.GetProperty("memberHeldQty").GetInt32()); Assert.Equal(0, inventory.GetProperty("withCustomersQty").GetInt32()); Assert.Equal(1, inventory.GetProperty("scrappedQty").GetInt32());
         Assert.Equal(90m, inventory.GetProperty("unitDeposit").GetDecimal());
         Assert.Contains(name, await c.GetStringAsync("/api/exports/deposit-ledgers"));
         Assert.Equal(HttpStatusCode.Conflict, (await c.DeleteAsync($"/api/products/{type}")).StatusCode);
@@ -109,7 +109,11 @@ public sealed class WaterProductTests(TestHost host)
         Assert.Equal(12m, rows.Single(x => x.GetProperty("containerType").GetString() == b).GetProperty("unitDeposit").GetDecimal());
         var m = (await Ok(await c.PostAsJsonAsync("/api/members", new CreateMemberRequest("独立容器", $"139{Random.Shared.Next(10000000,99999999)}", null, null)))).GetProperty("id").GetGuid();
         await Ok(await c.PostAsJsonAsync("/api/deposits/collect", new CollectDepositRequest(m, b, 1, "CASH", Key())));
-        Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsJsonAsync("/api/containers/movements", new RegisterContainerMovementRequest(m, b, 1, 0, null, Key()))).StatusCode);
+        // Nothing written down in b's store yet: the hand-over still goes through, the store stays at zero and 客户手里 counts it.
+        await Ok(await c.PostAsJsonAsync("/api/containers/movements", new RegisterContainerMovementRequest(m, b, 1, 0, null, Key())));
+        var bRow = (await c.GetFromJsonAsync<JsonElement[]>("/api/containers/summary"))!.Single(x => x.GetProperty("containerType").GetString() == b);
+        Assert.Equal(0, bRow.GetProperty("inStationQty").GetInt32()); Assert.Equal(1, bRow.GetProperty("withCustomersQty").GetInt32()); Assert.Equal(1, bRow.GetProperty("totalQty").GetInt32());
+        // b's deposit does not cover a's bags.
         Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsJsonAsync("/api/containers/movements", new RegisterContainerMovementRequest(m, a, 1, 0, null, Key()))).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await c.DeleteAsync($"/api/products/{first.GetProperty("waterType").GetString()}")).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await c.DeleteAsync($"/api/products/{second.GetProperty("waterType").GetString()}")).StatusCode);

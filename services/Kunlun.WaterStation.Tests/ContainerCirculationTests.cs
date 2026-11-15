@@ -51,7 +51,7 @@ public sealed class ContainerCirculationTests(TestHost host)
         var report=await Report(c,mid,2);var id=report.GetProperty("id").GetGuid();Assert.Equal(35m,Money(report,"depositAmount"));
         var profile=await Profile(c,mid);Assert.Equal(0,Q(profile,"heldBags"));Assert.Equal(40m,Money(profile,"depositAmount"));Assert.Equal(0,profile.Tickets("BAG_7_5L", "PICKUP"));
         var reserved=await Deposit(c,mid);Assert.Equal(2,Q(reserved,"pendingDamageQty"));Assert.Equal(1,Q(reserved,"refundableQty"));Assert.Equal(5m,Money(reserved,"refundableAmount"));
-        var now=await Stock(c,"BAG");Assert.Equal(Q(before,"totalQty"),Q(now,"totalQty"));Assert.Equal(Q(before,"damagedQty")+2,Q(now,"damagedQty"));
+        var now=await Stock(c,"BAG");Assert.Equal(Q(before,"totalQty"),Q(now,"totalQty"));Assert.Equal(Q(before,"damagedQty")+2,Q(now,"damagedQty"));Assert.Equal(Q(before,"withCustomersQty")-2,Q(now,"withCustomersQty"));Assert.Equal(Q(before,"memberHeldQty")-2,Q(now,"memberHeldQty"));
         await Ok(await c.PostAsJsonAsync("/api/deposits/refund",new RefundDepositRequest(mid,"BAG",1,Key())));
         var key=Key();var receipt=await Scrap(c,id,key);Assert.Equal(35m,Money(receipt,"deductedAmount"));
         Assert.True(JsonElement.DeepEquals(receipt,await Scrap(c,id,key)));

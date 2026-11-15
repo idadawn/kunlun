@@ -263,10 +263,22 @@ public static class ReportEndpoints
                 }
                 case "inventory-operations":
                 {
-                    sb.AppendLine("库存单号,容器,业务,来源,数量,总量变化,调整后现存总量,调整后破损,累计报废,原因,操作人,时间");
-                    await using var cmd = TicketBatches.Command(conn, null, "SELECT operation_no,container_type,action,source_state,quantity,delta_total,after_state->>'totalQty',after_state->>'damagedQty',after_state->>'scrappedQty',reason,operator_name,created_at FROM plugin_kunlun_waterstation.container_inventory_operations WHERE tenant_id=@tid AND action IN ('RECEIVE','SCRAP','COUNT') ORDER BY created_at DESC,id DESC", ("tid", tenantId));
+                    // 客户手里 of records written before it was its own count = member-held plus what stock-takes found unregistered.
+                    static string Customers(string state) => $"COALESCE(o.{state}->>'withCustomersQty',((o.{state}->>'memberHeldQty')::int+COALESCE((o.{state}->>'unregisteredOutQty')::int,0))::text,'')";
+                    static string Field(string state, string name) => $"COALESCE(o.{state}->>'{name}','')";
+                    sb.AppendLine("单号,桶袋,业务,改前店里,改后店里,改前客户手里,改后客户手里,改前已报废,改后已报废,改后现存总量,备注,经办人,时间");
+                    await using var cmd = TicketBatches.Command(conn, null, $"""
+                        SELECT o.operation_no,o.container_type,
+                          CASE o.action WHEN 'ADJUST' THEN '修改数量' WHEN 'COUNT' THEN '盘点' WHEN 'RECEIVE' THEN '入库'
+                            WHEN 'SCRAP' THEN CASE o.source_state WHEN 'DAMAGED' THEN '会员破损报废' ELSE '报废' END ELSE o.action END,
+                          {Field("before_state", "inStationQty")},{Field("after_state", "inStationQty")},{Customers("before_state")},{Customers("after_state")},
+                          {Field("before_state", "scrappedQty")},{Field("after_state", "scrappedQty")},{Field("after_state", "totalQty")},o.reason,o.operator_name,o.created_at
+                        FROM plugin_kunlun_waterstation.container_inventory_operations o
+                        WHERE o.tenant_id=@tid AND o.action IN ('RECEIVE','SCRAP','COUNT','ADJUST') ORDER BY o.created_at DESC,o.id DESC
+                        """, ("tid", tenantId));
                     await using var r = await cmd.ExecuteReaderAsync(ct);
-                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{ContainerName(r.GetString(1))},{r.GetString(2)},{r.GetString(3)},{r.GetInt32(4)},{r.GetInt32(5)},{r.GetString(6)},{r.GetString(7)},{r.GetString(8)},{Csv(r.GetString(9))},{Csv(r.GetString(10))},{r.GetDateTime(11):O}");
+                    while (await r.ReadAsync(ct))
+                        sb.AppendLine($"{Csv(r.GetString(0))},{ContainerName(r.GetString(1))},{r.GetString(2)},{r.GetString(3)},{r.GetString(4)},{r.GetString(5)},{r.GetString(6)},{r.GetString(7)},{r.GetString(8)},{r.GetString(9)},{Csv(r.GetString(10))},{Csv(r.GetString(11))},{r.GetDateTime(12):O}");
                     break;
                 }
                 case "container-ledgers":

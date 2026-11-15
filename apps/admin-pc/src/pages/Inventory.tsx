@@ -1,87 +1,64 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
-import { KUNLUN_PERMISSIONS as P, containerKind, containerLabel, money, shortDateTime, type ContainerSummaryItem, type ContainerType, type InventoryOperation } from '@kunlun/shared';
-import { Dialog, Field, FormDialog, ReasonChips, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
+import { useEffect, useState, type ReactNode } from 'react';
+import {
+  KUNLUN_PERMISSIONS as P, containerKind, containerLabel, containerUnit, money, shortDateTime,
+  type ContainerSummaryItem, type ContainerType, type InventoryBalance, type InventoryOperation, type UpdateStockRequest,
+} from '@kunlun/shared';
+import { FormDialog, Icon, ReasonChips, Stepper, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
 import { EmptyRow, useExport, useGo } from '../common';
 import { useAdminData } from '../data';
 
-/** Common ways a bucket or bag gets damaged, offered as one-tap reasons when registering damage or scrapping. */
-export const DAMAGE_REASONS: Record<ContainerType, readonly string[]> = {
-  BUCKET: ['桶身开裂漏水', '桶口破损', '提手断裂', '磕碰变形', '污染异味无法清洗', '自然老化'],
-  BAG: ['袋体破损漏水', '袋口/阀门损坏', '封口不严', '污染无法清洗', '自然老化'],
-};
+const MAX = 1_000_000;
+type Count = 'inStationQty' | 'withCustomersQty' | 'scrappedQty';
 
-/** A figure answered "说不清" in a stock-take. */
-const Unverified = () => <span className="stock-unknown">待核实</span>;
-
-/** 客户手里 = 登记在会员名下的 + 盘点时多出来、还没登记到人的；说不清时只知道会员名下的部分。 */
-function WithCustomers({ held, unregistered, unknown }: { held: number; unregistered: number; unknown: boolean }) {
-  if (unknown) return <b>会员名下 {held} 个 + <Unverified /></b>;
-  if (unregistered > 0) return <b>{held + unregistered} 个<small>（会员名下 {held}，未登记 {unregistered}）</small></b>;
-  return <b>{held} 个</b>;
-}
-
-const totalText = (total: number, unsure: boolean) => `${unsure ? '至少 ' : ''}${total}`;
+/** 客户手里 of records written before it was its own count: what members held plus what stock-takes found unregistered. */
+const customersOf = (b: InventoryBalance) => b.withCustomersQty ?? b.memberHeldQty + (b.unregisteredOutQty ?? 0);
 
 export function Inventory() {
-  const { containers, version, refresh } = useAdminData();
+  const { containers, loaded, version, refresh } = useAdminData();
   const { api, can } = useAuth();
   const dialogs = useDialogs();
   const run = useRun();
-  const go = useGo();
   const exportCsv = useExport();
   const permitted = can(P.ContainerInventoryManage);
-  const history = useLoader(() => permitted ? api.inventoryOperations() : Promise.resolve([]), [api, permitted, version]);
-  const done = async () => { await refresh(); await history.reload(); };
-  const open = (render: (close: () => void) => ReactNode) => run(() => dialogs.open(render))();
+  const [filter, setFilter] = useState<ContainerType | ''>('');
+  const history = useLoader(() => permitted ? api.inventoryOperations(filter || undefined) : Promise.resolve([]), [api, permitted, filter, version]);
+  const edit = (config: ContainerSummaryItem, focus: Count = 'inStationQty') =>
+    run(() => dialogs.open(close => <StockDialog config={config} focus={focus} onClose={close} onDone={refresh} />))();
 
   return <>
-    <div className="page-head"><div><h2>袋桶库存</h2><p>盘点时照实回答三个问题：店里有多少、客户手里有多少、要报废多少；说不清的先记为待核实</p></div></div>
-    <div className="stock-grid">
-      {containers.length === 0 ? <p className="membership-note">正在加载库存…</p> : containers.map(c => (
-        <article key={c.containerType} className="stock-card">
-          <header>
-            <div><h3>{containerLabel(c.containerType)}</h3><small>押金 ¥{money(c.unitDeposit)} / 个 · {c.countedAt ? `上次盘点 ${shortDateTime(c.countedAt)}` : '还没盘点过'}</small></div>
-            {c.lowStockWarning && <span className="tag orange">店里偏少</span>}
-          </header>
-          <div className="stock-total"><span>现存总量</span><strong>{totalText(c.totalQty, c.inStationUnknown || c.outUnknown)}</strong><span>个</span></div>
-          <div className="stock-rows">
-            <div className="stock-row"><span>店里能用</span>{c.inStationUnknown ? <Unverified /> : <b>{c.inStationQty} 个</b>}</div>
-            <div className="stock-row"><span>客户手里</span><WithCustomers held={c.memberHeldQty} unregistered={c.unregisteredOutQty} unknown={c.outUnknown} /></div>
-            {c.damagedQty > 0 && (
-              <div className="stock-row"><span>会员退回待报废</span><button type="button" className="link" onClick={() => go('assets')}>{c.damagedQty} 个 · 去台账确认 ›</button></div>
-            )}
-            <div className="stock-row"><span>累计已报废（不算库存）</span><b>{c.scrappedQty} 个</b></div>
-          </div>
-          {permitted && (
-            <footer>
-              <button type="button" className="btn primary" onClick={() => open(close => <StocktakeDialog config={c} onClose={close} onDone={done} />)}>开始盘点</button>
-              <button type="button" className="btn" onClick={() => open(close => <ReceiveDialog config={c} onClose={close} onDone={done} />)}>新买入库</button>
-            </footer>
-          )}
-        </article>
-      ))}
+    <div className="page-head">
+      <div><h2>袋桶库存</h2><p>店里、客户手里、报废的数量随时点开就能改；领桶、还桶、破损登记会自动跟着变</p></div>
+      {permitted && <div className="head-actions"><button type="button" className="btn" onClick={() => exportCsv('inventory-operations')}><Icon name="export" size="sm" />导出修改记录</button></div>}
     </div>
-    <p className="membership-note">现存总量 = 店里能用 + 客户手里 + 会员退回待报废，不含已报废的。盘点时答「说不清」的项目记为「待核实」，不影响日常收发桶，下次盘点填上数字就行。</p>
+
+    <div className="stock-grid">
+      {!loaded ? <p className="stock-placeholder">正在加载库存…</p>
+        : containers.length === 0 ? <p className="stock-placeholder">还没有水品，先到「水品与押金标准」添加，配套桶袋会自动出现在这里。</p>
+        : containers.map(c => <StockCard key={c.containerType} c={c} onEdit={permitted ? focus => edit(c, focus) : undefined} />)}
+    </div>
+
     {permitted && (
       <div className="table-card">
         <div className="table-toolbar">
-          <div><b>盘点与入库记录</b><small>最近 100 笔，包含会员破损报废联动记录</small></div>
-          <button type="button" className="btn sm" onClick={() => exportCsv('inventory-operations')}>导出全部记录</button>
+          <div><b>修改记录</b><small>最近 100 笔，含入库、报废和会员破损报废</small></div>
+          <select className="select stock-filter" aria-label="按桶袋筛选" value={filter} onChange={e => setFilter(e.target.value as ContainerType | '')}>
+            <option value="">全部桶袋</option>
+            {containers.map(c => <option key={c.containerType} value={c.containerType}>{containerLabel(c.containerType)}</option>)}
+          </select>
         </div>
         <div className="inventory-table-scroll">
-          <table>
-            <thead><tr><th>时间 / 单号</th><th>容器</th><th>业务</th><th>内容</th><th>现存总量</th><th>关联会员 / 备注</th><th>操作人</th></tr></thead>
+          <table className="stock-history">
+            <thead><tr><th>时间</th><th>桶袋</th><th>改了什么</th><th>备注</th><th>经办人</th></tr></thead>
             <tbody>
-              {history.error ? <EmptyRow colSpan={7}>{history.error}</EmptyRow>
-                : !history.data?.length ? <EmptyRow colSpan={7}>{history.data ? '暂无盘点或入库记录' : '正在加载…'}</EmptyRow>
+              {history.error ? <EmptyRow colSpan={5}>{history.error}</EmptyRow>
+                : !history.data ? <EmptyRow colSpan={5}>正在加载…</EmptyRow>
+                : !history.data.length ? <EmptyRow colSpan={5}>还没有修改记录，点上面的数字就能改</EmptyRow>
                 : history.data.map(({ operation: o, memberName }) => (
                   <tr key={o.id}>
-                    <td>{new Date(o.createdAt).toLocaleString('zh-CN', { hour12: false })}<br /><small>{o.operationNo}</small></td>
+                    <td>{shortDateTime(o.createdAt)}<br /><small title={o.operationNo}>{o.operationNo.slice(0, 10)}</small></td>
                     <td>{containerLabel(o.containerType)}</td>
-                    <td><OperationTag action={o.action} /></td>
-                    <td><OperationContent operation={o} /></td>
-                    <td>{totalText(o.before.totalQty, !!(o.before.inStationUnknown || o.before.outUnknown))} → {totalText(o.after.totalQty, !!(o.after.inStationUnknown || o.after.outUnknown))}</td>
-                    <td className="inventory-reason">{memberName && <><b>{memberName}</b><br /></>}{o.reason}</td>
+                    <td><OperationChanges operation={o} /></td>
+                    <td className="inventory-reason">{memberName && <><b>{memberName}</b><br /></>}{['修改数量', '盘点'].includes(o.reason) ? <span className="stock-muted">—</span> : o.reason}</td>
                     <td>{o.operatorName}</td>
                   </tr>
                 ))}
@@ -93,191 +70,149 @@ export function Inventory() {
   </>;
 }
 
-const OperationTag = ({ action }: { action: InventoryOperation['action'] }) =>
-  action === 'COUNT' ? <span className="tag blue">盘点</span> : action === 'RECEIVE' ? <span className="tag green">入库</span> : <span className="tag orange">报废</span>;
-
-function OperationContent({ operation: o }: { operation: InventoryOperation }) {
-  if (o.action !== 'COUNT') return <>{o.action === 'RECEIVE' ? '+' : '−'}{o.quantity}</>;
-  const answers = o.counted;
-  if (!answers) return <>盘点</>;
+/** One container: three numbers that open the edit dialog, the total, and member returns still waiting for a scrap decision. */
+function StockCard({ c, onEdit }: { c: ContainerSummaryItem; onEdit?: (focus: Count) => void }) {
+  const go = useGo();
+  const bag = containerKind(c.containerType) === 'BAG';
+  const unregistered = c.withCustomersQty - c.memberHeldQty;
+  const customersNote = unregistered === 0 ? '都登记在会员名下' : unregistered > 0 ? `会员名下 ${c.memberHeldQty}，另有 ${unregistered} 个没登记` : `会员名下登记了 ${c.memberHeldQty} 个`;
   return (
-    <small className="stock-counted">
-      店里 {answers.inStationQty ?? <Unverified />} · 客户手里 {answers.withCustomersQty ?? <Unverified />}（会员名下 {answers.registeredHeldQty}）· 报废 {answers.scrapQty}
-    </small>
+    <article className="stock-card">
+      <header className="stock-card-head">
+        <span className={`stock-icon${bag ? ' bag' : ''}`}><Icon name="drop" /></span>
+        <div className="stock-title">
+          <h3>{containerLabel(c.containerType)}</h3>
+          <small>押金 ¥{money(c.unitDeposit)} / 个{c.countedAt && ` · 上次修改 ${shortDateTime(c.countedAt)}`}</small>
+        </div>
+        {c.lowStockWarning && <span className="tag orange dot">店里偏少</span>}
+      </header>
+      <div className="stock-tiles">
+        <Tile label="店里" value={c.inStationQty} note={c.warnThreshold > 0 ? `少于 ${c.warnThreshold} 个时提醒` : '空的满的都算'} tone={c.lowStockWarning ? 'warn' : 'store'} onEdit={onEdit && (() => onEdit('inStationQty'))} />
+        <Tile label="客户手里" value={c.withCustomersQty} note={customersNote} onEdit={onEdit && (() => onEdit('withCustomersQty'))} />
+        <Tile label="已报废" value={c.scrappedQty} note="累计，不算在合计里" tone="scrapped" onEdit={onEdit && (() => onEdit('scrappedQty'))} />
+      </div>
+      <footer className="stock-card-foot">
+        <span className="stock-sum">合计 <b>{c.totalQty}</b> 个<small>店里 + 客户手里{c.damagedQty > 0 ? ' + 待确认报废' : ''}</small></span>
+        {onEdit && <button type="button" className="btn primary sm" onClick={() => onEdit('inStationQty')}><Icon name="edit" size="sm" />修改数量</button>}
+      </footer>
+      {c.damagedQty > 0 && (
+        <button type="button" className="stock-pending" onClick={() => go('assets')}>
+          <Icon name="info" size="sm" /><span>会员退回 <b>{c.damagedQty}</b> 个破损，还没确认报废</span><em>去台账处理 ›</em>
+        </button>
+      )}
+    </article>
   );
 }
 
-/** One answer of the stock-take: a count, or "说不清" which the server records as 待核实. */
-type Answer = { unknown: boolean; value: string };
-const answered = (a: Answer) => (a.unknown ? null : Number(a.value));
+function Tile({ label, value, note, tone, onEdit }: { label: string; value: number; note: string; tone?: 'store' | 'warn' | 'scrapped'; onEdit?: () => void }) {
+  const content = <>
+    <span className="stock-tile-label">{label}{onEdit && <Icon name="edit" size="sm" />}</span>
+    <span className="stock-tile-value">{value}<small>个</small></span>
+    <span className="stock-tile-note" title={note}>{note}</span>
+  </>;
+  const className = `stock-tile${tone ? ` ${tone}` : ''}`;
+  return onEdit
+    ? <button type="button" className={className} aria-label={`修改${label}的数量，现在 ${value} 个`} onClick={onEdit}>{content}</button>
+    : <div className={className}>{content}</div>;
+}
 
-function CountStep({ id, label, question, hint, answer, onChange, quick, children }: {
-  id: string;
-  label: string;
-  question: string;
-  hint: ReactNode;
-  answer: Answer;
-  onChange: (answer: Answer) => void;
-  quick: Array<{ label: string; value: number }>;
-  children?: ReactNode;
-}) {
+const FIELDS: Array<[string, (b: InventoryBalance) => number]> = [
+  ['店里', b => b.inStationQty], ['客户手里', customersOf], ['待确认报废', b => b.damagedQty], ['已报废', b => b.scrappedQty],
+];
+const TAGS = { ADJUST: ['修改', 'blue'], COUNT: ['盘点', 'gray'], RECEIVE: ['入库', 'green'], SCRAP: ['报废', 'orange'] } as const;
+
+/** Every record, old stock-takes included, reads as "店里 198 → 196" for each number that changed. */
+function OperationChanges({ operation: o }: { operation: InventoryOperation }) {
+  const [label, tone] = o.action === 'SCRAP' && o.sourceState === 'DAMAGED' ? ['会员破损报废', 'orange'] : TAGS[o.action] ?? TAGS.ADJUST;
+  const changed = FIELDS.flatMap(([name, get]) => get(o.before) === get(o.after) ? [] : [{ name, from: get(o.before), to: get(o.after) }]);
+  if (o.warnThreshold) changed.push({ name: '提醒线', from: o.warnThreshold.before, to: o.warnThreshold.after });
   return (
-    <div className="stocktake-step">
-      <small className="stocktake-label">{label}</small>
-      <label htmlFor={id} className="stocktake-question">{question}</label>
-      <p className="stocktake-hint">{hint}</p>
-      <div className="stocktake-answer">
-        <input id={id} className="input" type="number" inputMode="numeric" min={0} max={1000000} step={1} autoFocus
-          required={!answer.unknown} disabled={answer.unknown} placeholder={answer.unknown ? '待核实' : ''}
-          value={answer.unknown ? '' : answer.value} onChange={e => onChange({ unknown: false, value: e.target.value })} />
-        <span>个</span>
-      </div>
-      <div className="slot-chips stocktake-quick" role="group" aria-label="快捷回答">
-        {quick.map(q => (
-          <button key={q.label} type="button" className={!answer.unknown && answer.value === String(q.value) ? 'active' : ''} onClick={() => onChange({ unknown: false, value: String(q.value) })}>{q.label}</button>
-        ))}
-        <button type="button" className={answer.unknown ? 'active' : ''} aria-pressed={answer.unknown} onClick={() => onChange({ ...answer, unknown: !answer.unknown })}>说不清，先记为待核实</button>
-      </div>
-      {children}
+    <div className="stock-changes">
+      <span className={`tag ${tone}`}>{label}</span>
+      {changed.length ? changed.map(x => <span key={x.name} className="stock-change">{x.name} <b>{x.from} → {x.to}</b></span>) : <span className="stock-muted">数量没变</span>}
     </div>
   );
 }
 
-const STEPS = ['店里', '客户手里', '报废', '确认'] as const;
-
-/** 盘点向导：一步只问一件事，最后汇总确认；说不清的项目记为待核实。 */
-function StocktakeDialog({ config: c, onClose, onDone }: { config: ContainerSummaryItem; onClose: () => void; onDone: () => Promise<void> }) {
+/** 修改数量：三个数都预先填好现在的值，改哪个填哪个；只把改过的数发给后台，其他的不动。 */
+function StockDialog({ config: c, focus, onClose, onDone }: { config: ContainerSummaryItem; focus: Count; onClose: () => void; onDone: () => Promise<void> }) {
   const api = useApi();
   const toast = useToast();
   const key = useIdempotencyKey();
-  const name = containerLabel(c.containerType);
-  const registered = c.memberHeldQty;
-  const [step, setStep] = useState(0);
-  const [store, setStore] = useState<Answer>({ unknown: false, value: c.inStationUnknown ? '' : String(c.inStationQty) });
-  const [customers, setCustomers] = useState<Answer>({ unknown: false, value: c.outUnknown ? '' : String(registered + c.unregisteredOutQty) });
-  const [scrap, setScrap] = useState('0');
+  const unit = containerUnit(c.containerType);
+  const [store, setStore] = useState(c.inStationQty);
+  const [customers, setCustomers] = useState(c.withCustomersQty);
+  const [scrapped, setScrapped] = useState(c.scrappedQty);
+  const [threshold, setThreshold] = useState(c.warnThreshold);
   const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  useEffect(() => {
+    const input = document.getElementById(`stock-${focus}`) as HTMLInputElement | null;
+    input?.focus(); input?.select();
+  }, [focus]);
 
-  const storeQty = answered(store);
-  const customersQty = answered(customers);
-  const scrapQty = Number(scrap) || 0;
-  const unregistered = customersQty === null ? 0 : Math.max(customersQty - registered, 0);
-  const totalAfter = (storeQty ?? Math.max(c.inStationQty - scrapQty, 0)) + registered + c.damagedQty + unregistered;
-  const unsure = storeQty === null || customersQty === null;
-
-  const next = async (event: FormEvent) => {
-    event.preventDefault();
-    setError('');
-    if (step < STEPS.length - 1) { setStep(step + 1); return; }
-    setBusy(true);
-    try {
-      await api.stocktake({ containerType: c.containerType, inStationQty: storeQty, withCustomersQty: customersQty, scrapQty, idempotencyKey: key, note: note.trim() || undefined });
-      await onDone();
-      toast(`${name}盘点已保存`);
-      onClose();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setBusy(false);
-    }
+  const changes: Omit<UpdateStockRequest, 'containerType' | 'idempotencyKey'> = {
+    ...(store !== c.inStationQty && { inStationQty: store }),
+    ...(customers !== c.withCustomersQty && { withCustomersQty: customers }),
+    ...(scrapped !== c.scrappedQty && { scrappedQty: scrapped }),
+    ...(threshold !== c.warnThreshold && { warnThreshold: threshold }),
   };
+  const dirty = Object.keys(changes).length > 0;
+  const total = store + customers + c.damagedQty;
+  const newlyScrapped = scrapped - c.scrappedQty;
+  const missing = c.memberHeldQty - customers;
 
-  return (
-    <Dialog title={`盘点 · ${name}`} description="一步一个问题，照实回答；说不清的不用硬填" className="stocktake-dialog" onClose={onClose}>
-      <form onSubmit={next}>
-        <ol className="stocktake-steps" aria-label={`第 ${step + 1} 步，共 ${STEPS.length} 步`}>
-          {STEPS.map((title, i) => <li key={title} className={i < step ? 'done' : i === step ? 'current' : ''}>{title}</li>)}
-        </ol>
-        {step === 0 && (
-          <CountStep id="countStore" label="第 1 步 · 店里" question={`现在店里有多少个能用的${name}？`}
-            hint="空的、满的都算；坏了不能用的先不算，第 3 步再说。" answer={store} onChange={setStore}
-            quick={c.inStationUnknown ? [] : [{ label: `和系统里一样（${c.inStationQty} 个）`, value: c.inStationQty }]} />
-        )}
-        {step === 1 && (
-          <CountStep id="countCustomers" label="第 2 步 · 客户手里" question="客户手里大概有多少个？"
-            hint={<>已经拿回家、还没还回来的。系统里登记在会员名下的有 <b>{registered}</b> 个。</>} answer={customers} onChange={setCustomers}
-            quick={[{ label: `就是会员名下的 ${registered} 个`, value: registered }]}>
-            {customersQty !== null && customersQty > registered && (
-              <p className="stocktake-note">其中 {customersQty - registered} 个没登记到具体会员，记为「客户手里 · 未登记」。</p>
-            )}
-            {customersQty !== null && customersQty < registered && (
-              <p className="stocktake-note warn">比登记在会员名下的少 {registered - customersQty} 个，可能有会员还了桶没登记。先照实填，之后可到「袋桶台账」核对会员手里的数量。</p>
-            )}
-          </CountStep>
-        )}
-        {step === 2 && (
-          <div className="stocktake-step">
-            <small className="stocktake-label">第 3 步 · 报废</small>
-            <label htmlFor="countScrap" className="stocktake-question">店里有多少个坏了、要报废？</label>
-            <p className="stocktake-hint">
-              报废后就不再算库存。{c.damagedQty > 0 && <>会员退回来的 {c.damagedQty} 个待报废要决定扣不扣押金，请到「袋桶台账」确认，这里不用算。</>}
-            </p>
-            <div className="stocktake-answer">
-              <input id="countScrap" className="input" type="number" inputMode="numeric" min={0} max={1000000} step={1} required autoFocus value={scrap} onChange={e => setScrap(e.target.value)} />
-              <span>个</span>
-            </div>
-            <div className="slot-chips stocktake-quick" role="group" aria-label="快捷回答">
-              <button type="button" className={scrapQty === 0 ? 'active' : ''} onClick={() => setScrap('0')}>没有要报废的</button>
-            </div>
-            <div className="membership-fields stocktake-extra">
-              <Field label={scrapQty > 0 ? '报废原因 / 备注（选填）' : '备注（选填）'} htmlFor="countNote">
-                <input id="countNote" className="input" maxLength={500} placeholder={scrapQty > 0 ? '如：桶身开裂' : '如：月底盘点'} value={note} onChange={e => setNote(e.target.value)} />
-              </Field>
-              {scrapQty > 0 && <ReasonChips options={DAMAGE_REASONS[containerKind(c.containerType)]} value={note} onPick={setNote} />}
-            </div>
-          </div>
-        )}
-        {step === 3 && (
-          <div className="stocktake-step">
-            <small className="stocktake-label">确认</small>
-            <p className="stocktake-question">看一下盘点结果，没问题就保存</p>
-            <div className="detail-card">
-              <div className="detail-row"><span>店里能用</span>{storeQty === null ? <Unverified /> : <b>{storeQty} 个</b>}</div>
-              <div className="detail-row"><span>客户手里</span><WithCustomers held={registered} unregistered={unregistered} unknown={customersQty === null} /></div>
-              {c.damagedQty > 0 && <div className="detail-row"><span>会员退回待报废</span><b>{c.damagedQty} 个</b></div>}
-              <div className="detail-row"><span>这次报废</span><b>{scrapQty} 个</b></div>
-              <div className="detail-row"><span>盘点后现存总量</span><b>{totalText(totalAfter, unsure)} 个<small>（原来 {totalText(c.totalQty, c.inStationUnknown || c.outUnknown)} 个）</small></b></div>
-            </div>
-            {unsure && <p className="stocktake-note">「待核实」的项目不影响日常收发桶，下次盘点填上数字就行。</p>}
-          </div>
-        )}
-        <p role="alert" className="account-error">{error}</p>
-        <footer>
-          {step > 0 && <button type="button" className="btn" disabled={busy} onClick={() => { setError(''); setStep(step - 1); }}>上一步</button>}
-          <button className="btn primary" type="submit" disabled={busy}>{step < STEPS.length - 1 ? '下一步' : busy ? '正在保存…' : '确认盘点'}</button>
-        </footer>
-      </form>
-    </Dialog>
-  );
-}
-
-function ReceiveDialog({ config, onClose, onDone }: { config: ContainerSummaryItem; onClose: () => void; onDone: () => Promise<void> }) {
-  const api = useApi();
-  const toast = useToast();
-  const key = useIdempotencyKey();
-  const [quantity, setQuantity] = useState(1);
-  const [reason, setReason] = useState('');
   const submit = async () => {
-    await api.inventory({ containerType: config.containerType, action: 'RECEIVE', quantity, reason: reason.trim(), idempotencyKey: key });
+    if (!dirty) throw new Error('数量都没变，不用保存');
+    await api.updateStock({ containerType: c.containerType, idempotencyKey: key, ...changes, note: note.trim() || undefined });
     await onDone();
-    toast('入库成功');
+    toast(`${containerLabel(c.containerType)}的数量已更新`);
   };
+
   return (
-    <FormDialog title={`${containerLabel(config.containerType)} · 新买入库`} className="inventory-dialog" submitLabel="确认入库" onClose={onClose} onSubmit={submit}>
-      <div className="membership-summary">新买回来的袋桶直接算进店里能用的。</div>
-      <Field label="数量（个）" htmlFor="stockQty">
-        <input id="stockQty" className="input" type="number" min={1} max={1000000} step={1} required value={quantity} onChange={e => setQuantity(Number(e.target.value))} />
-      </Field>
-      <ReasonField value={reason} onChange={setReason} placeholder="如：采购批次、供应商" />
+    <FormDialog title="修改数量" description={containerLabel(c.containerType)} className="stock-dialog" submitLabel="保存" onClose={onClose} onSubmit={submit}
+      extraActions={<>
+        <span className="stock-dialog-total">合计 {total === c.totalQty ? <b>{total}</b> : <><s>{c.totalQty}</s> → <b>{total}</b></>} 个</span>
+        <button type="button" className="btn" onClick={onClose}>取消</button>
+      </>}>
+      <p className="stock-dialog-lead">直接填现在的数量，没变的不用动。</p>
+      <CountField id="stock-inStationQty" label="店里能用的" value={store} original={c.inStationQty} onChange={setStore}>
+        空的、满的都算，坏了的不算。
+      </CountField>
+      <CountField id="stock-withCustomersQty" label="客户手里的" value={customers} original={c.withCustomersQty} onChange={setCustomers}>
+        {missing > 0
+          ? <span className="warn">比登记在会员名下的（{c.memberHeldQty} 个）少 {missing} 个，可能有会员还了{unit}没登记，可到袋桶台账核对。</span>
+          : <>会员名下登记了 {c.memberHeldQty} 个{customers > c.memberHeldQty && `，另有 ${customers - c.memberHeldQty} 个没登记到人`}。</>}
+      </CountField>
+      <CountField id="stock-scrappedQty" label="已报废的（累计）" value={scrapped} original={c.scrappedQty} onChange={setScrapped}>
+        {newlyScrapped > 0 && store === c.inStationQty
+          ? <>这次多报废 {newlyScrapped} 个，是从店里拿出来的？ <button type="button" className="link" onClick={() => setStore(Math.max(c.inStationQty - newlyScrapped, 0))}>店里也减 {newlyScrapped} 个</button></>
+          : '坏了扔掉的，不再算在合计里。'}
+      </CountField>
+      <div className="stock-dialog-more">
+        <label htmlFor="stockThreshold">店里少于</label>
+        <input id="stockThreshold" className="input" type="number" inputMode="numeric" min={0} max={MAX} step={1} required value={threshold}
+          onChange={e => setThreshold(Math.min(MAX, Math.max(0, Math.trunc(Number(e.target.value)) || 0)))} />
+        <span>个时在菜单上提醒（填 0 不提醒）</span>
+      </div>
+      <label htmlFor="stockNote">备注（选填）</label>
+      <input id="stockNote" className="input" maxLength={500} placeholder="如：新买了 20 个" value={note} onChange={e => setNote(e.target.value)} />
+      <ReasonChips label="常用备注" options={['新买了一批', '核对实际数量', `${unit}坏了报废`, `会员还${unit}没登记`]} value={note} onPick={setNote} />
     </FormDialog>
   );
 }
 
-export function ReasonField({ value, onChange, placeholder = '填写来源或处理原因' }: { value: string; onChange: (value: string) => void; placeholder?: string }) {
+function CountField({ id, label, value, original, onChange, children }: {
+  id: string; label: string; value: number; original: number; onChange: (value: number) => void; children: ReactNode;
+}) {
+  const changed = value !== original;
   return (
-    <Field label="原因 / 备注" htmlFor="operationReason">
-      <textarea id="operationReason" className="input" maxLength={500} rows={3} required placeholder={placeholder} value={value} onChange={e => onChange(e.target.value)} />
-    </Field>
+    <div className={`stock-field${changed ? ' changed' : ''}`}>
+      <div className="stock-field-main">
+        <label htmlFor={id}>{label}</label>
+        <small>{changed ? <>原来 {original} 个 → <b>{value} 个</b> <button type="button" className="link" onClick={() => onChange(original)}>恢复</button></> : `现在 ${original} 个`}</small>
+      </div>
+      <Stepper id={id} label={label} value={value} onChange={onChange} min={0} max={MAX} />
+      <p className="stock-field-hint">{children}</p>
+    </div>
   );
 }
