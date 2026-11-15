@@ -291,7 +291,7 @@ public static class FinanceEndpoints
             var covered = Convert.ToInt32(await cover.ExecuteScalarAsync(ct));
             if (nextHeld > held && nextHeld > covered) throw new BusinessRuleException("押金不足，请先补交押金");
             if (!await ContainerInventory.MoveToMembers(conn, tx, tid, ctype, delta, ct))
-                throw new BusinessRuleException("容器库存不足或持有台账需要核对");
+                throw new BusinessRuleException("会员持有桶袋的汇总需要核对，请联系管理员");
             await ProductContainers.SetHeld(conn, tx, tid, req.MemberId, ctype, nextHeld, ct);
             await TicketBatches.Exec(conn, tx, """
                 INSERT INTO plugin_kunlun_waterstation.container_ledgers(tenant_id,ledger_no,member_id,container_type,order_no,full_out_qty,empty_in_qty,delta_held,held_after,covered_deposit_qty_after,operator_name,remark)

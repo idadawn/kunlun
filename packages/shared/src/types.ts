@@ -204,27 +204,25 @@ export interface FulfillOrderRequest {
 }
 
 /**
- * 现存总量 = 门店可用 + 会员持有 + 待报废 + 客户手里未登记；累计报废另计。
- * 盘点时答"说不清"的项目是待核实：数字只是上次记下的参考，现存总量也就说不准。
+ * 一种桶袋的三个数：店里、客户手里、累计报废，随时可以改；领桶、还桶、破损登记会自动增减。
+ * 现存总量 = 店里 + 客户手里 + 待确认报废（会员退回的破损），累计报废不算在内。
  */
 export interface ContainerSummaryItem {
   containerType: ContainerType;
   unitDeposit: number;
   totalQty: number;
+  /** 店里能用的。 */
   inStationQty: number;
-  /** 登记在具体会员名下的数量。 */
+  /** 客户手里的，可以多于或少于登记在会员名下的。 */
+  withCustomersQty: number;
+  /** 登记在具体会员名下的数量，客户手里的参考。 */
   memberHeldQty: number;
   /** 会员破损归还、尚未确认报废扣押金的数量。 */
   damagedQty: number;
   scrappedQty: number;
+  /** 店里少于这个数时提醒，0 表示不提醒。 */
   warnThreshold: number;
-  /** 盘点时客户手里比会员名下登记多出来、还没登记到人的数量。 */
-  unregisteredOutQty: number;
-  /** 店里的数量待核实。 */
-  inStationUnknown: boolean;
-  /** 客户手里的数量待核实。 */
-  outUnknown: boolean;
-  /** 最近一次盘点时间。 */
+  /** 最近一次手动修改数量的时间。 */
   countedAt: string | null;
   identityValid: boolean;
   lowStockWarning: boolean;
@@ -461,10 +459,10 @@ export interface StaffAccount {
 }
 
 export type InventoryAction = 'RECEIVE' | 'SCRAP';
-/** EXTERNAL：入库；AVAILABLE：门店报废；DAMAGED：会员破损确认报废。早期记录可能带有已停用的来源。 */
-export type InventorySource = 'EXTERNAL' | 'AVAILABLE' | 'DAMAGED' | 'COUNT';
+/** EXTERNAL：入库；AVAILABLE：门店报废；DAMAGED：会员破损确认报废；MANUAL：修改数量；COUNT：早期的盘点。 */
+export type InventorySource = 'EXTERNAL' | 'AVAILABLE' | 'DAMAGED' | 'MANUAL' | 'COUNT';
 
-/** 入库计入门店可用，报废从门店可用扣减。 */
+/** 入库计入店里，报废从店里扣减。 */
 export interface InventoryRequest {
   containerType: ContainerType;
   action: InventoryAction;
@@ -473,42 +471,36 @@ export interface InventoryRequest {
   quantity: number;
 }
 
-export interface InventoryBalance {
-  totalQty: number;
-  inStationQty: number;
-  memberHeldQty: number;
-  damagedQty: number;
-  scrappedQty: number;
-  /** Absent on operations recorded before stock-takes existed. */
-  unregisteredOutQty?: number;
-  inStationUnknown?: boolean;
-  outUnknown?: boolean;
-}
-
-/** 盘点：null 表示"说不清"，记为待核实；scrapQty 是店里坏了要报废的，不含在店里能用的里面。 */
-export interface StocktakeRequest {
+/** 修改数量：直接填现在的数，没填的不动。 */
+export interface UpdateStockRequest {
   containerType: ContainerType;
-  inStationQty: number | null;
-  withCustomersQty: number | null;
-  scrapQty: number;
   idempotencyKey: string;
+  inStationQty?: number;
+  withCustomersQty?: number;
+  scrappedQty?: number;
+  /** 店里少于多少个时提醒，0 表示不提醒。 */
+  warnThreshold?: number;
   note?: string;
 }
 
-/** What was answered in a stock-take, next to what members were registered as holding at that moment. */
-export interface StocktakeAnswers {
-  inStationQty: number | null;
-  withCustomersQty: number | null;
-  registeredHeldQty: number;
-  scrapQty: number;
+export interface InventoryBalance {
+  totalQty: number;
+  inStationQty: number;
+  /** Absent on records written before 客户手里 was its own count: it was memberHeldQty + unregisteredOutQty then. */
+  withCustomersQty?: number;
+  memberHeldQty: number;
+  damagedQty: number;
+  scrappedQty: number;
+  /** Only on records from the retired stock-take. */
+  unregisteredOutQty?: number;
 }
 
 export interface InventoryOperation {
   id: string;
   operationNo: string;
   containerType: ContainerType;
-  /** COUNT is a stock-take; RECEIVE and SCRAP are single stock changes. */
-  action: InventoryAction | 'COUNT';
+  /** ADJUST is 修改数量; COUNT is a stock-take from before; RECEIVE and SCRAP are single stock changes. */
+  action: InventoryAction | 'ADJUST' | 'COUNT';
   sourceState: InventorySource;
   quantity: number;
   deltaTotal: number;
@@ -517,8 +509,8 @@ export interface InventoryOperation {
   operatorName: string;
   before: InventoryBalance;
   after: InventoryBalance;
-  /** Set on stock-takes (action COUNT). */
-  counted?: StocktakeAnswers | null;
+  /** Set when 修改数量 changed the reminder threshold. */
+  warnThreshold?: { before: number; after: number } | null;
   createdAt: string;
 }
 

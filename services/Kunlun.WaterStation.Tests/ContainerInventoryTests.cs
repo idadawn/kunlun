@@ -22,8 +22,9 @@ public sealed class ContainerInventoryTests(TestHost host)
     private static int Qty(JsonElement s,string field)=>s.GetProperty(field).GetInt32();
     private static async Task<JsonElement> Apply(HttpClient c,InventoryRequest req)=>await Ok(await c.PostAsJsonAsync("/api/containers/inventory",req));
     private static async Task<Guid> Member(HttpClient c)=>(await Ok(await c.PostAsJsonAsync("/api/members",new CreateMemberRequest("库存验收",$"129{Random.Shared.Next(10000000,99999999)}","库存测试地址",null, "1-101")))).GetProperty("id").GetGuid();
-    private static void Balanced(JsonElement s)=>Assert.Equal(Qty(s,"totalQty"),Qty(s,"inStationQty")+Qty(s,"memberHeldQty")+Qty(s,"damagedQty")+(s.TryGetProperty("unregisteredOutQty",out var u)?u.GetInt32():0));
-    private static async Task<JsonElement> Count(HttpClient c,StocktakeRequest req)=>await Ok(await c.PostAsJsonAsync("/api/containers/stocktake",req));
+    private static void Balanced(JsonElement s)=>Assert.Equal(Qty(s,"totalQty"),Qty(s,"inStationQty")+Qty(s,"withCustomersQty")+Qty(s,"damagedQty"));
+    private static async Task<JsonElement> Update(HttpClient c,UpdateStockRequest req)=>await Ok(await c.PostAsJsonAsync("/api/containers/stock",req));
+    private static Task<JsonElement> Move(HttpClient c,Guid m,int take,int back)=>c.PostAsJsonAsync("/api/containers/movements",new RegisterContainerMovementRequest(m,"BUCKET",take,back,IdempotencyKey:Key())).ContinueWith(t=>Ok(t.Result)).Unwrap();
 
     [Fact]
     public async Task Stock_Only_Receives_And_Scraps_And_Preserves_The_Equation()
@@ -33,60 +34,71 @@ public sealed class ContainerInventoryTests(TestHost host)
         var scrap=await Apply(c,new("BAG","SCRAP","门店报废",Key(),2));var after=scrap.GetProperty("after");
         Assert.Equal(Qty(before,"totalQty")+4,Qty(after,"totalQty"));Assert.Equal(Qty(before,"inStationQty")+4,Qty(after,"inStationQty"));
         Assert.Equal(Qty(before,"scrappedQty")+2,Qty(after,"scrappedQty"));Balanced(after);Balanced(await Summary(c,"BAG"));
-        Assert.Equal(["containerType","unitDeposit","totalQty","inStationQty","memberHeldQty","damagedQty","scrappedQty","warnThreshold","unregisteredOutQty","inStationUnknown","outUnknown","countedAt","identityValid","lowStockWarning"],before.EnumerateObject().Select(p=>p.Name));
-        foreach(var action in new[]{"DAMAGE","REPAIR","COUNT"})
+        Assert.Equal(["containerType","unitDeposit","totalQty","inStationQty","withCustomersQty","memberHeldQty","damagedQty","scrappedQty","warnThreshold","countedAt","identityValid","lowStockWarning"],before.EnumerateObject().Select(p=>p.Name));
+        foreach(var action in new[]{"DAMAGE","REPAIR","COUNT","ADJUST"})
             Assert.Equal(HttpStatusCode.BadRequest,(await c.PostAsJsonAsync("/api/containers/inventory",new InventoryRequest("BAG",action,"旧库存维护不可再提交",Key(),1))).StatusCode);
         Assert.Equal(HttpStatusCode.OK,(await c.GetAsync("/api/exports/inventory-operations")).StatusCode);
     }
 
     [Fact]
-    public async Task Stocktake_Resets_Counts_Keeps_Unknowns_Unblocking_And_Records_Unregistered()
+    public async Task Any_Count_Can_Be_Set_At_Any_Time_And_Daily_Moves_Never_Block()
     {
         using var c=await Client();var m=await Member(c);
         await Ok(await c.PostAsJsonAsync("/api/deposits/collect",new CollectDepositRequest(m,"BUCKET",3,"CASH",Key())));
-        await Ok(await c.PostAsJsonAsync("/api/containers/movements",new RegisterContainerMovementRequest(m,"BUCKET",2,0,IdempotencyKey:Key())));
-        var registered=Qty(await Summary(c,"BUCKET"),"memberHeldQty");var scrappedBefore=Qty(await Summary(c,"BUCKET"),"scrappedQty");
+        var start=await Summary(c,"BUCKET");await Move(c,m,2,0);
+        var s=await Summary(c,"BUCKET");
+        Assert.Equal(Qty(start,"inStationQty")-2,Qty(s,"inStationQty"));Assert.Equal(Qty(start,"withCustomersQty")+2,Qty(s,"withCustomersQty"));
+        Assert.Equal(Qty(start,"memberHeldQty")+2,Qty(s,"memberHeldQty"));Balanced(s);
+        var registered=Qty(s,"memberHeldQty");var scrapped=Qty(s,"scrappedQty");
         try
         {
-            // 店里能用 50、客户手里比会员名下多 30 个、店里坏了 3 个报废。
-            var req=new StocktakeRequest("BUCKET",50,registered+30,3,Key(),"  月底盘点  ");
-            var counted=await Count(c,req);var after=counted.GetProperty("after");
-            Assert.Equal("COUNT",counted.GetProperty("action").GetString());Assert.Equal("月底盘点",counted.GetProperty("reason").GetString());
-            Assert.Equal(registered,counted.GetProperty("counted").GetProperty("registeredHeldQty").GetInt32());
-            var s=await Summary(c,"BUCKET");
-            Assert.Equal(50,Qty(s,"inStationQty"));Assert.Equal(30,Qty(s,"unregisteredOutQty"));Assert.Equal(scrappedBefore+3,Qty(s,"scrappedQty"));
-            Assert.Equal(50+registered+Qty(s,"damagedQty")+30,Qty(s,"totalQty"));Assert.True(s.GetProperty("identityValid").GetBoolean());
-            Assert.False(s.GetProperty("inStationUnknown").GetBoolean());Assert.False(s.GetProperty("outUnknown").GetBoolean());
-            Assert.Equal(JsonValueKind.String,s.GetProperty("countedAt").ValueKind);Balanced(after);
-            Assert.Equal(counted.GetProperty("id").GetGuid(),(await Count(c,req with{Note="月底盘点"})).GetProperty("id").GetGuid());
-            Assert.Equal(HttpStatusCode.Conflict,(await c.PostAsJsonAsync("/api/containers/stocktake",req with{ScrapQty=4})).StatusCode);
-
-            // 店里一个不剩时交不出桶；店里说不清（待核实）时不拦截，店里的数停在 0。
-            await Count(c,new("BUCKET",0,registered+30,0,Key()));
-            Assert.Equal(HttpStatusCode.BadRequest,(await c.PostAsJsonAsync("/api/containers/movements",new RegisterContainerMovementRequest(m,"BUCKET",1,0,IdempotencyKey:Key()))).StatusCode);
-            await Count(c,new("BUCKET",null,null,0,Key()));
+            // 店里 50、客户手里比会员名下多 30 个、报废多记 3 个，同时把提醒线改成 20。
+            var req=new UpdateStockRequest("BUCKET",Key(),50,registered+30,scrapped+3,20,"  月底核对  ");
+            var saved=await Update(c,req);
+            Assert.Equal("ADJUST",saved.GetProperty("action").GetString());Assert.Equal("月底核对",saved.GetProperty("reason").GetString());
+            Assert.Equal(20,saved.GetProperty("warnThreshold").GetProperty("after").GetInt32());Balanced(saved.GetProperty("after"));
             s=await Summary(c,"BUCKET");
-            Assert.True(s.GetProperty("inStationUnknown").GetBoolean());Assert.True(s.GetProperty("outUnknown").GetBoolean());
-            Assert.Equal(0,Qty(s,"unregisteredOutQty"));Assert.False(s.GetProperty("lowStockWarning").GetBoolean());
-            await Ok(await c.PostAsJsonAsync("/api/containers/movements",new RegisterContainerMovementRequest(m,"BUCKET",1,0,IdempotencyKey:Key())));
-            s=await Summary(c,"BUCKET");Assert.Equal(0,Qty(s,"inStationQty"));Assert.Equal(registered+1,Qty(s,"memberHeldQty"));Balanced(s);
+            Assert.Equal(50,Qty(s,"inStationQty"));Assert.Equal(registered+30,Qty(s,"withCustomersQty"));Assert.Equal(registered,Qty(s,"memberHeldQty"));
+            Assert.Equal(scrapped+3,Qty(s,"scrappedQty"));Assert.Equal(50+registered+30+Qty(s,"damagedQty"),Qty(s,"totalQty"));
+            Assert.Equal(20,Qty(s,"warnThreshold"));Assert.False(s.GetProperty("lowStockWarning").GetBoolean());
+            Assert.Equal(JsonValueKind.String,s.GetProperty("countedAt").ValueKind);Balanced(s);
+            Assert.Equal(saved.GetProperty("id").GetGuid(),(await Update(c,req with{Note="月底核对"})).GetProperty("id").GetGuid());
+            Assert.Equal(HttpStatusCode.Conflict,(await c.PostAsJsonAsync("/api/containers/stock",req with{ScrappedQty=scrapped+4})).StatusCode);
 
-            // 客户手里比会员名下登记的还少时照样记下，未登记为 0。
-            await Count(c,new("BUCKET",20,registered-1,0,Key()));
-            s=await Summary(c,"BUCKET");Assert.Equal(0,Qty(s,"unregisteredOutQty"));Assert.False(s.GetProperty("outUnknown").GetBoolean());Balanced(s);
+            // 只填一个数时其他的不动；客户手里可以比会员名下少。
+            var only=await Update(c,new("BUCKET",Key(),ScrappedQty:scrapped+5));
+            Assert.Equal(JsonValueKind.Null,only.GetProperty("warnThreshold").ValueKind);Assert.Equal("修改数量",only.GetProperty("reason").GetString());
+            await Update(c,new("BUCKET",Key(),WithCustomersQty:registered-1));
+            s=await Summary(c,"BUCKET");
+            Assert.Equal(50,Qty(s,"inStationQty"));Assert.Equal(registered-1,Qty(s,"withCustomersQty"));Assert.Equal(scrapped+5,Qty(s,"scrappedQty"));Balanced(s);
+
+            // 店里记成 0 也照样交得出桶：店里停在 0，客户手里和会员名下照加，提醒店里偏少。
+            await Update(c,new("BUCKET",Key(),InStationQty:0));
+            await Move(c,m,1,0);
+            s=await Summary(c,"BUCKET");
+            Assert.Equal(0,Qty(s,"inStationQty"));Assert.Equal(registered,Qty(s,"withCustomersQty"));Assert.Equal(registered+1,Qty(s,"memberHeldQty"));
+            Assert.True(s.GetProperty("lowStockWarning").GetBoolean());Balanced(s);
+            // 客户手里记成 0 时还桶：店里加回来，客户手里停在 0。
+            await Update(c,new("BUCKET",Key(),WithCustomersQty:0));
+            await Move(c,m,0,1);
+            s=await Summary(c,"BUCKET");
+            Assert.Equal(1,Qty(s,"inStationQty"));Assert.Equal(0,Qty(s,"withCustomersQty"));Assert.Equal(registered,Qty(s,"memberHeldQty"));Balanced(s);
+            // 提醒线 0 表示不提醒。
+            await Update(c,new("BUCKET",Key(),WarnThreshold:0));Assert.False((await Summary(c,"BUCKET")).GetProperty("lowStockWarning").GetBoolean());
 
             var history=await c.GetFromJsonAsync<JsonElement>("/api/containers/inventory-operations?containerType=BUCKET");
-            Assert.Contains(history.EnumerateArray(),x=>x.GetProperty("operation").GetProperty("action").GetString()=="COUNT");
-            Assert.Contains(",COUNT,",await c.GetStringAsync("/api/exports/inventory-operations"));
-            foreach(var bad in new[]{new StocktakeRequest("BUCKET",-1,null,0,Key()),new StocktakeRequest("BUCKET",null,null,-2,Key()),new StocktakeRequest("CUP",1,1,0,Key())})
-                Assert.Equal(HttpStatusCode.BadRequest,(await c.PostAsJsonAsync("/api/containers/stocktake",bad)).StatusCode);
+            Assert.Contains(history.EnumerateArray(),x=>x.GetProperty("operation").GetProperty("action").GetString()=="ADJUST");
+            Assert.Contains(",修改数量,",await c.GetStringAsync("/api/exports/inventory-operations"));
+            foreach(var bad in new[]{new UpdateStockRequest("BUCKET",Key(),-1),new UpdateStockRequest("BUCKET",Key(),ScrappedQty:-2),new UpdateStockRequest("BUCKET",Key(),WarnThreshold:1000001),
+                new UpdateStockRequest("BUCKET",Key()),new UpdateStockRequest("BUCKET",Key(),1,Note:new string('备',501)),new UpdateStockRequest("CUP",Key(),1)})
+                Assert.Equal(HttpStatusCode.BadRequest,(await c.PostAsJsonAsync("/api/containers/stock",bad)).StatusCode);
             using var clerk=await Client("YG0012");
-            Assert.Equal(HttpStatusCode.Forbidden,(await clerk.PostAsJsonAsync("/api/containers/stocktake",new StocktakeRequest("BUCKET",1,null,0,Key()))).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden,(await clerk.PostAsJsonAsync("/api/containers/stock",new UpdateStockRequest("BUCKET",Key(),1))).StatusCode);
         }
         finally
         {
             // Later tests hand out buckets from a known, well-stocked store.
-            await Count(c,new("BUCKET",500,null,0,Key()));await Count(c,new("BUCKET",500,Qty(await Summary(c,"BUCKET"),"memberHeldQty"),0,Key()));
+            await Update(c,new("BUCKET",Key(),500,Qty(await Summary(c,"BUCKET"),"memberHeldQty"),WarnThreshold:100));
         }
     }
 
@@ -128,22 +140,25 @@ public sealed class ContainerInventoryTests(TestHost host)
     }
 
     [Fact]
-    public async Task Fulfillment_With_No_Containers_Rolls_Back_Tickets_And_Holdings()
+    public async Task Fulfillment_From_An_Empty_Store_Still_Hands_Over()
     {
-        using var c=await Client();var m=await Member(c);var before=await Summary(c,"BUCKET");Guid? orderId=null;
+        using var c=await Client();var m=await Member(c);var before=await Summary(c,"BUCKET");
         try
         {
             await Ok(await c.PostAsJsonAsync("/api/recharges",new CreateRechargeOrderRequest(m,WaterProducts.PlanId("101"),"CASH",Key())));
             await Ok(await c.PostAsJsonAsync("/api/deposits/collect",new CollectDepositRequest(m,"BUCKET",1,"CASH",Key())));
-            var order=await Ok(await c.PostAsJsonAsync("/api/orders",new CreateWaterOrderRequest(m,"BUCKET_18_9L","PICKUP",1,Key())));orderId=order.GetProperty("id").GetGuid();
-            await Apply(c,new("BUCKET","SCRAP","可用库存为零验收",Key(),Qty(before,"inStationQty")));
-            Assert.Equal(HttpStatusCode.BadRequest,(await c.PostAsJsonAsync($"/api/orders/{orderId}/fulfill",new FulfillWaterOrderRequest(1,1,0,order.GetProperty("pickupCode").GetString()))).StatusCode);
-            var p=await c.GetFromJsonAsync<JsonElement>($"/api/members/{m}/profile");Assert.Equal(0,Qty(p,"heldBuckets"));Assert.Equal(15,p.Tickets("BUCKET_18_9L", "PICKUP"));Assert.Equal(1,p.Tickets("BUCKET_18_9L", "PICKUP", reserved: true));
+            var order=await Ok(await c.PostAsJsonAsync("/api/orders",new CreateWaterOrderRequest(m,"BUCKET_18_9L","PICKUP",1,Key())));
+            await Apply(c,new("BUCKET","SCRAP","店里记成零验收",Key(),Qty(before,"inStationQty")));
+            var done=await Ok(await c.PostAsJsonAsync($"/api/orders/{order.GetProperty("id").GetGuid()}/fulfill",new FulfillWaterOrderRequest(1,1,0,order.GetProperty("pickupCode").GetString())));
+            Assert.Equal(1,done.GetProperty("heldAfter").GetInt32());
+            var s=await Summary(c,"BUCKET");
+            Assert.Equal(0,Qty(s,"inStationQty"));Assert.Equal(Qty(before,"withCustomersQty")+1,Qty(s,"withCustomersQty"));Assert.Equal(Qty(before,"memberHeldQty")+1,Qty(s,"memberHeldQty"));
+            Assert.True(s.GetProperty("lowStockWarning").GetBoolean());Balanced(s);
+            var p=await c.GetFromJsonAsync<JsonElement>($"/api/members/{m}/profile");Assert.Equal(1,Qty(p,"heldBuckets"));Assert.Equal(15,p.Tickets("BUCKET_18_9L", "PICKUP"));Assert.Equal(0,p.Tickets("BUCKET_18_9L", "PICKUP", reserved: true));
         }
         finally
         {
             await Apply(c,new("BUCKET","RECEIVE","补充验收库存",Key(),Qty(before,"inStationQty")));
-            if(orderId.HasValue)await c.PostAsJsonAsync($"/api/orders/{orderId}/cancel",new CancelWaterOrderRequest("验收结束"));
         }
     }
 }

@@ -4,12 +4,9 @@ import { useExport, useGo, useOperations } from '../common';
 import { useAdminData } from '../data';
 
 const EMPTY_CONTAINER: ContainerSummaryItem = {
-  containerType: 'BUCKET', unitDeposit: 0, totalQty: 0, inStationQty: 0, memberHeldQty: 0,
-  damagedQty: 0, scrappedQty: 0, warnThreshold: 0, unregisteredOutQty: 0, inStationUnknown: false, outUnknown: false, countedAt: null,
-  identityValid: true, lowStockWarning: false,
+  containerType: 'BUCKET', unitDeposit: 0, totalQty: 0, inStationQty: 0, withCustomersQty: 0, memberHeldQty: 0,
+  damagedQty: 0, scrappedQty: 0, warnThreshold: 0, countedAt: null, identityValid: true, lowStockWarning: false,
 };
-/** 店里的数量；盘点时说不清的显示待核实。 */
-const inStore = (c: ContainerSummaryItem) => (c.inStationUnknown ? '待核实' : c.inStationQty);
 
 export function Dashboard() {
   const { user } = useAuth();
@@ -18,9 +15,9 @@ export function Dashboard() {
   const exportCsv = useExport();
   const ops = useOperations();
   const aggregate = (kind: ContainerType) => containers.filter(c => containerKind(c.containerType) === kind).reduce((sum, c) => ({
-    ...sum, inStationQty: sum.inStationQty + c.inStationQty, memberHeldQty: sum.memberHeldQty + c.memberHeldQty,
-    damagedQty: sum.damagedQty + c.damagedQty, totalQty: sum.totalQty + c.totalQty,
-    inStationUnknown: sum.inStationUnknown || c.inStationUnknown, outUnknown: sum.outUnknown || c.outUnknown,
+    ...sum, inStationQty: sum.inStationQty + c.inStationQty, withCustomersQty: sum.withCustomersQty + c.withCustomersQty,
+    memberHeldQty: sum.memberHeldQty + c.memberHeldQty, damagedQty: sum.damagedQty + c.damagedQty, scrappedQty: sum.scrappedQty + c.scrappedQty,
+    totalQty: sum.totalQty + c.totalQty, warnThreshold: sum.warnThreshold + c.warnThreshold,
     identityValid: sum.identityValid && c.identityValid, lowStockWarning: sum.lowStockWarning || c.lowStockWarning,
   }), { ...EMPTY_CONTAINER, containerType: kind });
   const bucket = aggregate('BUCKET');
@@ -66,9 +63,9 @@ export function Dashboard() {
         <div className="stat-foot"><span style={{ color: 'var(--orange-500)' }}>待接单配送 {pendingDelivery}</span> · 配送中 {dispatched} · 待自提 {pendingPickup}</div>
       </div>
       <div className="stat-card">
-        <div className="stat-top"><span>会员持有容器</span><span className="stat-icon gold"><Icon name="box" /></span></div>
-        <div className="stat-value">{bucket.memberHeldQty}<small>桶</small> / {bag.memberHeldQty}<small>袋</small></div>
-        <div className="stat-foot">店里能用：桶 {inStore(bucket)} · 袋 {inStore(bag)}</div>
+        <div className="stat-top"><span>客户手里的桶袋</span><span className="stat-icon gold"><Icon name="box" /></span></div>
+        <div className="stat-value">{bucket.withCustomersQty}<small>桶</small> / {bag.withCustomersQty}<small>袋</small></div>
+        <div className="stat-foot">店里能用：桶 {bucket.inStationQty} · 袋 {bag.inStationQty}</div>
       </div>
     </div>
 
@@ -86,7 +83,7 @@ export function Dashboard() {
           <div className="todo-item"><div className="todo-symbol"><Icon name="truck" /></div><div className="todo-text"><b>待接单配送</b><small>请及时指派或提醒送水员接单</small></div><span className="todo-num">{pendingDelivery}</span><button type="button" className="text-btn" onClick={() => go('orders')}>处理</button></div>
           <div className="todo-item"><div className="todo-symbol green"><Icon name="store" /></div><div className="todo-text"><b>待确认自提</b><small>会员到店出示取水码后核销</small></div><span className="todo-num">{pendingPickup}</span><button type="button" className="text-btn" onClick={() => go('orders')}>处理</button></div>
           <div className="todo-item"><div className="todo-symbol blue"><Icon name="check" /></div><div className="todo-text"><b>待审核</b><small>店员的手动赠送和退款，按审核开关等管理员处理</small></div><span className="todo-num">{pendingRefunds ?? '—'}</span><button type="button" className="text-btn" onClick={() => go('refunds')}>审核</button></div>
-          <div className="todo-item"><div className="todo-symbol"><Icon name="box" /></div><div className="todo-text"><b>周转桶库存{bucket.lowStockWarning ? '偏低' : ''}</b><small>{bucket.inStationUnknown ? '店里的数量待核实，盘点后再看是否偏低' : `当前店里能用 ${bucket.inStationQty} 个，预警值 ${bucket.warnThreshold}`}</small></div><button type="button" className="text-btn" onClick={() => go('inventory')}>盘点</button></div>
+          <div className="todo-item"><div className="todo-symbol"><Icon name="box" /></div><div className="todo-text"><b>店里的桶{bucket.lowStockWarning ? '偏少' : ''}</b><small>{`店里能用 ${bucket.inStationQty} 个${bucket.warnThreshold > 0 ? `，少于 ${bucket.warnThreshold} 个时提醒` : ''}`}</small></div><button type="button" className="text-btn" onClick={() => go('inventory')}>看库存</button></div>
         </div>
       </div>
     </div>
@@ -108,11 +105,11 @@ export function Dashboard() {
         </div>
       </div>
       <div className="card">
-        <div className="card-head"><div className="card-title">容器资产恒等概览 <small>桶、袋独立核算</small></div><button type="button" className="text-btn" onClick={() => go('assets')}>查看台账 ›</button></div>
+        <div className="card-head"><div className="card-title">桶袋在哪 <small>桶、袋分开算</small></div><button type="button" className="text-btn" onClick={() => go('inventory')}>看库存 ›</button></div>
         <div className="asset-content">
           <AssetLine label="周转桶" c={bucket} />
           <div style={{ marginTop: 18 }}><AssetLine label="周转水袋" c={bag} aqua /></div>
-          <div className={`identity-formula${balanced ? '' : ' warn'}`}><span>{balanced ? '✓ 库存平衡' : '库存不平衡，请核对'}</span><b>现存总量 = 门店可用 + 会员持有 + 待报废</b></div>
+          <div className={`identity-formula${balanced ? '' : ' warn'}`}><span>{balanced ? '✓ 数量对得上' : '数量对不上，请核对'}</span><b>合计 = 店里 + 客户手里 + 待确认报废</b></div>
         </div>
       </div>
     </div>
@@ -127,11 +124,11 @@ function OrderTag({ order: o }: { order: WaterOrder }) {
 }
 
 function AssetLine({ label, c, aqua = false }: { label: string; c: ContainerSummaryItem; aqua?: boolean }) {
-  const pct = Math.min(100, Math.round(c.memberHeldQty / Math.max(1, c.totalQty) * 100));
+  const pct = Math.min(100, Math.round(c.withCustomersQty / Math.max(1, c.totalQty) * 100));
   return <>
-    <div className="asset-line"><span>{label}</span><span>会员持有 <b>{c.memberHeldQty}</b> / 总量 <b>{c.inStationUnknown || c.outUnknown ? '至少 ' : ''}{c.totalQty}</b></span></div>
+    <div className="asset-line"><span>{label}</span><span>客户手里 <b>{c.withCustomersQty}</b> / 合计 <b>{c.totalQty}</b></span></div>
     <div className="progress"><i style={{ width: `${Math.max(4, pct)}%`, ...(aqua ? { background: 'var(--grad-aqua)' } : {}) }} /></div>
-    <div className="asset-meta"><span>店里能用 {inStore(c)}</span><span>待报废 {c.damagedQty}</span><span>累计报废 {c.scrappedQty}</span></div>
+    <div className="asset-meta"><span>店里能用 {c.inStationQty}</span><span>待确认报废 {c.damagedQty}</span><span>累计报废 {c.scrappedQty}</span></div>
   </>;
 }
 

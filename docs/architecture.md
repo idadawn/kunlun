@@ -79,8 +79,8 @@ kunlun/
 2. **`members`（会员表）**：`id`, `tenant_id`, `member_no`, `name`, `phone`, `default_address`, `status`, `source`
 3. **`recharge_plans`（充值套餐表）**：`id`, `tenant_id`, `name`, `water_type`（水品编码，见 `water_products`）, `fulfill_mode`(`DELIVERY`/`PICKUP`), `price`(`NUMERIC(10,2)`), `buy_qty`, `gift_qty`, `status`
 4. **`container_configs`（容器标准与总账表）**：
-   - `tenant_id`, `container_type`(`BUCKET`/`BAG`), `unit_deposit`, `total_qty`, `in_station_qty`, `member_held_qty`, `damaged_qty`, `unregistered_out_qty`, `scrapped_qty`, `warn_threshold`, `in_station_unknown`, `out_unknown`, `counted_at`
-   - **恒等式约束**：`CHECK (total_qty = in_station_qty + member_held_qty + damaged_qty + unregistered_out_qty)`，即现存总量 = 店里能用 + 会员名下持有 + 待报废 + 未登记在外（盘点时客户手里多于会员名下的部分）；两个 `*_unknown` 标记盘点时说不清的项，此时总量只是下限
+   - `tenant_id`, `container_type`(`BUCKET`/`BAG`), `unit_deposit`, `total_qty`, `in_station_qty`, `with_customers_qty`, `member_held_qty`, `damaged_qty`, `scrapped_qty`, `warn_threshold`, `counted_at`
+   - **恒等式约束**：`CHECK (total_qty = in_station_qty + with_customers_qty + damaged_qty)`，即合计 = 店里 + 客户手里 + 待确认报废（会员破损归还、尚未扣押金）；`member_held_qty` 是登记在会员名下的汇总，只作客户手里的参考，不进恒等式；`counted_at` 是最近一次手动修改数量的时间
 5. **`member_tickets`（会员水票余额表）**：
    - 主键：`(tenant_id, member_id, water_type, fulfill_mode)`，每种水品、每种领取方式一行，各水品互不通用
    - 字段：`available`（可用）, `reserved`（未完成水单预占）
@@ -150,7 +150,7 @@ kunlun/
 
 ## 6. 袋桶库存、周转与报废扣押
 
-`ContainerInventory` 接收 `RECEIVE` / `SCRAP`（入库计入门店可用，报废从门店可用扣减）和盘点 `POST /api/containers/stocktake`：按“店里能用 / 客户手里 / 要报废”三个回答重设店里数量和未登记在外数量，回答为空表示说不清，置 `in_station_unknown` / `out_unknown`；店里说不清时从原数量中扣掉报废数。盘点以 `COUNT` 记入库存操作，附带三个回答。店里数量待核实时不判断低库存预警；此时会员领用不受店里数量限制，店里数量最低减到 0 并重算总量，已知数量时仍不允许领成负数。库存操作保留 before/after 快照，现存总量恒等于门店可用、会员持有和待报废（会员破损归还、尚未扣押金）之和，累计报废独立累计。旧库中的在途、待检、异常和门店破损数量在启动时并入门店可用（总量不变）后删除相应列。
+`ContainerInventory` 提供修改数量 `POST /api/containers/stock`：店里、客户手里、累计报废和提醒线 `warn_threshold` 都可直接填新值，未填的字段不动（避免改报废时冲掉同时发生的领还），以 `ADJUST` 记入库存操作并更新 `counted_at`。`RECEIVE` / `SCRAP`（`POST /api/containers/inventory`，入库计入店里、报废从店里扣减）保留给脚本和旧客户端。领还时店里与客户手里按同一数量反向变化，二者都是手记的数，各自最低记到 0、不拦截交付；只有会员名下汇总必须与会员余额一致。会员破损归还使会员名下和客户手里各减、待确认报废增加；确认报废使待确认报废减、累计报废增。店里少于提醒线时 `lowStockWarning` 为真，提醒线为 0 即不提醒。库存操作保留 before/after 快照。升级时客户手里 = 原会员名下 + 原盘点“未登记在外”，原“待核实”标记连同 `unregistered_out_qty` 一并删除，总量不变；更早的在途、待检、异常和门店破损数量在启动时并入店里后删除相应列。
 
 `ContainerCirculation` 管理会员破损归还和确认报废。`container_damages` 保存原押金批次及金额、状态、两次操作的幂等回执。破损归还将 `deposit_lots.reserved_damage_qty` 增加；正常退款、领用覆盖额和可退押金展示都排除暂占数量。报废才减少批次 `remaining_qty`、增加 `deducted_qty` 并释放暂占，同时扣会员押金、更新库存并写 `container_ledgers`。财务流水以 `DEDUCT` 区别于 `REFUND`，对账包含累计扣押。
 

@@ -41,8 +41,8 @@ import type {
   SaveMemberAddressRequest,
   SaveWaterProductRequest,
   StaffAccount,
-  StocktakeRequest,
   TicketBatch,
+  UpdateStockRequest,
   WaterOrder,
   WaterProduct,
   WaterType,
@@ -239,7 +239,7 @@ export class KunlunApi {
     return this.post<{ depositNo: string; totalAmount: number }>('/api/deposits/collect', body);
   }
   inventory(body: InventoryRequest) { return this.post<InventoryOperation>('/api/containers/inventory', body); }
-  stocktake(body: StocktakeRequest) { return this.post<InventoryOperation>('/api/containers/stocktake', body); }
+  updateStock(body: UpdateStockRequest) { return this.post<InventoryOperation>('/api/containers/stock', body); }
   inventoryOperations(containerType?: ContainerType) {
     return this.request<Array<{ operation: InventoryOperation; memberName: string }>>('/api/containers/inventory-operations' + (containerType ? `?containerType=${containerType}` : ''));
   }

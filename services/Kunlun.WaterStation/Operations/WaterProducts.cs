@@ -125,7 +125,7 @@ public static class WaterProducts
                 cmd.Parameters.Add(new NpgsqlParameter("retail", NpgsqlTypes.NpgsqlDbType.Numeric) { Value = (object?)req.RetailPrice ?? DBNull.Value });
                 await cmd.ExecuteNonQueryAsync(ct);
             }
-            await Exec(conn, tx, "INSERT INTO plugin_kunlun_waterstation.container_configs(tenant_id,container_type,unit_deposit,total_qty,in_station_qty,member_held_qty,damaged_qty,scrapped_qty,unregistered_out_qty) VALUES(@tid,@type,@deposit,0,0,0,0,0,0)", ct, ("tid", tid), ("type", type), ("deposit", req.UnitDeposit.Value));
+            await Exec(conn, tx, "INSERT INTO plugin_kunlun_waterstation.container_configs(tenant_id,container_type,unit_deposit,total_qty,in_station_qty,member_held_qty,damaged_qty,scrapped_qty,with_customers_qty) VALUES(@tid,@type,@deposit,0,0,0,0,0,0)", ct, ("tid", tid), ("type", type), ("deposit", req.UnitDeposit.Value));
             var created = await Read(conn, tx, tid, type, ct);
             await tx.CommitAsync(ct);
             return Results.Ok(created);

@@ -460,7 +460,7 @@ public static class OrderEndpoints
             return await ExecuteFulfillOrderAsync(null, req.PickupCode, fulfillReq, operatorName, db, orderRepo, ct);
         }).RequireAuthorization();
 
-        // 6. 容器库存与低库存预警查询 (AC-19, AC-20)：现存总量 = 门店可用 + 会员持有 + 待报废 + 客户手里未登记
+        // 6. 容器库存与低库存预警查询 (AC-19, AC-20)：每种桶袋三个数——店里、客户手里、累计报废；现存总量 = 店里 + 客户手里 + 待确认报废
         api.MapGet("/containers/summary", async (
             NpgsqlDataSource db,
             KunlunOrderRepository orderRepo,
@@ -468,8 +468,8 @@ public static class OrderEndpoints
         {
             await using var conn = await db.OpenConnectionAsync(ct);
             await using var cmd = new NpgsqlCommand("""
-                SELECT container_type, unit_deposit, total_qty, in_station_qty, member_held_qty, damaged_qty, scrapped_qty, warn_threshold,
-                       unregistered_out_qty, in_station_unknown, out_unknown, counted_at
+                SELECT container_type, unit_deposit, total_qty, in_station_qty, with_customers_qty, member_held_qty, damaged_qty, scrapped_qty,
+                       warn_threshold, counted_at
                 FROM plugin_kunlun_waterstation.container_configs
                 WHERE tenant_id = @tid
                 ORDER BY container_type
@@ -482,11 +482,9 @@ public static class OrderEndpoints
             {
                 var total = r.GetInt32(2);
                 var inStation = r.GetInt32(3);
-                var memberHeld = r.GetInt32(4);
-                var damaged = r.GetInt32(5);
-                var threshold = r.GetInt32(7);
-                var unregistered = r.GetInt32(8);
-                var inStationUnknown = r.GetBoolean(9);
+                var withCustomers = r.GetInt32(4);
+                var damaged = r.GetInt32(6);
+                var threshold = r.GetInt32(8);
 
                 list.Add(new
                 {
@@ -494,17 +492,14 @@ public static class OrderEndpoints
                     unitDeposit = r.GetDecimal(1),
                     totalQty = total,
                     inStationQty = inStation,
-                    memberHeldQty = memberHeld,
+                    withCustomersQty = withCustomers,
+                    memberHeldQty = r.GetInt32(5),
                     damagedQty = damaged,
-                    scrappedQty = r.GetInt32(6),
+                    scrappedQty = r.GetInt32(7),
                     warnThreshold = threshold,
-                    unregisteredOutQty = unregistered,
-                    inStationUnknown,
-                    outUnknown = r.GetBoolean(10),
-                    countedAt = r.IsDBNull(11) ? (DateTime?)null : r.GetDateTime(11),
-                    identityValid = total == (long)inStation + memberHeld + damaged + unregistered,
-                    // 店里的数待核实时不知道是否偏低，不报预警
-                    lowStockWarning = !inStationUnknown && inStation < threshold
+                    countedAt = r.IsDBNull(9) ? (DateTime?)null : r.GetDateTime(9),
+                    identityValid = total == (long)inStation + withCustomers + damaged,
+                    lowStockWarning = inStation < threshold
                 });
             }
             return Results.Ok(list);
@@ -662,9 +657,9 @@ public static class OrderEndpoints
 
         await ProductContainers.SetHeld(conn, tx, orderRepo.TenantId, memberId, containerType, newHeld, ct);
 
-        // 更新容器库存恒等式 (AC-20: 在库 - deltaHeld, 会员持有 + deltaHeld)；门店可用待核实时不拦截交付
+        // 更新容器库存 (AC-20: 店里 - deltaHeld, 客户手里与会员名下 + deltaHeld)；店里的数是手记的，记到 0 为止，不拦截交付
         if (!await ContainerInventory.MoveToMembers(conn, tx, orderRepo.TenantId, containerType, deltaHeld, ct))
-            throw new BusinessRuleException("容器可用库存不足或持有台账需核对");
+            throw new BusinessRuleException("会员持有桶袋的汇总需要核对，请联系管理员");
 
         // 更新订单状态为 COMPLETED
         await using (var uOrdCmd = new NpgsqlCommand("""

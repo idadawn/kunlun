@@ -142,7 +142,8 @@ public static class ContainerCirculation
         }
         if(left>0)throw new BusinessRuleException("该会员此类容器的实收押金不足，请先核对或补收押金后登记");
         foreach(var lot in lots)await Exec(conn,tx,"UPDATE plugin_kunlun_waterstation.deposit_lots SET reserved_damage_qty=reserved_damage_qty+@qty WHERE id=@id",ct,("id",lot.LotId),("qty",lot.Quantity));
-        var after=before with{MemberHeldQty=before.MemberHeldQty-req.Quantity,DamagedQty=checked(before.DamagedQty+req.Quantity)};
+        // The damaged ones are back in the store, so they leave 客户手里 (which stops at zero) along with the member's balance.
+        var after=before with{MemberHeldQty=before.MemberHeldQty-req.Quantity,WithCustomersQty=Math.Max(before.WithCustomersQty-req.Quantity,0),DamagedQty=checked(before.DamagedQty+req.Quantity)};
         await SaveBalance(conn,tx,tid,req.ContainerType,after,ct);
         await ProductContainers.SetHeld(conn,tx,tid,req.MemberId,req.ContainerType,held-req.Quantity,ct);
         var id=Guid.NewGuid();var no="PS"+id.ToString("N")[..28];var amount=lots.Sum(l=>l.Quantity*l.UnitPrice);
@@ -192,7 +193,7 @@ public static class ContainerCirculation
         var deducted=waive?0m:amount;
         if(!waive && await Exec(conn,tx,"UPDATE plugin_kunlun_waterstation.members SET deposit_amount=deposit_amount-@amount WHERE tenant_id=@tid AND id=@mid AND deposit_amount>=@amount",ct,("amount",amount),("tid",tid),("mid",mid))!=1)
             throw new BusinessRuleException("会员押金余额不足，未执行报废扣款",409);
-        var after=before with{TotalQty=before.TotalQty-qty,DamagedQty=before.DamagedQty-qty,ScrappedQty=checked(before.ScrappedQty+qty)};
+        var after=before with{DamagedQty=before.DamagedQty-qty,ScrappedQty=checked(before.ScrappedQty+qty)};
         await SaveBalance(conn,tx,tid,type,after,ct);
         var op=await RecordOperation(conn,tx,tid,"damage:"+id.ToString("N"),hash,type,"SCRAP","DAMAGED",qty,req.Reason.Trim(),mid,user,before,after,ct);
         var no=op.GetProperty("operationNo").GetString()!;

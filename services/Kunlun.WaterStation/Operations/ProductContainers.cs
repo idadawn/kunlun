@@ -49,7 +49,7 @@ public static class ProductContainers
             if ((bool)(await ambiguous.ExecuteScalarAsync())!)
                 throw new InvalidOperationException("旧水品曾共用容器且已有库存或业务记录，需核对旧桶袋归属后再迁移，不能自动分摊库存和押金。");
             await Exec(conn, tx, """
-                INSERT INTO plugin_kunlun_waterstation.container_configs(tenant_id,container_type,unit_deposit,total_qty,in_station_qty,member_held_qty,damaged_qty,scrapped_qty,unregistered_out_qty)
+                INSERT INTO plugin_kunlun_waterstation.container_configs(tenant_id,container_type,unit_deposit,total_qty,in_station_qty,member_held_qty,damaged_qty,scrapped_qty,with_customers_qty)
                 SELECT p.tenant_id,p.container_id,c.unit_deposit,0,0,0,0,0,0 FROM plugin_kunlun_waterstation.water_products p
                 JOIN plugin_kunlun_waterstation.container_configs c ON c.tenant_id=p.tenant_id AND c.container_type=p.container_type
                 WHERE p.tenant_id=@tid AND NOT EXISTS(SELECT 1 FROM plugin_kunlun_waterstation.container_configs existing
