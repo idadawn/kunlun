@@ -269,7 +269,7 @@ public static class ReportEndpoints
                     sb.AppendLine("单号,桶袋,业务,改前店里,改后店里,改前客户手里,改后客户手里,改前已报废,改后已报废,改后现存总量,备注,经办人,时间");
                     await using var cmd = TicketBatches.Command(conn, null, $"""
                         SELECT o.operation_no,o.container_type,
-                          CASE o.action WHEN 'ADJUST' THEN '修改数量' WHEN 'COUNT' THEN '盘点' WHEN 'RECEIVE' THEN '入库'
+                          CASE o.action WHEN 'ADJUST' THEN '修改数量' WHEN 'COUNT' THEN '盘点' WHEN 'RECEIVE' THEN '新购'
                             WHEN 'SCRAP' THEN CASE o.source_state WHEN 'DAMAGED' THEN '会员破损报废' ELSE '报废' END ELSE o.action END,
                           {Field("before_state", "inStationQty")},{Field("after_state", "inStationQty")},{Customers("before_state")},{Customers("after_state")},
                           {Field("before_state", "scrappedQty")},{Field("after_state", "scrappedQty")},{Field("after_state", "totalQty")},o.reason,o.operator_name,o.created_at

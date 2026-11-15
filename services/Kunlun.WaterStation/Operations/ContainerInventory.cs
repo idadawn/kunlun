@@ -177,7 +177,7 @@ public static class ContainerInventory
     {
         if (!Authorized(user)) return Results.Forbid();
         if (!ProductContainers.ValidId(req.ContainerType) || req.Action is not ("RECEIVE" or "SCRAP"))
-            throw new BusinessRuleException("库存只办理入库和报废；会员破损请到袋桶台账登记");
+            throw new BusinessRuleException("库存只办理新购和报废；会员破损请到袋桶台账登记");
         if (string.IsNullOrWhiteSpace(req.Reason) || req.Reason.Length > 500 || req.Quantity is <= 0 or > MaxQty)
             throw new BusinessRuleException("请填写有效数量和不超过 500 字的原因");
         var hash = Hash(req with { Reason = req.Reason.Trim() }); var tid = repo.DefaultTenantId;

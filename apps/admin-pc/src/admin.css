@@ -251,6 +251,7 @@ button.stock-tile:hover .stock-tile-label .icon,button.stock-tile:focus-visible 
 .stock-sum{display:flex;align-items:baseline;flex-wrap:wrap;gap:0 6px;color:var(--muted);font-size:13px}
 .stock-sum b{font-family:var(--font-num);font-size:22px;color:var(--ink);font-variant-numeric:tabular-nums}
 .stock-sum small{font-size:11.5px;color:var(--faint)}
+.stock-actions{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}
 .stock-pending{display:flex;align-items:center;gap:8px;width:100%;margin-top:-4px;padding:9px 12px;border:1px solid var(--gold-100);border-radius:10px;background:var(--gold-50);color:var(--gold-600);font-size:12.5px;text-align:left;cursor:pointer}
 .stock-pending span{flex:1;min-width:0}.stock-pending em{font-style:normal;font-weight:600;white-space:nowrap}
 .stock-pending:hover{border-color:var(--gold-500)}
@@ -289,6 +290,8 @@ button.stock-tile:hover .stock-tile-label .icon,button.stock-tile:focus-visible 
   .stock-tile-label{grid-column:1;grid-row:1;justify-content:flex-start}
   .stock-tile-note{grid-column:1;grid-row:2;white-space:normal}
   .stock-tile-value{grid-column:2;grid-row:1/3;font-size:26px}
+  .stock-actions{width:100%}
+  .stock-actions .btn{flex:1 1 auto;justify-content:center}
 }
 @media(max-width:560px){.stock-card{padding:16px}.stock-field{grid-template-columns:1fr}.stock-field .stepper{justify-self:start}}
 /* Narrow windows: page titles sit above their actions instead of being squeezed beside them. */

@@ -150,7 +150,7 @@ kunlun/
 
 ## 6. 袋桶库存、周转与报废扣押
 
-`ContainerInventory` 提供修改数量 `POST /api/containers/stock`：店里、客户手里、累计报废和提醒线 `warn_threshold` 都可直接填新值，未填的字段不动（避免改报废时冲掉同时发生的领还），以 `ADJUST` 记入库存操作并更新 `counted_at`。`RECEIVE` / `SCRAP`（`POST /api/containers/inventory`，入库计入店里、报废从店里扣减）保留给脚本和旧客户端。领还时店里与客户手里按同一数量反向变化，二者都是手记的数，各自最低记到 0、不拦截交付；只有会员名下汇总必须与会员余额一致。会员破损归还使会员名下和客户手里各减、待确认报废增加；确认报废使待确认报废减、累计报废增。店里少于提醒线时 `lowStockWarning` 为真，提醒线为 0 即不提醒。库存操作保留 before/after 快照。升级时客户手里 = 原会员名下 + 原盘点“未登记在外”，原“待核实”标记连同 `unregistered_out_qty` 一并删除，总量不变；更早的在途、待检、异常和门店破损数量在启动时并入店里后删除相应列。
+`ContainerInventory` 提供修改数量 `POST /api/containers/stock`：店里、客户手里、累计报废和提醒线 `warn_threshold` 都可直接填新值，未填的字段不动（避免改报废时冲掉同时发生的领还），以 `ADJUST` 记入库存操作并更新 `counted_at`。`RECEIVE` / `SCRAP`（`POST /api/containers/inventory`）对应库存页卡片上的「新购」「报废」快捷按钮：新购计入店里；报废从店里扣减并计入累计报废，不能超过店里现有数量；原因必填，页面未填时以“新购”“报废”提交。领还时店里与客户手里按同一数量反向变化，二者都是手记的数，各自最低记到 0、不拦截交付；只有会员名下汇总必须与会员余额一致。会员破损归还使会员名下和客户手里各减、待确认报废增加；确认报废使待确认报废减、累计报废增。店里少于提醒线时 `lowStockWarning` 为真，提醒线为 0 即不提醒。库存操作保留 before/after 快照。升级时客户手里 = 原会员名下 + 原盘点“未登记在外”，原“待核实”标记连同 `unregistered_out_qty` 一并删除，总量不变；更早的在途、待检、异常和门店破损数量在启动时并入店里后删除相应列。
 
 `ContainerCirculation` 管理会员破损归还和确认报废。`container_damages` 保存原押金批次及金额、状态、两次操作的幂等回执。破损归还将 `deposit_lots.reserved_damage_qty` 增加；正常退款、领用覆盖额和可退押金展示都排除暂占数量。报废才减少批次 `remaining_qty`、增加 `deducted_qty` 并释放暂占，同时扣会员押金、更新库存并写 `container_ledgers`。财务流水以 `DEDUCT` 区别于 `REFUND`，对账包含累计扣押。
 
