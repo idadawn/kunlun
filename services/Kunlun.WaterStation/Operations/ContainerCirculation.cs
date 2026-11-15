@@ -81,9 +81,9 @@ public static class ContainerCirculation
                 """;
             var args=FilterArgs(repo.DefaultTenantId,q,null,page);
             await using var count=Command(conn,null,"SELECT count(*) "+from,args);var total=Convert.ToInt64(await count.ExecuteScalarAsync(ct));
-            await using var cmd=Command(conn,null,"SELECT m.id,m.member_no,m.name,m.phone,m.held_bags,m.held_buckets,m.deposit_amount,COALESCE(d.qty,0),COALESCE(d.amount,0) "+from+" ORDER BY m.created_at DESC,m.id LIMIT 20 OFFSET @offset",args);
+            await using var cmd=Command(conn,null,"SELECT m.id,m.member_no,m.name,m.phone,m.held_bags,m.held_buckets,m.deposit_amount,COALESCE(d.qty,0),COALESCE(d.amount,0),"+ProductContainers.JsonOf("m")+" "+from+" ORDER BY m.created_at DESC,m.id LIMIT 20 OFFSET @offset",args);
             var rows=new List<object>();await using var r=await cmd.ExecuteReaderAsync(ct);
-            while(await r.ReadAsync(ct))rows.Add(new{id=r.GetGuid(0),memberNo=r.GetString(1),name=r.GetString(2),phone=r.GetString(3),heldBags=r.GetInt32(4),heldBuckets=r.GetInt32(5),depositAmount=r.GetDecimal(6),pendingDamageQty=r.GetInt64(7),pendingDamageAmount=r.GetDecimal(8)});
+            while(await r.ReadAsync(ct))rows.Add(new{id=r.GetGuid(0),memberNo=r.GetString(1),name=r.GetString(2),phone=r.GetString(3),heldBags=r.GetInt32(4),heldBuckets=r.GetInt32(5),depositAmount=r.GetDecimal(6),pendingDamageQty=r.GetInt64(7),pendingDamageAmount=r.GetDecimal(8),holdings=JsonSerializer.Deserialize<JsonElement>(r.GetString(9))});
             return Results.Ok(new{rows,total,page=page??1,pageSize=20});
         }).RequireAuthorization();
         app.MapGet("/api/containers/damages",async(string? q,string? containerType,string? status,int? page,ClaimsPrincipal user,NpgsqlDataSource db,KunlunAuthRepository repo,CancellationToken ct)=>
@@ -107,14 +107,14 @@ public static class ContainerCirculation
 
     private static void ValidateFilter(string? type,int? page)
     {
-        if(type is not(null or "" or "BAG" or "BUCKET") || page is <1 or >1000000)throw new BusinessRuleException("筛选或页码无效");
+        if((!string.IsNullOrEmpty(type) && !ProductContainers.ValidId(type)) || page is <1 or >1000000)throw new BusinessRuleException("筛选或页码无效");
     }
     private static (string,object)[] FilterArgs(Guid tid,string? q,string? type,int? page)=>[("tid",tid),("q",q?.Trim()??""),("search","%"+(q?.Trim()??"")+"%"),("type",type??""),("offset",((page??1)-1)*20)];
 
     private static async Task<IResult> ReportDamage(ReportContainerDamageRequest req,ClaimsPrincipal user,NpgsqlDataSource db,KunlunAuthRepository repo,CancellationToken ct)
     {
         if(!CanManage(user))return Results.Forbid();
-        if(req.ContainerType is not("BAG" or "BUCKET") || req.Quantity is <=0 or >10000 || string.IsNullOrWhiteSpace(req.Reason) || req.Reason.Length>500)
+        if(!ProductContainers.ValidId(req.ContainerType) || req.Quantity is <=0 or >10000 || string.IsNullOrWhiteSpace(req.Reason) || req.Reason.Length>500)
             throw new BusinessRuleException("请填写会员、容器、有效破损数量和原因");
         var tid=repo.DefaultTenantId;var hash=Hash(req with{Reason=req.Reason.Trim()});
         await using var conn=await db.OpenConnectionAsync(ct);await using var tx=await conn.BeginTransactionAsync(ct);
@@ -126,9 +126,7 @@ public static class ContainerCirculation
             return Results.Ok(JsonSerializer.Deserialize<JsonElement>(r.GetString(1)));
         }
         await LockMember(conn,tx,tid,req.MemberId,ct);
-        var col=req.ContainerType=="BAG"?"held_bags":"held_buckets";
-        await using var member=Command(conn,tx,$"SELECT {col} FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND id=@mid",("tid",tid),("mid",req.MemberId));
-        var held=Convert.ToInt32(await member.ExecuteScalarAsync(ct));
+        var held=await ProductContainers.Held(conn,tx,tid,req.MemberId,req.ContainerType,ct);
         if(req.Quantity>held)throw new BusinessRuleException("破损归还数量超过会员当前持有数量");
         var before=await ReadBalance(conn,tx,tid,req.ContainerType,ct);
         if(before.MemberHeldQty<req.Quantity)throw new BusinessRuleException("会员持有汇总需要核对");
@@ -146,7 +144,7 @@ public static class ContainerCirculation
         foreach(var lot in lots)await Exec(conn,tx,"UPDATE plugin_kunlun_waterstation.deposit_lots SET reserved_damage_qty=reserved_damage_qty+@qty WHERE id=@id",ct,("id",lot.LotId),("qty",lot.Quantity));
         var after=before with{MemberHeldQty=before.MemberHeldQty-req.Quantity,DamagedQty=checked(before.DamagedQty+req.Quantity)};
         await SaveBalance(conn,tx,tid,req.ContainerType,after,ct);
-        await Exec(conn,tx,$"UPDATE plugin_kunlun_waterstation.members SET {col}={col}-@qty WHERE tenant_id=@tid AND id=@mid",ct,("qty",req.Quantity),("tid",tid),("mid",req.MemberId));
+        await ProductContainers.SetHeld(conn,tx,tid,req.MemberId,req.ContainerType,held-req.Quantity,ct);
         var id=Guid.NewGuid();var no="PS"+id.ToString("N")[..28];var amount=lots.Sum(l=>l.Quantity*l.UnitPrice);
         var receipt=new{id,damageNo=no,req.MemberId,req.ContainerType,req.Quantity,depositAmount=amount,status="PENDING",lotBreakdown=lots};
         await Exec(conn,tx,"""
@@ -198,9 +196,7 @@ public static class ContainerCirculation
         await SaveBalance(conn,tx,tid,type,after,ct);
         var op=await RecordOperation(conn,tx,tid,"damage:"+id.ToString("N"),hash,type,"SCRAP","DAMAGED",qty,req.Reason.Trim(),mid,user,before,after,ct);
         var no=op.GetProperty("operationNo").GetString()!;
-        var col=type=="BAG"?"held_bags":"held_buckets";
-        await using var holdings=Command(conn,tx,$"SELECT {col} FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND id=@mid",("tid",tid),("mid",mid));
-        var held=Convert.ToInt32(await holdings.ExecuteScalarAsync(ct));
+        var held=await ProductContainers.Held(conn,tx,tid,mid,type,ct);
         await using var coverage=Command(conn,tx,"SELECT COALESCE(sum(remaining_qty-reserved_damage_qty),0) FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@type",("tid",tid),("mid",mid),("type",type));
         var covered=Convert.ToInt32(await coverage.ExecuteScalarAsync(ct));
         await Ledger(conn,tx,tid,mid,type,no,waive?"SCRAP_WAIVED":"SCRAP",0,qty,held,covered,deducted,req.Reason.Trim(),user,ct);

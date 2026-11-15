@@ -27,7 +27,7 @@ public sealed class MemberRecordTests(TestHost host)
         var response = await member.PostAsJsonAsync("/api/auth/member/login", new { account, password = TestHost.Password }); response.EnsureSuccessStatusCode();
         member.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accessToken").GetString());
         var rows = (await member.GetFromJsonAsync<JsonElement[]>($"/api/members/{id}/deposit-summary"))!;
-        Assert.Equal(2, rows.Length);
+        Assert.Equal((await member.GetFromJsonAsync<JsonElement[]>("/api/products"))!.Length, rows.Length);
         foreach (var row in rows)
         {
             Assert.True(row.GetProperty("unitDeposit").GetDecimal() > 0);

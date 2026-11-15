@@ -120,22 +120,9 @@ a{color:var(--brand-600);text-decoration:none}
 .phone{width:100%;height:100dvh;min-height:0;position:relative}
 .phone-screen{width:100%;height:100%;overflow:hidden;background:var(--bg);position:relative;display:flex;flex-direction:column}
 
-/* =========================================================
-   微信小程序原生顶栏 + 右上角胶囊按钮（WeChat Mini Program UI）
-   ========================================================= */
-.wx-navbar{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 16px;background:#fff;border-bottom:1px solid rgba(226,232,240,.7);position:relative;z-index:25}
-.wx-navbar .wx-title{font-size:15.5px;font-weight:600;color:var(--ink);letter-spacing:.3px;display:flex;align-items:center;gap:6px}
-.wx-navbar .wx-badge{font-size:10px;padding:1px 6px;border-radius:4px;background:#e8f8f0;color:#07c160;font-weight:600}
-.wx-capsule{width:87px;height:32px;border-radius:999px;border:1px solid rgba(0,0,0,.1);background:rgba(255,255,255,.85);display:grid;grid-template-columns:1fr 1px 1fr;align-items:center;box-shadow:0 1px 3px rgba(0,0,0,.04);flex:none}
-.wx-capsule button{border:0;background:none;height:100%;display:grid;place-items:center;color:#111;padding:0}
-.wx-capsule button:active{opacity:.6}
-.wx-capsule i{height:16px;background:rgba(0,0,0,.12)}
-.wx-dots{display:inline-flex;align-items:center;gap:2.5px}
-.wx-dots span{width:4px;height:4px;border-radius:50%;background:#111}
-.wx-dots span:nth-child(2){width:5.5px;height:5.5px}
-.wx-bullseye{width:15px;height:15px;border-radius:50%;border:1.8px solid #111;display:grid;place-items:center}
-.wx-bullseye:after{content:"";width:5px;height:5px;border-radius:50%;background:#111}
-.wx-auth-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:44px;border-radius:10px;border:0;background:#07c160;color:#fff;font-size:15px;font-weight:600;box-shadow:0 4px 12px rgba(7,193,96,.25)}
+/* 移动端页面顶栏 */
+.h5-navbar{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 16px;background:#fff;border-bottom:1px solid rgba(226,232,240,.7);position:relative;z-index:25}
+.h5-navbar .h5-title{font-size:15.5px;font-weight:600;color:var(--ink);letter-spacing:.3px;display:flex;align-items:center;gap:6px}
 
 /* Username/password authentication */
 .login-gate{background:var(--bg);color:var(--ink);padding:32px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:24px;min-height:100vh}

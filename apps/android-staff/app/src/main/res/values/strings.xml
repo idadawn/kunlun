@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">绿麒麟员工端</string>
+    <string name="page_error">页面加载失败，请重试</string>
+    <string name="retry">重新加载</string>
+</resources>

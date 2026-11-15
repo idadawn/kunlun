@@ -23,7 +23,7 @@ export function useDepositPositions(memberId: string | undefined) {
       const row = rows.find(r => r.containerType === type);
       return { held: row?.heldQty ?? 0, covered: (row?.paidQty ?? 0) - (row?.pendingDamageQty ?? 0), unitDeposit: configs.find(c => c.containerType === type)?.unitDeposit ?? 0 };
     };
-    return { BUCKET: position('BUCKET'), BAG: position('BAG') } as Record<ContainerType, DepositPosition>;
+    return Object.fromEntries(rows.map(r => [r.containerType, position(r.containerType)])) as Record<ContainerType, DepositPosition>;
   }, [api, memberId]);
 }
 
@@ -36,7 +36,7 @@ export function DepositDue({ type, position, fullOut, emptyIn, children }: {
   children?: ReactNode;
 }) {
   const gap = calcDepositGap(position.covered, position.held, fullOut, emptyIn);
-  const unit = type === 'BUCKET' ? '桶' : '袋';
+  const unit = containerUnit(type);
   return (
     <div className={`deposit-due${gap ? ' owing' : ''}`}>
       <div>
@@ -118,14 +118,13 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
   const delivery = mode === 'DELIVERY';
   const handOver = counter && !delivery && can(P.OrderFulfill);
   const positions = deposits.data;
-  // Waters in the same kind of container share it. Orders are handed over one after another, so each line takes from the
-  // empties the customer still has and owes deposit on top of what the lines before it settled.
+  // Each water has its own container balance. Empty returns and deposit coverage never cross water products.
   const running = new Map<ContainerType, { position: DepositPosition; empties: number }>();
   const lines: Line[] = products.flatMap(product => {
     const water = product.waterType;
     const qty = cart[water] ?? 0;
     if (!qty) return [];
-    const container = product.containerType;
+    const container = product.containerId;
     const start = positions?.[container];
     const { position, empties } = running.get(container) ?? { position: start, empties: start?.held ?? 0 };
     // Water is swapped full-for-empty: assume every empty the customer holds comes back unless the counter records otherwise.
@@ -299,7 +298,7 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
           const tickets = ticketsFor(member, p.waterType, mode);
           const qty = cart[p.waterType] ?? 0;
           const unit = containerUnit(p.containerType);
-          const position = positions?.[p.containerType];
+          const position = positions?.[p.containerId];
           const soldOut = tickets < minimumOf(p);
           return (
             <article key={p.waterType} className={`menu-item${soldOut && !qty ? ' sold-out' : ''}`}>

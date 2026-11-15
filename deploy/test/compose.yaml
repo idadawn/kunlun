@@ -52,7 +52,7 @@ services:
     restart: unless-stopped
     volumes:
       - ${RELEASE_DIR}/admin-pc:/srv/kunlun/admin-pc:ro
-      - ${RELEASE_DIR}/mini-app:/srv/kunlun/mini-app:ro
+      - ${RELEASE_DIR}/mobile-h5:/srv/kunlun/mobile-h5:ro
       - ${RELEASE_DIR}/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     ports: ['127.0.0.1:18086:8080']
     healthcheck:

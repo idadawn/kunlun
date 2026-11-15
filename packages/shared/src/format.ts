@@ -2,23 +2,28 @@ import type { ContainerType, FulfillMode, MemberProfile, MemberTicket, OrderStat
 
 // Name and container of every water product by code. Each app passes the product lists it loads to rememberProducts;
 // the two original products are known before the first load.
-const products = new Map<WaterType, Pick<WaterProduct, 'name' | 'containerType'>>([
-  ['BUCKET_18_9L', { name: '桶装水', containerType: 'BUCKET' }],
-  ['BAG_7_5L', { name: '袋装水', containerType: 'BAG' }],
+const products = new Map<WaterType, Pick<WaterProduct, 'name' | 'containerType' | 'containerId'>>([
+  ['BUCKET_18_9L', { name: '15L 桶装水', containerType: 'BUCKET', containerId: 'BUCKET' }],
+  ['BAG_7_5L', { name: '5L 袋装水', containerType: 'BAG', containerId: 'BAG' }],
 ]);
-export function rememberProducts(list: ReadonlyArray<Pick<WaterProduct, 'waterType' | 'name' | 'containerType'>>) {
-  for (const p of list) products.set(p.waterType, { name: p.name, containerType: p.containerType });
+export function rememberProducts(list: ReadonlyArray<Pick<WaterProduct, 'waterType' | 'name' | 'containerType' | 'containerId' | 'containerId'>>) {
+  for (const p of list) products.set(p.waterType, { name: p.name, containerType: p.containerType, containerId: p.containerId });
 }
 
 export const money = (value: number | string) => Number(value).toFixed(2);
-export const containerUnit = (type: ContainerType) => (type === 'BAG' ? '袋' : '桶');
+const containerProduct = (id: ContainerType) => [...products.values()].find(p => p.containerId === id);
+export const containerKind = (id: ContainerType) => containerProduct(id)?.containerType ?? (id === 'BAG' ? 'BAG' : 'BUCKET');
+export const containerUnit = (id: ContainerType) => containerKind(id) === 'BAG' ? '袋' : '桶';
 /** Every water product travels in one kind of reusable container, which carries the deposit. */
-export const containerOf = (water: WaterType): ContainerType => products.get(water)?.containerType ?? 'BUCKET';
+export const containerOf = (water: WaterType): ContainerType => products.get(water)?.containerId ?? water;
 export const unitOf = (water: WaterType) => containerUnit(containerOf(water));
 export const modeLabel = (mode: FulfillMode) => (mode === 'PICKUP' ? '自提' : '配送');
 export const waterFallbackLabel = (water: WaterType) => products.get(water)?.name ?? '水';
-// Every bucket water shares one pool of buckets and one deposit, every bag water one pool of bags.
-export const containerLabel = (type: ContainerType) => (type === 'BUCKET' ? '周转桶' : '周转水袋');
+// Names keep the water/container match visible in every money and inventory operation.
+export const containerLabel = (id: ContainerType) => {
+  const p = containerProduct(id);
+  return p ? `${p.name} · 配套${p.containerType === 'BAG' ? '水袋' : '桶'}` : `配套容器 ${id}`;
+};
 
 /** Available (unreserved) tickets of one water product and fulfilment mode. */
 export function ticketsFor(member: Pick<MemberProfile, 'tickets'>, water: WaterType, mode: FulfillMode) {

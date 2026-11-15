@@ -1,0 +1,24 @@
+[
+  {
+    "containerType": "BUCKET",
+    "paidQty": 3,
+    "paidAmount": 60,
+    "heldQty": 2,
+    "pendingDamageQty": 0,
+    "pendingDamageAmount": 0,
+    "refundableQty": 1,
+    "refundableAmount": 20,
+    "pendingRefundQty": 0
+  },
+  {
+    "containerType": "BAG",
+    "paidQty": 1,
+    "paidAmount": 5,
+    "heldQty": 1,
+    "pendingDamageQty": 0,
+    "pendingDamageAmount": 0,
+    "refundableQty": 0,
+    "refundableAmount": 0,
+    "pendingRefundQty": 0
+  }
+]

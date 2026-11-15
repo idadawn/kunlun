@@ -26,7 +26,7 @@ public static class OverviewEndpoints
                   FROM plugin_kunlun_waterstation.water_orders WHERE tenant_id=@tid AND status='COMPLETED' GROUP BY 1
                 ), deposit_rows AS (
                   SELECT l.remaining_qty-l.reserved_damage_qty AS remaining_qty,l.unit_price,
-                    CASE l.container_type WHEN 'BUCKET' THEN m.held_buckets ELSE m.held_bags END AS held,
+                    COALESCE((SELECT h.quantity FROM plugin_kunlun_waterstation.member_container_holdings h WHERE h.tenant_id=l.tenant_id AND h.member_id=l.member_id AND h.container_type=l.container_type),0) AS held,
                     sum(l.remaining_qty-l.reserved_damage_qty) OVER (PARTITION BY l.member_id,l.container_type) AS total,
                     COALESCE(sum(l.remaining_qty-l.reserved_damage_qty) OVER (PARTITION BY l.member_id,l.container_type ORDER BY l.created_at,l.id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) AS prior
                   FROM plugin_kunlun_waterstation.deposit_lots l JOIN plugin_kunlun_waterstation.members m ON m.id=l.member_id

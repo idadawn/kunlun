@@ -22,8 +22,8 @@ function run(command, args, cwd = repo) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-run('pnpm', ['--filter', '@kunlun/mini-app', 'exec', 'tsc', '--noEmit']);
-run('pnpm', ['--filter', '@kunlun/mini-app', 'exec', 'vite', 'build', '--outDir', '../android-app/www', '--emptyOutDir']);
+run('pnpm', ['--filter', '@kunlun/mobile-h5', 'typecheck']);
+run('pnpm', ['--filter', '@kunlun/mobile-h5', 'exec', 'vite', 'build', '--outDir', '../android-app/www', '--emptyOutDir']);
 run('pnpm', ['exec', 'cap', 'sync', 'android'], app);
 const metadata = {
   appId: 'cn.idalee.lvqilin', apiOrigin: api.origin,
@@ -34,6 +34,6 @@ const metadata = {
 mkdirSync(join(app, 'artifacts'), { recursive: true });
 writeFileSync(join(app, 'artifacts/build-info.json'), JSON.stringify(metadata, null, 2) + '\n');
 if (!process.argv.includes('--sync-only')) {
-  run(process.platform === 'win32' ? 'gradlew.bat' : './gradlew', [':app:assembleDebug', ':app:lintDebug', '--console=plain'], join(app, 'android'));
+  run(process.platform === 'win32' ? 'gradlew.bat' : './gradlew', ['--no-daemon', '--no-watch-fs', ':app:assembleDebug', ':app:lintDebug', '--console=plain'], join(app, 'android'));
   console.log('APK: ' + join(app, 'android/app/build/outputs/apk/debug/app-debug.apk'));
 }

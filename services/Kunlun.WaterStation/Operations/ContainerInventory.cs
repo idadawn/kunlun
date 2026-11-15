@@ -94,7 +94,7 @@ public static class ContainerInventory
         app.MapGet("/api/containers/inventory-operations", async (string? containerType, ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>
         {
             if (!Authorized(user)) return Results.Forbid();
-            if (containerType is not (null or "BUCKET" or "BAG")) throw new BusinessRuleException("容器类型无效");
+            if (containerType is not null && !ProductContainers.ValidId(containerType)) throw new BusinessRuleException("容器类型无效");
             await using var conn = await db.OpenConnectionAsync(ct);
             await using var cmd = Command(conn, null, """
                 SELECT o.receipt::text,COALESCE(m.name,'')
@@ -111,6 +111,7 @@ public static class ContainerInventory
 
     internal static async Task<InventoryBalance> ReadBalance(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, string type, CancellationToken ct)
     {
+        await ProductContainers.Require(conn, tx, tid, type, ct);
         await using var cmd = Command(conn, tx, """
             SELECT total_qty,in_station_qty,member_held_qty,damaged_qty,scrapped_qty,unregistered_out_qty,in_station_unknown,out_unknown
             FROM plugin_kunlun_waterstation.container_configs WHERE tenant_id=@tid AND container_type=@type FOR UPDATE
@@ -168,7 +169,7 @@ public static class ContainerInventory
     private static async Task<IResult> Execute(InventoryRequest req, ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct)
     {
         if (!Authorized(user)) return Results.Forbid();
-        if (req.ContainerType is not ("BUCKET" or "BAG") || req.Action is not ("RECEIVE" or "SCRAP"))
+        if (!ProductContainers.ValidId(req.ContainerType) || req.Action is not ("RECEIVE" or "SCRAP"))
             throw new BusinessRuleException("库存只办理入库和报废；会员破损请到袋桶台账登记");
         if (string.IsNullOrWhiteSpace(req.Reason) || req.Reason.Length>500 || req.Quantity is <=0 or >1000000)
             throw new BusinessRuleException("请填写有效数量和不超过 500 字的原因");
@@ -209,7 +210,7 @@ public static class ContainerInventory
     private static async Task<IResult> Stocktake(StocktakeRequest req, ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct)
     {
         if(!Authorized(user))return Results.Forbid();
-        if(req.ContainerType is not ("BUCKET" or "BAG"))throw new BusinessRuleException("容器类型无效");
+        if(!ProductContainers.ValidId(req.ContainerType))throw new BusinessRuleException("容器类型无效");
         if(req.InStationQty is <0 or >1000000 || req.WithCustomersQty is <0 or >1000000 || req.ScrapQty is <0 or >1000000 || req.Note?.Length>500)
             throw new BusinessRuleException("请填写有效的盘点数量，备注不超过 500 字");
         var note=string.IsNullOrWhiteSpace(req.Note)?null:req.Note.Trim();

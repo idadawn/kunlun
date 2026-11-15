@@ -1,12 +1,12 @@
 import { useState, type ReactNode } from 'react';
 import {
-  KUNLUN_PERMISSIONS as P, money,
+  KUNLUN_PERMISSIONS as P, containerKind, containerLabel, money,
   type CirculationBusinessType, type CirculationRow, type ContainerDamageRow, type ContainerHoldingRow, type ContainerType, type Paged,
 } from '@kunlun/shared';
 import { Field, FormDialog, MemberPicker, ReasonChips, Stepper, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
 import { EmptyRow, Pager, useExport, useOperations } from '../common';
 import { useAdminData } from '../data';
-import { CONTAINER_NAMES, DAMAGE_REASONS, ReasonField } from './Inventory';
+import { DAMAGE_REASONS, ReasonField } from './Inventory';
 
 type Tab = 'holdings' | 'movements' | 'damages';
 type Member = Pick<ContainerHoldingRow, 'id' | 'name' | 'memberNo' | 'heldBags' | 'heldBuckets' | 'depositAmount'>;
@@ -28,7 +28,7 @@ function happened(r: CirculationRow) {
 }
 
 export function Assets() {
-  const { version, refresh } = useAdminData();
+  const { version, refresh, products } = useAdminData();
   const { api, can } = useAuth();
   const dialogs = useDialogs();
   const run = useRun();
@@ -60,13 +60,12 @@ export function Assets() {
   const result = ledger.data?.tab === tab ? ledger.data : null;
   let table: ReactNode;
   if (tab === 'holdings') table = <>
-    <thead><tr><th>会员</th><th>手机号</th><th>手里周转水袋</th><th>手里周转桶</th><th>押金余额</th><th>待报废</th><th>操作</th></tr></thead>
-    <tbody>{body(7, '暂无持有袋桶或待报废的会员', result?.tab === 'holdings' && result.rows.map(m => (
+    <thead><tr><th>会员</th><th>手机号</th><th>各水品配套桶袋</th><th>押金余额</th><th>待报废</th><th>操作</th></tr></thead>
+    <tbody>{body(6, '暂无持有袋桶或待报废的会员', result?.tab === 'holdings' && result.rows.map(m => (
       <tr key={m.id}>
         <td><b>{m.name}</b><br /><small>{m.memberNo}</small></td>
         <td>{m.phone}</td>
-        <td>{m.heldBags} 个</td>
-        <td>{m.heldBuckets} 个</td>
+        <td>{m.holdings.map(h => <div key={h.containerType}>{h.name} · {h.quantity} {h.containerKind === 'BAG' ? '袋' : '桶'}</div>)}</td>
         <td>¥{money(m.depositAmount)}</td>
         <td>{m.pendingDamageQty} 个<br /><small>占用押金 ¥{money(m.pendingDamageAmount)}</small></td>
         <td><button type="button" className="text-btn" disabled={!manage || m.heldBags + m.heldBuckets === 0} onClick={() => reportDamage(m)}>登记破损</button></td>
@@ -81,7 +80,7 @@ export function Assets() {
         <tr key={r.ledgerNo}>
           <td>{time(r.createdAt)}<br /><small className="container-reference" title={r.ledgerNo}>{r.ledgerNo}</small></td>
           <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>
-          <td>{CONTAINER_NAMES[r.containerType]}</td>
+          <td>{containerLabel(r.containerType)}</td>
           <td><span className={`tag ${tone}`}>{label}</span><br /><b>{happened(r)}</b></td>
           <td>{r.deltaHeld === 0 ? `${r.heldAfter} 个（不变）` : <b>{r.heldAfter - r.deltaHeld} → {r.heldAfter} 个</b>}</td>
           <td>{r.depositDeductedAmount ? <b className="amount-out">扣 ¥{money(r.depositDeductedAmount)}</b> : '—'}</td>
@@ -101,7 +100,7 @@ export function Assets() {
       <tr key={r.id}>
         <td>{time(r.createdAt)}<br /><small>{r.damageNo}</small></td>
         <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>
-        <td>{CONTAINER_NAMES[r.containerType]} × {r.quantity}</td>
+        <td>{containerLabel(r.containerType)} × {r.quantity}</td>
         <td>¥{money(r.depositAmount)}<br /><small>{r.status === 'PENDING' ? '报废时决定是否扣除' : r.depositWaived ? '未扣，已退回可用押金' : '已扣除'}</small></td>
         <td><span className={`tag ${r.status === 'PENDING' ? 'orange' : 'gray'}`}>{r.status === 'PENDING' ? '待报废' : r.depositWaived ? '已报废 · 未扣押金' : '已报废 · 已扣押金'}</span></td>
         <td className="inventory-reason">{r.reason}{r.scrapReason && <><br /><small>报废：{r.scrapReason}</small></>}</td>
@@ -138,7 +137,7 @@ export function Assets() {
         <button type="button" className="btn sm" onClick={() => filter(() => setQuery(search.trim()))}>查询</button>
         {tab !== 'holdings' && (
           <select className="select" aria-label="容器类型" value={type} onChange={e => filter(() => setType(e.target.value as ContainerType | ''))}>
-            <option value="">全部容器</option><option value="BAG">周转水袋</option><option value="BUCKET">周转桶</option>
+            <option value="">全部容器</option>{products.map(p => <option key={p.containerId} value={p.containerId}>{containerLabel(p.containerId)}</option>)}
           </select>
         )}
         {tab === 'damages' && (
@@ -159,8 +158,11 @@ function DamageDialog({ member, onClose, onDone }: { member?: Member; onClose: (
   const api = useApi();
   const toast = useToast();
   const key = useIdempotencyKey();
+  const { products } = useAdminData();
   const [selected, setSelected] = useState<Member | null>(member ?? null);
   const [type, setType] = useState<ContainerType>(member && member.heldBags === 0 ? 'BUCKET' : 'BAG');
+  const summary = useLoader(() => selected ? api.depositSummary(selected.id) : Promise.resolve([]), [api, selected?.id]);
+  const held = summary.data?.find(r => r.containerType === type)?.heldQty;
   const [quantity, setQuantity] = useState(1);
   const [reason, setReason] = useState('');
 
@@ -177,15 +179,15 @@ function DamageDialog({ member, onClose, onDone }: { member?: Member; onClose: (
       <Field label="会员" htmlFor="damageMember"><MemberPicker id="damageMember" value={selected} onChange={setSelected} /></Field>
       <Field label="容器类型" htmlFor="damageType">
         <select id="damageType" className="select" value={type} onChange={e => setType(e.target.value as ContainerType)}>
-          <option value="BAG">周转水袋</option><option value="BUCKET">周转桶</option>
+          {products.map(p => <option key={p.containerId} value={p.containerId}>{containerLabel(p.containerId)}</option>)}
         </select>
       </Field>
-      <p className="membership-note">{selected ? `当前持有${type === 'BAG' ? '水袋' : '桶'} ${type === 'BAG' ? selected.heldBags : selected.heldBuckets} 个 · 押金余额 ¥${money(selected.depositAmount)}` : '请选择会员'}</p>
+      <p className="membership-note">{selected ? `${containerLabel(type)}：持有 ${held ?? '…'} 个 · 押金余额 ¥${money(selected.depositAmount)}` : '请选择会员'}</p>
       <Field label="已收回破损数量（个）" htmlFor="damageQuantity">
         <Stepper id="damageQuantity" label="破损数量" value={quantity} onChange={setQuantity} min={1} max={10000} />
       </Field>
       <ReasonField value={reason} onChange={setReason} placeholder="如：桶身开裂漏水" />
-      <ReasonChips options={DAMAGE_REASONS[type]} value={reason} onPick={setReason} />
+      <ReasonChips options={DAMAGE_REASONS[containerKind(type)]} value={reason} onPick={setReason} />
     </FormDialog>
   );
 }
@@ -209,7 +211,7 @@ function ScrapDialog({ row, onClose, onDone }: { row: ContainerDamageRow; onClos
         <button type="button" aria-pressed={!deduct} onClick={() => setDeduct(false)}>不扣押金（水站承担）</button>
       </div>
       <div className="scrap-confirmation">
-        <b>{row.memberName} · {CONTAINER_NAMES[row.containerType]} {row.quantity} 个</b>
+        <b>{row.memberName} · {containerLabel(row.containerType)} {row.quantity} 个</b>
         {deduct
           ? <>
             <p>本次扣除押金 <strong>¥{money(row.depositAmount)}</strong></p>
@@ -222,7 +224,7 @@ function ScrapDialog({ row, onClose, onDone }: { row: ContainerDamageRow; onClos
       </div>
       <p className="membership-note">确认后减少现存库存、增加累计报废；{deduct ? '并扣除会员押金余额' : '不动会员押金余额，也不计入报废扣押金'}。不会再减少会员持有数量。</p>
       <ReasonField value={reason} onChange={setReason} />
-      <ReasonChips options={DAMAGE_REASONS[row.containerType]} value={reason} onPick={setReason} />
+      <ReasonChips options={DAMAGE_REASONS[containerKind(row.containerType)]} value={reason} onPick={setReason} />
     </FormDialog>
   );
 }

@@ -5,6 +5,7 @@
   "description": "Kunlun (绿麒麟·水站会员管理系统) Monorepo",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
+    "android:staff": "bash scripts/run-android-staff.sh",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "check:pages": "node scripts/check-production-pages.mjs",

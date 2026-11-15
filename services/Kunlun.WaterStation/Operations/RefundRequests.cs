@@ -156,7 +156,7 @@ public static class RefundRequests
         if (kind == "DEPOSIT")
         {
             ctype = req.ContainerType?.ToUpperInvariant();
-            if (ctype is not ("BUCKET" or "BAG") || req.Quantity is not (> 0 and <= 10000)) throw new BusinessRuleException("请选择容器并填写有效的退押数量");
+            if (!ProductContainers.ValidId(ctype) || req.Quantity is not (> 0 and <= 10000)) throw new BusinessRuleException("请选择容器并填写有效的退押数量");
             qty = req.Quantity;
         }
         else
@@ -223,9 +223,7 @@ public static class RefundRequests
     /// </summary>
     private static async Task<decimal> DepositEstimate(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, string ctype, int qty, CancellationToken ct)
     {
-        var heldCol = ctype == "BUCKET" ? "held_buckets" : "held_bags";
-        await using var heldCmd = Command(conn, tx, $"SELECT {heldCol} FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND id=@mid", ("tid", tid), ("mid", mid));
-        var held = Convert.ToInt32(await heldCmd.ExecuteScalarAsync(ct));
+        var held = await ProductContainers.Held(conn, tx, tid, mid, ctype, ct);
         var lots = new List<(decimal Price, int Qty)>();
         await using (var cmd = Command(conn, tx, """
             SELECT unit_price, remaining_qty-reserved_damage_qty FROM plugin_kunlun_waterstation.deposit_lots

@@ -1,0 +1,22 @@
+[
+  {
+    "id": "batch-1",
+    "source": "PURCHASE",
+    "name": "桶装配送套餐",
+    "waterLabel": "桶装水 15L",
+    "fulfillMode": "DELIVERY",
+    "paidAmount": 499,
+    "fixedQty": 40,
+    "giftQty": 2,
+    "remainingBuy": 18,
+    "remainingGift": 2,
+    "reservedBuy": 2,
+    "reservedGift": 0,
+    "status": "ACTIVE",
+    "createdAt": "2026-10-28T03:00:00.123Z",
+    "rechargeNo": "CZ-DEMO-001",
+    "refundedAmount": 0,
+    "pendingRequestNo": null,
+    "pendingGiftQty": 3
+  }
+]

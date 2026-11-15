@@ -19,7 +19,7 @@ export function H5Shell({ title, tabs, active, page, onNavigate, overlay, childr
     <div className="mobile-showcase">
       <div className="phone">
         <div className="phone-screen">
-          <div className="wx-navbar"><div className="wx-title">{title}</div></div>
+          <div className="h5-navbar"><div className="h5-title">{title}</div></div>
           <div className="h5-scroll" ref={scroll}>
             <div className="h5-page active">{children}</div>
           </div>

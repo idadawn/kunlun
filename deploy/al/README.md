@@ -12,7 +12,7 @@
 1. 本机运行 `pnpm install --frozen-lockfile && pnpm build`，执行后端测试和前端检查。
 2. 运行 `dotnet publish services/Kunlun.WaterStation -c Release -r linux-x64 --self-contained false -o .publish/al/api`。
 3. 使用 `deploy/al/prepare-release.sh .publish/al/release-<sha>` 生成纯发布文件，并归档上传至 al 的版本目录。
-4. 初次部署将 `compose.yaml`、`init-database.sh` 放在 `/opt/kunlun`；创建权限 600 的 `.env`，设置 `POSTGRES_IMAGE`、`ASPNET_IMAGE`、`NGINX_IMAGE`（digest），`POSTGRES_ADMIN_PASSWORD`、`KUNLUN_DB_PASSWORD`、`KUNLUN_JWT_KEY`、`KUNLUN_ADMIN_USER`、`KUNLUN_ADMIN_PASSWORD` 和 `RELEASE_DIR`。
+4. 将与发布包同一版本的 `compose.yaml`、`init-database.sh` 放在 `/opt/kunlun`。首次部署时创建权限 600 的 `.env`，设置 `POSTGRES_IMAGE`、`ASPNET_IMAGE`、`NGINX_IMAGE`（digest），`POSTGRES_ADMIN_PASSWORD`、`KUNLUN_DB_PASSWORD`、`KUNLUN_JWT_KEY`、`KUNLUN_ADMIN_USER`、`KUNLUN_ADMIN_PASSWORD` 和 `RELEASE_DIR`。
 5. `docker compose --project-directory /opt/kunlun -f /opt/kunlun/compose.yaml config --quiet` 验证后，`up -d --wait`。首次初始化会创建管理员；后续启动不会重置其密码。
 6. 网关备份后加入 `Caddyfile.fragment` 和 HTTP 重定向。分别执行 `caddy validate`、`nginx -t`，通过后热加载，保留其他站点配置。现有 Caddy 使用 `admin off`，以 `docker kill --signal=USR1 atlas-wiki-gateway-1` 重读原配置文件；不启用管理 API。HTTP 网关使用 `docker exec gitlab-proxy nginx -s reload`。
 7. 核对 HTTPS 证书、管理端静态文件哈希、管理员登录与 `/healthz`，并检查既有站点仍正常。
@@ -47,7 +47,7 @@ ssh al 'curl -fsS http://10.78.1.201/api/v2.0/ping'
 
 数据库备份在服务器受限目录执行 `docker compose exec -T database pg_dump -U postgres -d kunlun_prod -Fc > /root/kunlun-backup.dump`（先 `umask 077`）。不要使用 `down -v`，也不要将生产备份放进仓库。
 
-应用回退：将 `.env` 的 `RELEASE_DIR` 改为原版本，重新 `up -d --wait`；涉及数据库迁移时先确认旧版本兼容，不能直接覆盖数据库。首次部署失败可停止新增的 kunlun 服务并恢复网关备份。WireGuard 回退仅停止 al 的 `wg-quick@wg0` 并在 hub 吊销 `al` 客户端。
+应用回退：将 `.env` 的 `RELEASE_DIR` 改为原版本，恢复与其匹配的 `compose.yaml` 后重新 `up -d --wait`。涉及数据库迁移时先确认旧版本兼容，不能直接覆盖数据库。首次部署失败可停止新增的 kunlun 服务并恢复网关备份。WireGuard 回退仅停止 al 的 `wg-quick@wg0` 并在 hub 吊销 `al` 客户端。
 
 自动 HTTPS 与信号热加载依据：[Caddy 自动 HTTPS](https://caddyserver.com/docs/automatic-https)、[Caddy 信号说明](https://caddyserver.com/docs/command-line#signals)。
 

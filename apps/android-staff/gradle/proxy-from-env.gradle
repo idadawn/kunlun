@@ -1,0 +1,14 @@
+// Gradle's JVM does not automatically use the shell's HTTP(S)_PROXY settings.
+// Keep machine-specific proxy values out of source control and respect explicit JVM settings.
+gradle.beforeSettings {
+    ['http', 'https'].each { scheme ->
+        def value = System.getenv(scheme.toUpperCase() + '_PROXY')
+        if (value && !System.getProperty(scheme + '.proxyHost')) {
+            def proxy = new URI(value)
+            if (proxy.scheme in ['http', 'https'] && proxy.host) {
+                System.setProperty(scheme + '.proxyHost', proxy.host)
+                System.setProperty(scheme + '.proxyPort', String.valueOf(proxy.port == -1 ? 80 : proxy.port))
+            }
+        }
+    }
+}

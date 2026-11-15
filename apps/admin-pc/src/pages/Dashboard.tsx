@@ -1,4 +1,4 @@
-import { KUNLUN_BRAND, containerOf, money, waterFallbackLabel, type ContainerSummaryItem, type ContainerType, type OverviewReport, type WaterOrder } from '@kunlun/shared';
+import { KUNLUN_BRAND, containerKind, containerOf, money, waterFallbackLabel, type ContainerSummaryItem, type ContainerType, type OverviewReport, type WaterOrder } from '@kunlun/shared';
 import { Icon, useAuth } from '@kunlun/ui';
 import { useExport, useGo, useOperations } from '../common';
 import { useAdminData } from '../data';
@@ -17,15 +17,21 @@ export function Dashboard() {
   const go = useGo();
   const exportCsv = useExport();
   const ops = useOperations();
-  const bucket = containers.find(c => c.containerType === 'BUCKET') ?? EMPTY_CONTAINER;
-  const bag = containers.find(c => c.containerType === 'BAG') ?? { ...EMPTY_CONTAINER, containerType: 'BAG' };
+  const aggregate = (kind: ContainerType) => containers.filter(c => containerKind(c.containerType) === kind).reduce((sum, c) => ({
+    ...sum, inStationQty: sum.inStationQty + c.inStationQty, memberHeldQty: sum.memberHeldQty + c.memberHeldQty,
+    damagedQty: sum.damagedQty + c.damagedQty, totalQty: sum.totalQty + c.totalQty,
+    inStationUnknown: sum.inStationUnknown || c.inStationUnknown, outUnknown: sum.outUnknown || c.outUnknown,
+    identityValid: sum.identityValid && c.identityValid, lowStockWarning: sum.lowStockWarning || c.lowStockWarning,
+  }), { ...EMPTY_CONTAINER, containerType: kind });
+  const bucket = aggregate('BUCKET');
+  const bag = aggregate('BAG');
   const balanced = bucket.identityValid && bag.identityValid;
   const completed = orders.filter(o => o.status === 'COMPLETED');
   const pendingDelivery = overview?.pendingDelivery ?? orders.filter(o => o.status === 'PENDING' && o.fulfillMode === 'DELIVERY').length;
   const pendingPickup = overview?.pendingPickup ?? orders.filter(o => o.status === 'PENDING' && o.fulfillMode === 'PICKUP').length;
   const dispatched = overview?.dispatched ?? orders.filter(o => o.status === 'DISPATCHED').length;
   const pending = pendingDelivery + pendingPickup + dispatched;
-  const doneQty = (type: ContainerType) => completed.filter(o => containerOf(o.waterType) === type).reduce((s, o) => s + (o.actualQty ?? o.orderQty), 0);
+  const doneQty = (type: ContainerType) => completed.filter(o => containerKind(containerOf(o.waterType)) === type).reduce((s, o) => s + (o.actualQty ?? o.orderQty), 0);
 
   return <>
     <div className="hero-banner">

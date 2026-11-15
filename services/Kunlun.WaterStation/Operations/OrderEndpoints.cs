@@ -107,7 +107,7 @@ public static class OrderEndpoints
             var product = await WaterProducts.Read(conn, tx, orderRepo.TenantId, req.WaterType, ct);
             if (req.FulfillMode == "DELIVERY" && req.OrderQty < product.DeliveryMinimum)
                 throw new BusinessRuleException($"{product.Name}免费配送，{product.DeliveryMinimum}{product.Unit}起送");
-            var productSnapshot = new { waterLabel = product.Name, capacityLiters = product.CapacityLiters, deliveryMinimum = product.DeliveryMinimum, deliveryFee = product.DeliveryFee, containerType = product.ContainerType };
+            var productSnapshot = new { waterLabel = product.Name, capacityLiters = product.CapacityLiters, deliveryMinimum = product.DeliveryMinimum, deliveryFee = product.DeliveryFee, containerType = product.ContainerType, containerId = product.ContainerId };
 
             // 锁定会员并校验水票可用余额 (AC-04: 严禁透支为负数)
             string memberName, memberPhone;
@@ -592,25 +592,10 @@ public static class OrderEndpoints
             });
         }
 
-        var containerType = (await WaterProducts.Read(conn, tx, orderRepo.TenantId, waterType, ct)).ContainerType;
-        var heldCol = containerType == "BUCKET" ? "held_buckets" : "held_bags";
-
-        int currentHeld;
-        decimal depositAmount;
-        await using (var mCmd = new NpgsqlCommand($"""
-            SELECT {heldCol}, deposit_amount
-            FROM plugin_kunlun_waterstation.members
-            WHERE tenant_id = @tid AND id = @mid
-            FOR UPDATE
-            """, conn, tx))
-        {
-            mCmd.Parameters.AddWithValue("tid", orderRepo.TenantId);
-            mCmd.Parameters.AddWithValue("mid", memberId);
-            await using var r = await mCmd.ExecuteReaderAsync(ct);
-            await r.ReadAsync(ct);
-            currentHeld = r.GetInt32(0);
-            depositAmount = r.GetDecimal(1);
-        }
+        var containerType = (await WaterProducts.Read(conn, tx, orderRepo.TenantId, waterType, ct)).ContainerId;
+        var currentHeld = await ProductContainers.Held(conn, tx, orderRepo.TenantId, memberId, containerType, ct);
+        await using var depositCmd = TicketBatches.Command(conn, tx, "SELECT deposit_amount FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND id=@mid", ("tid", orderRepo.TenantId), ("mid", memberId));
+        var depositAmount = (decimal)(await depositCmd.ExecuteScalarAsync(ct))!;
         var (currentAvail, _) = await MemberTickets.Lock(conn, tx, orderRepo.TenantId, memberId, waterType, fulfillMode, ct);
 
         // AC-04 & AC-14: 计算实送数量与预占数量的差额 (actual_qty - reserved_qty)
@@ -675,17 +660,7 @@ public static class OrderEndpoints
         // 更新会员水票（释放多余预占或扣减补差；实送少于下单时自动加回可用）与持有容器数（AC-10: 退桶不自动退押金，deposit_amount 保持不变）
         var (newAvail, newReserved) = await MemberTickets.Add(conn, tx, orderRepo.TenantId, memberId, waterType, fulfillMode, -extraNeeded, -reservedQty, ct);
 
-        await using (var uMemCmd = new NpgsqlCommand($"""
-            UPDATE plugin_kunlun_waterstation.members
-            SET {heldCol} = @held
-            WHERE tenant_id = @tid AND id = @mid
-            """, conn, tx))
-        {
-            uMemCmd.Parameters.AddWithValue("held", newHeld);
-            uMemCmd.Parameters.AddWithValue("tid", orderRepo.TenantId);
-            uMemCmd.Parameters.AddWithValue("mid", memberId);
-            await uMemCmd.ExecuteNonQueryAsync(ct);
-        }
+        await ProductContainers.SetHeld(conn, tx, orderRepo.TenantId, memberId, containerType, newHeld, ct);
 
         // 更新容器库存恒等式 (AC-20: 在库 - deltaHeld, 会员持有 + deltaHeld)；门店可用待核实时不拦截交付
         if (!await ContainerInventory.MoveToMembers(conn, tx, orderRepo.TenantId, containerType, deltaHeld, ct))

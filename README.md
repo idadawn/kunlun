@@ -8,13 +8,15 @@
 
 - 管理后台 `/admin`：管理员登录后办理会员、订单、账务与设置。
 - 员工工作台 `/staff`：独立员工登录入口，适配手机。
+- Android 员工端：将员工页面打包进 APK，以内置 WebView 运行，见 [Android 构建与模拟器安装](apps/android-staff/README.md)。
+- Android H5 应用：安装后可切换会员和员工登录入口，见 [Android H5 打包说明](docs/android-app.md)。
 - 会员中心 `/member`：会员登录后只读查看本人水票、用水与充值记录、押金和桶袋；下单、充值、交退押金都到店或找送水员办理。
+- iOS 会员客户端：SwiftUI 原生水票、记录、押金与账户页面，支持 iOS 17+，见 [iOS 开发与验证说明](apps/ios-member/README.md)。
 
-根入口跳转管理后台。原生微信小程序已停止建设并移除，手机端即上面两个 H5 入口。
+根入口跳转管理后台。员工和会员可在手机浏览器打开对应的 H5 入口。
 
 ## 文档导航 (`docs/`)
 
-- [Android H5 打包与模拟器验收](docs/android-app.md)
 - [产品需求文档 (`docs/PRD.md`)](./docs/PRD.md)
 - [技术架构、权限与四账数据库设计 (`docs/architecture.md`)](./docs/architecture.md)
 
@@ -27,7 +29,10 @@
 | `packages/shared` | `@kunlun/shared` | 三端共享的 TypeScript 类型、API 客户端、路由表、四账核算公式与权限码常量 |
 | `packages/ui` | `@kunlun/ui` | 品牌样式与 React 组件：登录门禁、弹窗、套餐选择、收货地址簿、员工业务弹窗 |
 | `apps/admin-pc` | `@kunlun/admin-pc` | 管理端 PC（React 18 + Vite + React Router） |
-| `apps/mini-app` | `@kunlun/mini-app` | 员工端 `/staff` + 会员端 `/member` H5（React 18 + Vite） |
+| `apps/mobile-h5` | `@kunlun/mobile-h5` | 员工端 `/staff` + 会员端 `/member` H5（React 18 + Vite） |
+| `apps/android-staff` | `cn.idalee.kunlun.staff` | Android 员工端 APK（内置页面、独立窗口，Android 8.0+） |
+| `apps/android-app` | `cn.idalee.lvqilin` | Android 员工与会员 H5 调试 APK（Capacitor，Android 7.0+） |
+| `apps/ios-member` | `KunlunMember` | 原生 iOS 会员客户端（SwiftUI + App Intents，只读业务记录） |
 
 ## 本地启动与验收
 
@@ -36,7 +41,7 @@
 ```sh
 dotnet run --project services/Kunlun.WaterStation --urls http://127.0.0.1:5188
 pnpm --filter @kunlun/admin-pc dev   # http://127.0.0.1:5173/admin
-pnpm --filter @kunlun/mini-app dev   # http://127.0.0.1:5174/member 与 /staff
+pnpm --filter @kunlun/mobile-h5 dev   # http://127.0.0.1:5174/member 与 /staff
 ```
 
 两个开发服务器都把 `/api` 代理到后端，功能页采用 `/admin/plans`、`/member/records` 等路径，支持直接访问和刷新；`.html` 地址一律返回 404。`pnpm build` 先做 TypeScript 检查再构建，产物部署方式见 `deploy/nginx.conf`。
@@ -47,7 +52,7 @@ pnpm --filter @kunlun/mini-app dev   # http://127.0.0.1:5174/member 与 /staff
 ## 已接通业务
 
 - 三端用户名密码登录、会员账号设置、员工账号管理、修改密码与退出失效。
-- 水品可在后台新增（选择用周转桶还是周转水袋装，押金和袋桶库存跟着容器走），加错且没用过的水品可删除；每种水品单独建充值套餐、单独记自提/配送水票，不能互相抵用。默认两种水品（袋装 5L、桶装 15L）各有 100 / 499 元套餐，后台可编辑，历史充值保留原价快照。
+- 水品新增时同时填写配套桶/袋类型、容量和押金单价；每种水品独立管理桶袋库存、押金、领还和报废，即使同为桶装水也不能混用。容量和容器类型固定，换规格需新增水品。加错且没有套餐、单据或库存记录的水品可删除；各水品分别建充值套餐、记自提/配送水票。默认两种水品（袋装 5L、桶装 15L）各有 100 / 499 元套餐，后台可编辑，历史充值保留原价快照。
 - 水票按充值批次预占、核销、取消释放；管理员按原价退清剩余付费票并回收赠票。
 - 门店点单（员工端、管理端）：选水品加入购物袋后选择送水上门或到店取水；顾客在店取水时当场交付、登记换回空桶并收取需补押金。会员端只读，不能自助下单。
 - 会员收货地址簿：每位会员可保存多个地址（收货地址、门牌号、联系人、手机号），由店员维护，联系人和手机号默认带出本人；配送下单从地址簿选择并保存地址快照。

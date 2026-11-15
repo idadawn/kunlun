@@ -1,10 +1,9 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { KUNLUN_PERMISSIONS as P, money, shortDateTime, type ContainerSummaryItem, type ContainerType, type InventoryOperation } from '@kunlun/shared';
+import { KUNLUN_PERMISSIONS as P, containerKind, containerLabel, money, shortDateTime, type ContainerSummaryItem, type ContainerType, type InventoryOperation } from '@kunlun/shared';
 import { Dialog, Field, FormDialog, ReasonChips, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
 import { EmptyRow, useExport, useGo } from '../common';
 import { useAdminData } from '../data';
 
-export const CONTAINER_NAMES: Record<ContainerType, string> = { BAG: '周转水袋', BUCKET: '周转桶' };
 /** Common ways a bucket or bag gets damaged, offered as one-tap reasons when registering damage or scrapping. */
 export const DAMAGE_REASONS: Record<ContainerType, readonly string[]> = {
   BUCKET: ['桶身开裂漏水', '桶口破损', '提手断裂', '磕碰变形', '污染异味无法清洗', '自然老化'],
@@ -41,7 +40,7 @@ export function Inventory() {
       {containers.length === 0 ? <p className="membership-note">正在加载库存…</p> : containers.map(c => (
         <article key={c.containerType} className="stock-card">
           <header>
-            <div><h3>{CONTAINER_NAMES[c.containerType]}</h3><small>押金 ¥{money(c.unitDeposit)} / 个 · {c.countedAt ? `上次盘点 ${shortDateTime(c.countedAt)}` : '还没盘点过'}</small></div>
+            <div><h3>{containerLabel(c.containerType)}</h3><small>押金 ¥{money(c.unitDeposit)} / 个 · {c.countedAt ? `上次盘点 ${shortDateTime(c.countedAt)}` : '还没盘点过'}</small></div>
             {c.lowStockWarning && <span className="tag orange">店里偏少</span>}
           </header>
           <div className="stock-total"><span>现存总量</span><strong>{totalText(c.totalQty, c.inStationUnknown || c.outUnknown)}</strong><span>个</span></div>
@@ -78,7 +77,7 @@ export function Inventory() {
                 : history.data.map(({ operation: o, memberName }) => (
                   <tr key={o.id}>
                     <td>{new Date(o.createdAt).toLocaleString('zh-CN', { hour12: false })}<br /><small>{o.operationNo}</small></td>
-                    <td>{CONTAINER_NAMES[o.containerType]}</td>
+                    <td>{containerLabel(o.containerType)}</td>
                     <td><OperationTag action={o.action} /></td>
                     <td><OperationContent operation={o} /></td>
                     <td>{totalText(o.before.totalQty, !!(o.before.inStationUnknown || o.before.outUnknown))} → {totalText(o.after.totalQty, !!(o.after.inStationUnknown || o.after.outUnknown))}</td>
@@ -151,7 +150,7 @@ function StocktakeDialog({ config: c, onClose, onDone }: { config: ContainerSumm
   const api = useApi();
   const toast = useToast();
   const key = useIdempotencyKey();
-  const name = CONTAINER_NAMES[c.containerType];
+  const name = containerLabel(c.containerType);
   const registered = c.memberHeldQty;
   const [step, setStep] = useState(0);
   const [store, setStore] = useState<Answer>({ unknown: false, value: c.inStationUnknown ? '' : String(c.inStationQty) });
@@ -225,7 +224,7 @@ function StocktakeDialog({ config: c, onClose, onDone }: { config: ContainerSumm
               <Field label={scrapQty > 0 ? '报废原因 / 备注（选填）' : '备注（选填）'} htmlFor="countNote">
                 <input id="countNote" className="input" maxLength={500} placeholder={scrapQty > 0 ? '如：桶身开裂' : '如：月底盘点'} value={note} onChange={e => setNote(e.target.value)} />
               </Field>
-              {scrapQty > 0 && <ReasonChips options={DAMAGE_REASONS[c.containerType]} value={note} onPick={setNote} />}
+              {scrapQty > 0 && <ReasonChips options={DAMAGE_REASONS[containerKind(c.containerType)]} value={note} onPick={setNote} />}
             </div>
           </div>
         )}
@@ -265,7 +264,7 @@ function ReceiveDialog({ config, onClose, onDone }: { config: ContainerSummaryIt
     toast('入库成功');
   };
   return (
-    <FormDialog title={`${CONTAINER_NAMES[config.containerType]} · 新买入库`} className="inventory-dialog" submitLabel="确认入库" onClose={onClose} onSubmit={submit}>
+    <FormDialog title={`${containerLabel(config.containerType)} · 新买入库`} className="inventory-dialog" submitLabel="确认入库" onClose={onClose} onSubmit={submit}>
       <div className="membership-summary">新买回来的袋桶直接算进店里能用的。</div>
       <Field label="数量（个）" htmlFor="stockQty">
         <input id="stockQty" className="input" type="number" min={1} max={1000000} step={1} required value={quantity} onChange={e => setQuantity(Number(e.target.value))} />

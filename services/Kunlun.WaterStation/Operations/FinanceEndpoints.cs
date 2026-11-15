@@ -158,7 +158,7 @@ public static class FinanceEndpoints
                 WHERE tenant_id = @tid AND container_type = @ct
                 RETURNING container_type, unit_deposit
                 """, conn);
-            if (containerType is not ("BUCKET" or "BAG") || newUnitDeposit <= 0 || newUnitDeposit > 99999999 || decimal.Round(newUnitDeposit,2) != newUnitDeposit)
+            if (!ProductContainers.ValidId(containerType) || newUnitDeposit <= 0 || newUnitDeposit > 99999999 || decimal.Round(newUnitDeposit,2) != newUnitDeposit)
                 throw new BusinessRuleException("押金单价或容器类型无效");
             cmd.Parameters.AddWithValue("price", newUnitDeposit);
             cmd.Parameters.AddWithValue("tid", finRepo.TenantId);
@@ -182,7 +182,7 @@ public static class FinanceEndpoints
             var ctype = req.ContainerType.ToUpperInvariant();
             await using var conn = await ds.OpenConnectionAsync(ct);
             await using var tx = await conn.BeginTransactionAsync(ct);
-            if (ctype is not ("BUCKET" or "BAG") || req.Quantity <= 0 || req.Quantity > 10000 || req.PayMethod is not ("CASH" or "WECHAT" or "WX_OFFLINE" or "ALIPAY" or "BANK"))
+            if (!ProductContainers.ValidId(ctype) || req.Quantity <= 0 || req.Quantity > 10000 || req.PayMethod is not ("CASH" or "WECHAT" or "WX_OFFLINE" or "ALIPAY" or "BANK"))
                 throw new BusinessRuleException("押金数量、容器或收款方式无效");
             await TicketBatches.LockRequest(conn, tx, finRepo.TenantId, "deposit-collect", req.IdempotencyKey, ct);
             await TicketBatches.LockMember(conn, tx, finRepo.TenantId, req.MemberId, ct);
@@ -195,6 +195,7 @@ public static class FinanceEndpoints
                 }
 
 
+            await ProductContainers.Require(conn, tx, finRepo.TenantId, ctype, ct);
             // 获取当前容器押金单价
             decimal unitPrice;
             await using (var cfgCmd = new NpgsqlCommand("""
@@ -262,7 +263,7 @@ public static class FinanceEndpoints
 
             var tid = Guid.Parse(user.FindFirstValue("tenant_id")!);
             var ctype = req.ContainerType;
-            if (ctype is not ("BUCKET" or "BAG") || req.FullOutN < 0 || req.EmptyInM < 0 || req.FullOutN + req.EmptyInM == 0)
+            if (!ProductContainers.ValidId(ctype) || req.FullOutN < 0 || req.EmptyInM < 0 || req.FullOutN + req.EmptyInM == 0)
                 throw new BusinessRuleException("请填写有效的容器类型和领还数量");
             var key = req.IdempotencyKey ?? Guid.NewGuid().ToString("N");
             var ledgerNo = "CM" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)))[..28];
@@ -280,10 +281,9 @@ public static class FinanceEndpoints
                     return Results.Ok(new { ledgerNo, currentHeld = r.GetInt32(4), idempotentReplay = true });
                 }
             }
-            var column = ctype == "BUCKET" ? "held_buckets" : "held_bags";
-            await using var read = TicketBatches.Command(conn, tx, $"SELECT {column},deposit_amount FROM plugin_kunlun_waterstation.members WHERE id=@id AND tenant_id=@tid", ("id", req.MemberId), ("tid", tid));
-            int held; decimal deposit;
-            await using (var r = await read.ExecuteReaderAsync(ct)) { await r.ReadAsync(ct); held = r.GetInt32(0); deposit = r.GetDecimal(1); }
+            var held = await ProductContainers.Held(conn, tx, tid, req.MemberId, ctype, ct);
+            await using var read = TicketBatches.Command(conn, tx, "SELECT deposit_amount FROM plugin_kunlun_waterstation.members WHERE id=@id AND tenant_id=@tid", ("id", req.MemberId), ("tid", tid));
+            var deposit = (decimal)(await read.ExecuteScalarAsync(ct))!;
             var delta = req.FullOutN - req.EmptyInM;
             var nextHeld = held + delta;
             if (nextHeld < 0) throw new BusinessRuleException("归还数量超过会员当前持有和本次领出数量");
@@ -292,7 +292,7 @@ public static class FinanceEndpoints
             if (nextHeld > held && nextHeld > covered) throw new BusinessRuleException("押金不足，请先补交押金");
             if (!await ContainerInventory.MoveToMembers(conn, tx, tid, ctype, delta, ct))
                 throw new BusinessRuleException("容器库存不足或持有台账需要核对");
-            await TicketBatches.Exec(conn, tx, $"UPDATE plugin_kunlun_waterstation.members SET {column}=@held WHERE id=@mid AND tenant_id=@tid", ct, ("held", nextHeld), ("mid", req.MemberId), ("tid", tid));
+            await ProductContainers.SetHeld(conn, tx, tid, req.MemberId, ctype, nextHeld, ct);
             await TicketBatches.Exec(conn, tx, """
                 INSERT INTO plugin_kunlun_waterstation.container_ledgers(tenant_id,ledger_no,member_id,container_type,order_no,full_out_qty,empty_in_qty,delta_held,held_after,covered_deposit_qty_after,operator_name,remark)
                 VALUES(@tid,@no,@mid,@ct,@order,@out,@in,@delta,@held,@covered,@operator,'独立领还')
@@ -316,7 +316,7 @@ public static class FinanceEndpoints
             var ctype = req.ContainerType.ToUpperInvariant();
             await using var conn = await ds.OpenConnectionAsync(ct);
             await using var tx = await conn.BeginTransactionAsync(ct);
-            if (ctype is not ("BUCKET" or "BAG") || req.Quantity <= 0 || req.Quantity > 10000)
+            if (!ProductContainers.ValidId(ctype) || req.Quantity <= 0 || req.Quantity > 10000)
                 throw new BusinessRuleException("退款数量或容器类型无效");
             if (req.PayMethod is not (null or "CASH" or "WECHAT" or "WX_OFFLINE" or "ALIPAY" or "BANK"))
                 throw new BusinessRuleException("退款方式无效");
@@ -354,13 +354,7 @@ public static class FinanceEndpoints
     public static async Task<DepositRefundResult> ExecuteDepositRefund(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, string ctype,
         int quantity, string? payMethod, string idempotencyKey, string operatorName, CancellationToken ct)
     {
-        var heldCol = ctype == "BUCKET" ? "held_buckets" : "held_bags";
-        int currentHeld;
-        await using (var mCmd = TicketBatches.Command(conn, tx, $"SELECT {heldCol} FROM plugin_kunlun_waterstation.members WHERE tenant_id = @tid AND id = @mid FOR UPDATE", ("tid", tid), ("mid", mid)))
-        {
-            var v = await mCmd.ExecuteScalarAsync(ct) ?? throw new BusinessRuleException("会员不存在", 404);
-            currentHeld = Convert.ToInt32(v);
-        }
+        var currentHeld = await ProductContainers.Held(conn, tx, tid, mid, ctype, ct);
 
         // 读取未退押金批次（按 FIFO 顺序锁定）
         var lots = new List<(Guid Id, string No, decimal UnitPrice, int Remaining)>();
