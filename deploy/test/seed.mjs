@@ -38,6 +38,6 @@ for (const [i, user] of access.members.entries()) {
   await call('/api/deposits/collect', 'POST', { memberId: member.id, containerType: 'BUCKET', quantity: 1, payMethod: 'CASH', idempotencyKey: 'test-setup-deposit-' + i }, admin.accessToken);
 }
 // The reason is part of the idempotent request; it stays as first sent so re-runs remain replays.
-for (const containerType of ['BUCKET', 'BAG']) await call('/api/containers/inventory', 'POST', { containerType, action: 'RECEIVE', quantity: 200, reason: '小程序独立测试环境初始化', idempotencyKey: 'test-setup-stock-' + containerType }, admin.accessToken);
+for (const containerType of ['BUCKET', 'BAG']) await call('/api/containers/inventory', 'POST', { containerType, action: 'RECEIVE', quantity: 200, reason: '独立测试环境初始化', idempotencyKey: 'test-setup-stock-' + containerType }, admin.accessToken);
 fs.writeFileSync(configPath, JSON.stringify(access, null, 2) + '\n', { mode: 0o600 });
 console.log('Test-only setup complete: administrator, clerk, two members, initial tickets, deposits and inventory.');

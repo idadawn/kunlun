@@ -24,6 +24,6 @@ cd apps/android-staff
 ./gradlew :app:assembleRelease -PstaffReleaseOrigin=https://kunlun.idalee.cn
 ```
 
-Gradle 会先检查前端类型，再将当前 `apps/mini-app` 构建到生成的 assets 目录，不改动 H5 的 `dist`。发布版仅允许 HTTPS，默认连接正式服务，可用 `staffReleaseOrigin` 指定其他 HTTPS 域名。发布 APK 尚未配置签名，正式分发前需由发布人员提供签名配置；本地调试包由 Android 调试密钥签名。
+Gradle 会先检查前端类型，再将当前 `apps/mobile-h5` 构建到生成的 assets 目录，不改动 H5 的 `dist`。发布版仅允许 HTTPS，默认连接正式服务，可用 `staffReleaseOrigin` 指定其他 HTTPS 域名。发布 APK 尚未配置签名，正式分发前需由发布人员提供签名配置；本地调试包由 Android 调试密钥签名。
 
 容器只允许员工端路由与指定服务器的 API 请求，文件访问、外部内容导航和混合内容均关闭；Android 返回键先返回应用内上一页，根页返回桌面。状态栏、手势区和软键盘通过原生窗口边距处理。

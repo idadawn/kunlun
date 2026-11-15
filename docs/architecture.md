@@ -43,7 +43,7 @@ kunlun/
 │   └── ui/                              # @kunlun/ui：品牌样式、图标、弹窗、登录门禁、套餐选择、地址簿与员工业务弹窗
 └── apps/
     ├── admin-pc/                        # @kunlun/admin-pc：管理端 PC（React 18 + Vite + React Router）
-    └── mini-app/                        # @kunlun/mini-app：员工端 /staff 与会员端 /member H5（React 18 + Vite）
+    └── mobile-h5/                        # @kunlun/mobile-h5：员工端 /staff 与会员端 /member H5（React 18 + Vite）
 ```
 
 ---
@@ -75,8 +75,8 @@ kunlun/
 
 ### 3.1 10 张核心表清单
 
-1. **`staff`（员工表）**：`id`, `tenant_id`, `staff_no`, `name`, `phone`, `role`, `permissions`, `status`, `token_version`, `wx_openid`
-2. **`members`（会员表）**：`id`, `tenant_id`, `member_no`, `name`, `phone`, `wx_openid`, `default_address`, `status`, `source`
+1. **`staff`（员工表）**：`id`, `tenant_id`, `staff_no`, `name`, `phone`, `role`, `permissions`, `status`, `token_version`
+2. **`members`（会员表）**：`id`, `tenant_id`, `member_no`, `name`, `phone`, `default_address`, `status`, `source`
 3. **`recharge_plans`（充值套餐表）**：`id`, `tenant_id`, `name`, `water_type`（水品编码，见 `water_products`）, `fulfill_mode`(`DELIVERY`/`PICKUP`), `price`(`NUMERIC(10,2)`), `buy_qty`, `gift_qty`, `status`
 4. **`container_configs`（容器标准与总账表）**：
    - `tenant_id`, `container_type`(`BUCKET`/`BAG`), `unit_deposit`, `total_qty`, `in_station_qty`, `member_held_qty`, `damaged_qty`, `unregistered_out_qty`, `scrapped_qty`, `warn_threshold`, `in_station_unknown`, `out_unknown`, `counted_at`
@@ -114,7 +114,7 @@ kunlun/
 
 默认套餐是自提 100/16、500/95，配送 100/13、500/70；`buy_qty` 表示全部固定付费票。历史 `gift_qty` 字段保留兼容原单，新方案设置为零。优惠券已取消（2026-11-01），旧充值单的 `coupon_snapshot` 和已生成的赠票批次保留；`recharge_orders.plan_snapshot` 保存交易条件，改价不改变退款计价。退款按批次一次退清，最终金额舍入到分，无重复分次舍入损失。
 
-管理端为 `apps/admin-pc` React 应用；员工端与会员端为 `apps/mini-app` React H5 应用，按路径加载对应端的代码与样式。浏览器端使用 `@kunlun/shared` 的 `KunlunApi` 作为 API 入口，`@kunlun/ui` 提供登录门禁、弹窗栈以及充值、退款、履约、押金和领还等员工业务弹窗，管理端和员工端共用；点单组件见 5.2。会员端只读，不能下单、维护地址、充值或付款。原生微信小程序已停止建设并移除（2026-11-01），系统不接入在线支付。
+管理端为 `apps/admin-pc` React 应用；员工端与会员端为 `apps/mobile-h5` React H5 应用，按路径加载对应端的代码与样式。浏览器端使用 `@kunlun/shared` 的 `KunlunApi` 作为 API 入口，`@kunlun/ui` 提供登录门禁、弹窗栈以及充值、退款、履约、押金和领还等员工业务弹窗，管理端和员工端共用；点单组件见 5.2。会员端只读，不能下单、维护地址、充值或付款。系统不接入在线支付。
 
 接口：`POST/PUT /api/plans`（水品须存在），`POST /api/recharges`，`GET /api/members/{id}/ticket-batches`，`POST /api/ticket-batches/{id}/refund`。水品：`GET/POST /api/products`、`PUT/DELETE /api/products/{waterType}`，写操作需 `plan:manage`；新增必须选 `containerType`，编辑保留原容器，名称不可重复；有套餐、水票或水单的水品不能删除（409）。会员档案和会员列表返回 `tickets`（各水品各领取方式的非零余额，带水品名称、容器和单位）。退款需 `recharge:refund` 权限，仅默认授予管理员；会员查询强制本人范围。充值汇总分别返回累计收款、累计退款及水费净收。
 
@@ -123,7 +123,7 @@ kunlun/
 
 三端使用 `/admin`、`/staff`、`/member` 路径，合法页面由 `packages/shared/src/routes.ts` 定义，应用内用 React Router 导航。`scripts/vite-routes.ts` 为开发与 preview 服务器提供同一套规则：声明的页面返回 React 入口，`/` 跳转 `/admin`（H5 应用跳转 `/member`），未知页面和任何 `.html` 地址返回 404，不再兼容 `admin.html`、`#页面` 等旧链接。
 
-构建产物为 `apps/admin-pc/dist`、`apps/mini-app/dist`，各含一个入口文档和 `/static/admin/`、`/static/h5/` 下带哈希的资源，两套资源目录不冲突，也不与 `/admin/assets` 等页面路径冲突。`deploy/nginx.conf` 按页面路由把请求分发到对应构建，`scripts/web-routes.test.mjs` 校验其正则与路由表一致；`scripts/check-production-pages.mjs` 校验构建产物。充值使用 `@kunlun/ui` 的套餐选择器，按“水品 × 领取方式”分类，只有启用套餐可确认。
+构建产物为 `apps/admin-pc/dist`、`apps/mobile-h5/dist`，各含一个入口文档和 `/static/admin/`、`/static/h5/` 下带哈希的资源，两套资源目录不冲突，也不与 `/admin/assets` 等页面路径冲突。`deploy/nginx.conf` 按页面路由把请求分发到对应构建，`scripts/web-routes.test.mjs` 校验其正则与路由表一致；`scripts/check-production-pages.mjs` 校验构建产物。充值使用 `@kunlun/ui` 的套餐选择器，按“水品 × 领取方式”分类，只有启用套餐可确认。
 
 
 ## 5.1 会员收货地址簿
@@ -182,4 +182,4 @@ kunlun/
 
 ## 独立测试服务（2026-10-30，2026-11-01 更新）
 
-`kunlun-test.idalee.cn` 使用独立 Compose、数据库 `kunlun_test`、非超级用户 `kunlun_test_app` 及 JWT 密钥，承载管理端与 H5 的联调。`/healthz` 返回当前数据库名，部署检查据此确认连接的是测试库。小程序专用的配置接口与模拟支付已随小程序一并移除。详见 [测试部署](../deploy/test/README.md)。
+`kunlun-test.idalee.cn` 使用独立 Compose、数据库 `kunlun_test`、非超级用户 `kunlun_test_app` 及 JWT 密钥，承载管理端与 H5 的联调。`/healthz` 返回当前数据库名，部署检查据此确认连接的是测试库。详见 [测试部署](../deploy/test/README.md)。

@@ -307,7 +307,7 @@ public static class ReportEndpoints
             return Results.File(bytes, "text/csv; charset=utf-8", $"kunlun-{dataset}-{DateTime.UtcNow:yyyyMMdd}.csv");
         }).RequireAuthorization();
 
-        // 3. 充值流水、充值退款流水、押金收支流水、容器领还流水列表查询 (供管理端 PC 与小程序端实时渲染)，可按单号/会员、业务时间、收付方式、业务类型、容器类型筛选并分页
+        // 3. 充值流水、充值退款流水、押金收支流水、容器领还流水列表查询 (供管理端和员工端查询)，可按单号/会员、业务时间、收付方式、业务类型、容器类型筛选并分页
         api.MapGet("/ledgers/recharges", async (string? q, DateTimeOffset? from, DateTimeOffset? to, string? payMethod, int? page, int? pageSize,
             NpgsqlDataSource db, KunlunAuthRepository authRepo, CancellationToken ct) =>
         {

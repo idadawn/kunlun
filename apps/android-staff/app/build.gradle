@@ -37,17 +37,17 @@ android {
 
 def checkWeb = tasks.register('checkStaffWeb', Exec) {
     workingDir repositoryRoot
-    commandLine 'pnpm', '--filter', '@kunlun/mini-app', 'typecheck'
+    commandLine 'pnpm', '--filter', '@kunlun/mobile-h5', 'typecheck'
 }
 def bundleWeb = tasks.register('bundleStaffWeb', Exec) {
     dependsOn checkWeb
     workingDir repositoryRoot
-    inputs.files(fileTree(new File(repositoryRoot, 'apps/mini-app')) { exclude 'node_modules/**', 'dist/**' })
+    inputs.files(fileTree(new File(repositoryRoot, 'apps/mobile-h5')) { exclude 'node_modules/**', 'dist/**' })
     inputs.files(fileTree(new File(repositoryRoot, 'packages')) { exclude '**/node_modules/**', '**/dist/**', '**/.turbo/**' })
     inputs.dir new File(repositoryRoot, 'scripts')
     inputs.file new File(repositoryRoot, 'pnpm-lock.yaml')
     outputs.dir webAssets
-    commandLine 'pnpm', '--filter', '@kunlun/mini-app', 'exec', 'vite', 'build', '--outDir', webAssets.get().asFile.absolutePath, '--emptyOutDir'
+    commandLine 'pnpm', '--filter', '@kunlun/mobile-h5', 'exec', 'vite', 'build', '--outDir', webAssets.get().asFile.absolutePath, '--emptyOutDir'
 }
 tasks.named('preBuild').configure { dependsOn bundleWeb }
 

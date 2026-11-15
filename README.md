@@ -12,7 +12,7 @@
 - 会员中心 `/member`：会员登录后只读查看本人水票、用水与充值记录、押金和桶袋；下单、充值、交退押金都到店或找送水员办理。
 - iOS 会员客户端：SwiftUI 原生水票、记录、押金与账户页面，支持 iOS 17+，见 [iOS 开发与验证说明](apps/ios-member/README.md)。
 
-根入口跳转管理后台。原生微信小程序已停止建设并移除，手机浏览器端继续使用上述两个 H5 入口。
+根入口跳转管理后台。员工和会员可在手机浏览器打开对应的 H5 入口。
 
 ## 文档导航 (`docs/`)
 
@@ -28,7 +28,7 @@
 | `packages/shared` | `@kunlun/shared` | 三端共享的 TypeScript 类型、API 客户端、路由表、四账核算公式与权限码常量 |
 | `packages/ui` | `@kunlun/ui` | 品牌样式与 React 组件：登录门禁、弹窗、套餐选择、收货地址簿、员工业务弹窗 |
 | `apps/admin-pc` | `@kunlun/admin-pc` | 管理端 PC（React 18 + Vite + React Router） |
-| `apps/mini-app` | `@kunlun/mini-app` | 员工端 `/staff` + 会员端 `/member` H5（React 18 + Vite） |
+| `apps/mobile-h5` | `@kunlun/mobile-h5` | 员工端 `/staff` + 会员端 `/member` H5（React 18 + Vite） |
 | `apps/android-staff` | `cn.idalee.kunlun.staff` | Android 员工端 APK（内置页面、独立窗口，Android 8.0+） |
 | `apps/ios-member` | `KunlunMember` | 原生 iOS 会员客户端（SwiftUI + App Intents，只读业务记录） |
 
@@ -39,7 +39,7 @@
 ```sh
 dotnet run --project services/Kunlun.WaterStation --urls http://127.0.0.1:5188
 pnpm --filter @kunlun/admin-pc dev   # http://127.0.0.1:5173/admin
-pnpm --filter @kunlun/mini-app dev   # http://127.0.0.1:5174/member 与 /staff
+pnpm --filter @kunlun/mobile-h5 dev   # http://127.0.0.1:5174/member 与 /staff
 ```
 
 两个开发服务器都把 `/api` 代理到后端，功能页采用 `/admin/plans`、`/member/records` 等路径，支持直接访问和刷新；`.html` 地址一律返回 404。`pnpm build` 先做 TypeScript 检查再构建，产物部署方式见 `deploy/nginx.conf`。

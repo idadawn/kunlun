@@ -119,7 +119,6 @@ public sealed class KunlunAuthRepository(NpgsqlDataSource dataSource, IConfigura
                 permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
                 status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
                 token_version INT NOT NULL DEFAULT 1,
-                wx_openid VARCHAR(64),
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 UNIQUE (tenant_id, staff_no),
                 UNIQUE (tenant_id, phone)
@@ -131,7 +130,6 @@ public sealed class KunlunAuthRepository(NpgsqlDataSource dataSource, IConfigura
                 member_no VARCHAR(32) NOT NULL,
                 name VARCHAR(64) NOT NULL,
                 phone VARCHAR(20) NOT NULL,
-                wx_openid VARCHAR(64),
                 default_address TEXT,
                 -- Original ticket balances; MemberTickets.EnsureSchema moves them to member_tickets and drops them on first start.
                 bucket_delivery_tickets INT NOT NULL DEFAULT 0 CHECK (bucket_delivery_tickets >= 0),
