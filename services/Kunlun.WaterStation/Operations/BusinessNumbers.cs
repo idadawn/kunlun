@@ -1,3 +1,4 @@
+using System.Globalization;
 using Npgsql;
 using static Kunlun.WaterStation.Operations.TicketBatches;
 
@@ -8,6 +9,18 @@ namespace Kunlun.WaterStation.Operations;
 // Deposit, refund and order numbers are unique across tenants, so their counters are global; member numbers are per tenant.
 public static class BusinessNumbers
 {
+    // Dated numbers carry the station's calendar day in Asia/Shanghai, the day the overview counts a record under
+    // (now() AT TIME ZONE 'Asia/Shanghai'). Shanghai has kept UTC+8 without daylight saving since 1991, so a fixed offset is exact
+    // and needs no tzdata in the runtime image. Earlier releases used the UTC date, so their numbers from 00:00–08:00 Beijing time
+    // carry the previous day. The counter period is the same yyyyMMdd string either way, so one date never gets two counters.
+    private static readonly TimeSpan StationOffset = TimeSpan.FromHours(8);
+
+    /// <summary>The yyyyMMdd date that numbers issued at this instant carry: the Beijing calendar day.</summary>
+    public static string Day(DateTimeOffset at) => at.ToOffset(StationOffset).ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+
+    /// <summary>Where dated numbers read the time; tests stop it at chosen instants.</summary>
+    internal static TimeProvider Clock { get; set; } = TimeProvider.System;
+
     public static async Task EnsureSchema(NpgsqlDataSource db, CancellationToken ct = default)
     {
         await using var conn = await db.OpenConnectionAsync(ct);
@@ -44,7 +57,7 @@ public static class BusinessNumbers
 
     private static Task<string> Daily(NpgsqlConnection conn, NpgsqlTransaction tx, string scope, Func<string, long, string> format, string takenSql, CancellationToken ct)
     {
-        var day = DateTime.UtcNow.ToString("yyyyMMdd");
+        var day = Day(Clock.GetUtcNow());
         return Next(conn, tx, scope, day, n => format(day, n), takenSql, ct);
     }
 

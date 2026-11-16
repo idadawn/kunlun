@@ -217,6 +217,12 @@ kunlun/
 - 提示条分成功与失败：`useToast()(message, 'error')` 显示警示图标（新增 `alert` 图标，红色），否则仍是对勾。`useRun` 捕获的异常、各端页面级刷新失败和退出失败都走 `'error'`，不再出现“对勾 + 请求失败”。
 - H5 入口声明图标 `src/favicon.svg`，由 Vite 打包为 `/static/h5/favicon-<hash>.svg`。员工端安卓容器只放行员工页面、`/static/h5/` 资源和接口，未声明图标时 WebView 会请求 `/favicon.ico` 并被拦成 403；生产页面检查要求引用都在 `/static/h5/` 下，所以不用内联 data URI。
 
+## 10. 业务单号按北京时间取日期（2026-11-17）
+
+- 水单 `ORD-yyyyMMdd-NNNNNN`、押金 `YJyyyyMMddNNNN`、押金退款 `TKyyyyMMddNNNN`、审核申请 `SQyyyyMMddNNNN` 中的日期取水站时区 Asia/Shanghai 的当天，与首页统计 `now() AT TIME ZONE 'Asia/Shanghai'` 同一口径。`BusinessNumbers.Day` 按固定 UTC+8 计算（上海自 1991 年起不用夏令时），不依赖运行镜像里的 tzdata。此前取 UTC 日期，北京时间 0–8 点生成的单号带前一天的日期（如 11-17 03:50 的水单是 `ORD-20261116-000001`），历史单号不改。
+- 序号来自 `business_number_counters`，键为 `(scope, period)`，period 就是这个日期串。新旧规则的日期串格式相同，同一日期只有一行计数，切换前后开出的号都在这一行上接着编；新出现的日期从 1 开始，`Next()` 用 EXISTS 跳过业务表里已被占用的号码，所以切换当天不会重号。会员编号 `No.NNNNNN` 不带日期，按租户计数，不受影响。
+- 日期取自 `BusinessNumbers.Clock`（默认 `TimeProvider.System`，仅测试替换）。`BusinessNumberTests` 覆盖北京零点、03:50（UTC 仍是前一天）和跨年，并在停住的时钟下经接口开出四类单号，验证 08:00 后沿用同一计数、计数行重建后跳过已占用号码。
+
 ## 独立测试服务（2026-10-30，2026-11-01 更新）
 
 `kunlun-test.idalee.cn` 使用独立 Compose、数据库 `kunlun_test`、非超级用户 `kunlun_test_app` 及 JWT 密钥，承载管理端与 H5 的联调。`/healthz` 返回当前数据库名，部署检查据此确认连接的是测试库。详见 [测试部署](../deploy/test/README.md)。
