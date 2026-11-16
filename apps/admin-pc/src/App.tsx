@@ -113,7 +113,7 @@ function AdminLayout() {
   const firstPage = useRef(true);
   useEffect(() => {
     if (firstPage.current) { firstPage.current = false; return; }
-    refresh().catch(e => toast(e.message));
+    refresh().catch(e => toast(e.message, 'error'));
   }, [page, refresh, toast]);
   useEffect(() => { document.querySelector('.main-wrap')?.scrollTo(0, 0); closeSidebar(); }, [page, closeSidebar]);
 

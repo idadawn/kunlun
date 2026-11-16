@@ -89,7 +89,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   }, [api, can]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => refresh().catch(e => toast(e.message)), memberQuery ? 200 : 0);
+    const timer = window.setTimeout(() => refresh().catch(e => toast(e.message, 'error')), memberQuery ? 200 : 0);
     return () => window.clearTimeout(timer);
   }, [memberQuery, memberFilter, memberPage, refresh, toast]);
 

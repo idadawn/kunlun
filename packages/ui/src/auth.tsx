@@ -84,7 +84,7 @@ export function AuthGate({ area, apiBaseUrl = '', loginFooter, children }: { are
     refreshUser,
     logout: async () => {
       try { await api.logout(); }
-      catch (e) { if (api.token) { toast('退出失败，请重试：' + (e instanceof Error ? e.message : e)); return; } }
+      catch (e) { if (api.token) { toast('退出失败，请重试：' + (e instanceof Error ? e.message : e), 'error'); return; } }
       endSession();
     },
   }, [api, endSession, refreshUser, toast, user]);

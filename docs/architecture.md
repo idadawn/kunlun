@@ -211,6 +211,12 @@ kunlun/
 - `GET /api/reports/finance-summary` 新增 `unusedRechargeValue`（SQL 中按同一口径 `sum(round(paid_amount*remaining_buy/fixed_qty,2))`）、`unusedPaidTicketQty`、`unusedGiftTicketQty`、`legacyTicketQty`（历史余额张数，不计价）、`unrefundedDepositQty`、`potentialRefundTotal`（未退押金 + 没用完的水费）与 `rechargeEarnedTotal`（水费净收 − 没用完的水费）。集成测试 `Deposits_And_Unused_Paid_Tickets_Add_Up_To_Money_Members_Could_Ask_Back` 校验两笔充值、赠票、占用和押金带来的增量，以及退清后的回落。
 - 点单：`useDepositPositions` 额外带出已交押金个数与金额、待报废和现在可退；`OrderMenu` 顶部按配套容器显示持有与押金小卡（管理端弹窗与员工端共用）。购物袋的「清空」只清已选数量和换回空桶的改动，不清除本次结算已生成的幂等键：上一次提交若其实已在服务端成功，再提交同一水品也不会重复下单。
 
+## 9. 员工端安卓实测修正（2026-11-16）
+
+- 细滚动条样式（`brand.css`）只在 `@media(hover:hover) and (pointer:fine)` 下生效。触屏 WebView 里自定义 `::-webkit-scrollbar` 会变成占位滚动条，`.h5-scroll` 一出现滚动就让出约 10px，内容整体变窄；手机、平板改用系统悬浮滚动条，桌面不变。
+- 提示条分成功与失败：`useToast()(message, 'error')` 显示警示图标（新增 `alert` 图标，红色），否则仍是对勾。`useRun` 捕获的异常、各端页面级刷新失败和退出失败都走 `'error'`，不再出现“对勾 + 请求失败”。
+- H5 入口声明图标 `src/favicon.svg`，由 Vite 打包为 `/static/h5/favicon-<hash>.svg`。员工端安卓容器只放行员工页面、`/static/h5/` 资源和接口，未声明图标时 WebView 会请求 `/favicon.ico` 并被拦成 403；生产页面检查要求引用都在 `/static/h5/` 下，所以不用内联 data URI。
+
 ## 独立测试服务（2026-10-30，2026-11-01 更新）
 
 `kunlun-test.idalee.cn` 使用独立 Compose、数据库 `kunlun_test`、非超级用户 `kunlun_test_app` 及 JWT 密钥，承载管理端与 H5 的联调。`/healthz` 返回当前数据库名，部署检查据此确认连接的是测试库。详见 [测试部署](../deploy/test/README.md)。

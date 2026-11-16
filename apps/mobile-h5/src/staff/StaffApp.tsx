@@ -41,7 +41,7 @@ function StaffShell() {
   const firstVisit = useRef(true);
   useEffect(() => {
     if (firstVisit.current) { firstVisit.current = false; return; }
-    if (page) Promise.all([refresh(), refreshUser()]).catch(e => toast(e.message));
+    if (page) Promise.all([refresh(), refreshUser()]).catch(e => toast(e.message, 'error'));
   }, [page, refresh, refreshUser, toast]);
 
   if (!route || route.area !== 'staff') return <Navigate to={pathFor('staff')} replace />;
