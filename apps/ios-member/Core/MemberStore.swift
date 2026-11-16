@@ -97,7 +97,11 @@ import Observation
             try await api.changePassword(token: token, current: current, new: new)
             clearSession(message: "密码已修改，请重新登录")
             return true
-        } catch { handle(error); notice = error.localizedDescription; return false }
+        } catch {
+            // A wrong current password is also a 401, so as on the web it keeps the session and only shows the
+            // message; a session that really was revoked fails the next data request instead.
+            notice = error.localizedDescription; return false
+        }
     }
 
     private func clearSession(message: String? = nil) {
@@ -137,9 +141,12 @@ import Observation
         guard let identity, let token else { return }
         if more && (loadingMore || !hasMoreOrders) { return }
         let current = epoch
+        // Reloading the same filter (pull to refresh) keeps the current rows and paging on screen until the
+        // response arrives; only a first load or a new filter shows the spinner.
+        let keepRows = !more && (status ?? orderStatus) == orderStatus && orders.value != nil
         if !more {
             orderRequest = UUID(); orderStatus = status ?? orderStatus
-            orders = .loading; orderPage = 0; hasMoreOrders = false
+            if !keepRows { orders = .loading; orderPage = 0; hasMoreOrders = false }
         }
         let request = orderRequest
         loadingMore = more; moreError = nil
@@ -155,7 +162,7 @@ import Observation
             guard epoch == current, request == orderRequest else { return }
             loadingMore = false
             if error is CancellationError || (error as? URLError)?.code == .cancelled {
-                if !more { orders = .idle }; return
+                if !more && !keepRows { orders = .idle }; return
             }
             if more { moreError = error.localizedDescription } else { orders = .failed(error.localizedDescription) }
             handle(error)

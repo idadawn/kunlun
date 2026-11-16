@@ -4,6 +4,7 @@ import KunlunCore
 struct LoginView: View {
     @Environment(MemberStore.self) private var store
     @Environment(\.demoMode) private var demo
+    @Environment(\.localOrigin) private var localOrigin
     let onDemo: () -> Void
     let onLive: () -> Void
     @State private var account = ""
@@ -66,8 +67,8 @@ struct LoginView: View {
             }.background(Brand.background).scrollDismissesKeyboard(.interactively)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button(demo ? "演示数据" : store.environment.title) { showEnvironment = true }
-                            .font(.caption).disabled(store.busy || demo)
+                        Button(demo ? "演示数据" : localOrigin ?? store.environment.title) { showEnvironment = true }
+                            .font(.caption).disabled(store.busy || demo || localOrigin != nil)
                     }
                 }
                 .confirmationDialog("选择登录环境", isPresented: $showEnvironment, titleVisibility: .visible) {

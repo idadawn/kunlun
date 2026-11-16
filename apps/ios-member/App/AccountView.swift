@@ -3,6 +3,8 @@ import KunlunCore
 
 struct AccountView: View {
     @Environment(MemberStore.self) private var store
+    @Environment(\.demoMode) private var demo
+    @Environment(\.localOrigin) private var localOrigin
     @State private var passwordSheet: AccountSheet?
     @State private var confirmLogout = false
     @State private var offlineLogout = false
@@ -25,7 +27,7 @@ struct AccountView: View {
             }
             Section("账户") {
                 Button { passwordSheet = .password } label: { Label("修改密码", systemImage: "lock.rotation") }.disabled(store.busy)
-                LabeledContent("当前服务", value: store.environment.title)
+                LabeledContent("当前服务", value: demo ? "演示数据" : localOrigin.map { "本机后端 · \($0)" } ?? store.environment.title)
                 Button(role: .destructive) { confirmLogout = true } label: { Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right") }
                     .disabled(store.busy).accessibilityIdentifier("account.logout")
             }
@@ -40,7 +42,11 @@ struct AccountView: View {
             .alert("服务器退出未完成", isPresented: $offlineLogout) {
                 Button("稍后重试", role: .cancel) {}
                 Button("仅清除本机登录", role: .destructive) { store.forgetLocalSession() }
-            } message: { Text("\(store.notice ?? "网络暂时不可用")。仅清除本机会删除此设备的令牌，无法确认服务器端令牌已撤销。") }
+            } message: {
+                // System error texts such as "无法连接服务器。" already end with a full stop.
+                let reason = (store.notice ?? "网络暂时不可用").trimmingCharacters(in: CharacterSet(charactersIn: "。."))
+                Text("\(reason)。仅清除本机会删除此设备的令牌，无法确认服务器端令牌已撤销。")
+            }
     }
 }
 

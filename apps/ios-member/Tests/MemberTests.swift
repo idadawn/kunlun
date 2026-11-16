@@ -47,6 +47,8 @@ private actor Server {
             response = (200, try name.map(fixture) ?? Data("{}".utf8))
         }
         if let gate = gates[path] { await gate.enter() }
+        // Like URLSession, a request whose task was cancelled while in flight fails.
+        try Task.checkCancellation()
         return (response.1, HTTPURLResponse(url: url, statusCode: response.0, httpVersion: nil, headerFields: nil)!)
     }
     nonisolated var api: MemberAPI { MemberAPI(baseURL: ServiceEnvironment.test.baseURL) { try await self.request($0) } }
@@ -74,6 +76,19 @@ private actor Server {
         #expect(try decoder.decode([TicketBatch].self, from: fixture("batches")).first?.pendingGiftQty == 3)
         #expect(try decoder.decode([DepositSummary].self, from: fixture("deposits")).first?.refundableAmount == 20)
         #expect(try decoder.decode([MemberAddress].self, from: fixture("addresses")).first?.isDefault == true)
+    }
+
+    @Test func legacyBalanceTakesItsWaterNameFromTheMembersTickets() throws {
+        let decoder = JSONDecoder()
+        let tickets = try decoder.decode(MemberProfile.self, from: fixture("profile")).tickets
+        let batches = try decoder.decode([TicketBatch].self, from: fixture("batches"))
+        let purchase = try #require(batches.first { $0.source == "PURCHASE" })
+        let legacy = try #require(batches.first { $0.source == "LEGACY" })
+        #expect(purchase.waterName(in: tickets) == "桶装水 15L")
+        // A legacy balance has no recharge snapshot, so the API sends an empty label.
+        #expect(legacy.waterLabel.isEmpty)
+        #expect(legacy.waterName(in: tickets) == "袋装水 5L")
+        #expect(legacy.waterName(in: []) == "")
     }
 
     @Test func loginUsesMemberEndpointAndNeverSendsPriorBearer() async throws {
@@ -167,6 +182,30 @@ private actor Server {
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-token")
     }
 
+    @Test func pullToRefreshKeepsOrdersOnScreenEvenWhenCancelled() async {
+        let server = Server(); let vault = MemoryCredentials()
+        let store = MemberStore(environment: .test, credentials: vault, api: server.api)
+        await store.restore(); await store.loadOrders()
+        #expect(store.orders.value?.count == 3)
+        // SwiftUI can cancel a refresh; the rows must stay rather than turn into a spinner nothing restarts.
+        let refreshGate = RequestGate()
+        await server.gate("/api/orders", refreshGate)
+        let refresh = Task { await store.loadOrders() }
+        await refreshGate.waitUntilEntered()
+        #expect(store.orders.value?.count == 3)
+        refresh.cancel()
+        await refreshGate.release(); await refresh.value
+        #expect(store.orders.value?.count == 3)
+        // Another filter is another list, so it shows the spinner until its rows arrive.
+        let filterGate = RequestGate()
+        await server.gate("/api/orders", filterGate)
+        let filtered = Task { await store.loadOrders(status: "PENDING") }
+        await filterGate.waitUntilEntered()
+        #expect(store.orders.value == nil)
+        await filterGate.release(); await filtered.value
+        #expect(store.orders.value?.count == 3)
+    }
+
     @Test func passwordChangeInvalidatesSavedSession() async {
         let server = Server(); let vault = MemoryCredentials()
         let store = MemberStore(environment: .test, credentials: vault, api: server.api)
@@ -175,6 +214,18 @@ private actor Server {
         #expect(store.identity == nil)
         #expect(vault.saved.isEmpty)
         #expect(store.notice == "密码已修改，请重新登录")
+    }
+
+    @Test func wrongCurrentPasswordKeepsTheSession() async {
+        let server = Server(); let vault = MemoryCredentials()
+        let store = MemberStore(environment: .test, credentials: vault, api: server.api)
+        await store.restore()
+        // The server answers a wrong current password with 401, the same status as an expired login.
+        await server.set("/api/auth/change-password", status: 401, data: Data(#"{"error":"用户名或密码错误，或账号已停用"}"#.utf8))
+        #expect(!(await store.changePassword(current: "wrong", new: "new-password")))
+        #expect(store.identity != nil)
+        #expect(vault.saved[.test] == "fixture-token")
+        #expect(store.notice == "用户名或密码错误，或账号已停用")
     }
 
     @Test func logoutFailureRequiresExplicitLocalRemoval() async {
