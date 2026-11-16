@@ -9,6 +9,7 @@
 - 管理后台 `/admin`：管理员登录后办理会员、订单、账务与设置。
 - 员工工作台 `/staff`：独立员工登录入口，适配手机。首页、底部导航和能办理的业务按角色开通的功能显示，管理员在管理端「系统设置 → 移动端配置」设置并在手机框里实时预览。
 - Android 员工端：将员工页面打包进 APK，以内置 WebView 运行，见 [Android 构建与模拟器安装](apps/android-staff/README.md)。
+- iOS 员工端：同样把员工页面打包进 App，由 WKWebView 运行、原生转发接口，支持 iOS 17+，见 [iOS 员工端说明](apps/ios-staff/README.md)。
 - Android H5 应用：安装后可切换会员和员工登录入口，见 [Android H5 打包说明](docs/android-app.md)。
 - 会员中心 `/member`：会员登录后只读查看本人水票、用水与充值记录、押金和桶袋；下单、充值、交退押金都到店或找送水员办理。
 - iOS 会员客户端：SwiftUI 原生水票、记录、押金与账户页面，支持 iOS 17+，见 [iOS 开发与验证说明](apps/ios-member/README.md)。
@@ -33,6 +34,7 @@
 | `apps/android-staff` | `cn.idalee.kunlun.staff` | Android 员工端 APK（内置页面、独立窗口，Android 8.0+） |
 | `apps/android-app` | `cn.idalee.lvqilin` | Android 员工与会员 H5 调试 APK（Capacitor，Android 7.0+） |
 | `apps/ios-member` | `KunlunMember` | 原生 iOS 会员客户端（SwiftUI + App Intents，只读业务记录） |
+| `apps/ios-staff` | `cn.idalee.kunlun.staff` | iOS 员工端（内置员工页面 + WKWebView，iOS 17+） |
 
 ## 本地启动与验收
 
