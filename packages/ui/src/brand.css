@@ -71,11 +71,14 @@ a{color:var(--brand-600);text-decoration:none}
 :focus-visible{outline:2px solid var(--brand-500);outline-offset:2px}
 ::selection{background:var(--brand-100);color:var(--brand-900)}
 ::placeholder{color:var(--faint);opacity:1}
-/* 细滚动条：存在感低，不抢内容。 */
-*{scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
-::-webkit-scrollbar{width:10px;height:10px}
-::-webkit-scrollbar-thumb{background:var(--line-strong);border:3px solid transparent;border-radius:999px;background-clip:padding-box}
-::-webkit-scrollbar-track{background:transparent}
+/* 细滚动条：存在感低，不抢内容。只给鼠标设备：手机、平板上自定义滚动条会占掉约 10px 内容宽度，
+   页面一变长内容就整体变窄，所以触屏设备保留系统自带的悬浮滚动条。 */
+@media(hover:hover) and (pointer:fine){
+  *{scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:var(--line-strong);border:3px solid transparent;border-radius:999px;background-clip:padding-box}
+  ::-webkit-scrollbar-track{background:transparent}
+}
 /* 系统设置了“减少动态效果”时，关掉过渡和动画。 */
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
 .num{font-family:var(--font-num);font-variant-numeric:tabular-nums;letter-spacing:.2px}
@@ -131,6 +134,7 @@ a{color:var(--brand-600);text-decoration:none}
 .gq-toast{position:fixed;left:50%;top:22px;transform:translate(-50%,-16px);opacity:0;pointer-events:none;z-index:9999;display:flex;align-items:center;gap:8px;padding:10px 18px;border-radius:999px;background:var(--ink);color:#fff;font-size:13px;box-shadow:var(--shadow-lg);transition:.22s}
 .gq-toast.show{opacity:1;transform:translate(-50%,0)}
 .gq-toast .icon{color:var(--brand-300)}
+.gq-toast.error .icon{color:var(--red-500)}
 
 /* 移动端业务页面：使用原内容布局，移除设备样机及展示舞台。 */
 .mobile-showcase{min-height:100dvh;background:var(--bg)}

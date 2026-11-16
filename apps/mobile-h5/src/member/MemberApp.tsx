@@ -42,7 +42,7 @@ function MemberShell() {
   const firstVisit = useRef(true);
   useEffect(() => {
     if (firstVisit.current) { firstVisit.current = false; return; }
-    if (page === 'home' || page === 'orders' || page === 'profile') refresh().catch(e => toast(e.message));
+    if (page === 'home' || page === 'orders' || page === 'profile') refresh().catch(e => toast(e.message, 'error'));
   }, [page, refresh, toast]);
 
   if (!route || route.area !== 'member') return <Navigate to={pathFor('member')} replace />;

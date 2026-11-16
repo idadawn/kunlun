@@ -1,34 +1,38 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Icon } from './icons';
 
-type Toast = (message: string) => void;
+/** `'error'` swaps the check mark for a warning icon, so a failure never looks like it succeeded. */
+export type ToastTone = 'success' | 'error';
+type Toast = (message: string, tone?: ToastTone) => void;
 const ToastContext = createContext<Toast>(() => undefined);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState('');
+  const [tone, setTone] = useState<ToastTone>('success');
   const [visible, setVisible] = useState(false);
   const timer = useRef<number>();
-  const toast = useCallback<Toast>(text => {
-    setMessage(text); setVisible(true);
+  const toast = useCallback<Toast>((text, nextTone = 'success') => {
+    setMessage(text); setTone(nextTone); setVisible(true);
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setVisible(false), 2600);
   }, []);
   useEffect(() => () => window.clearTimeout(timer.current), []);
+  const error = tone === 'error';
   return (
     <ToastContext.Provider value={toast}>
       {children}
-      <div className={`gq-toast${visible ? ' show' : ''}`} role="status" aria-live="polite"><Icon name="check" /><span>{message}</span></div>
+      <div className={`gq-toast${error ? ' error' : ''}${visible ? ' show' : ''}`} role="status" aria-live="polite"><Icon name={error ? 'alert' : 'check'} /><span>{message}</span></div>
     </ToastContext.Provider>
   );
 }
 
 export const useToast = () => useContext(ToastContext);
 
-/** Wraps an async UI action so failures surface as a toast instead of an unhandled rejection. */
+/** Wraps an async UI action so failures surface as an error toast instead of an unhandled rejection. */
 export function useRun() {
   const toast = useToast();
   return useCallback(<A extends unknown[]>(fn: (...args: A) => unknown) => (...args: A) => {
-    Promise.resolve().then(() => fn(...args)).catch((e: unknown) => toast(e instanceof Error ? e.message : String(e)));
+    Promise.resolve().then(() => fn(...args)).catch((e: unknown) => toast(e instanceof Error ? e.message : String(e), 'error'));
   }, [toast]);
 }
 
