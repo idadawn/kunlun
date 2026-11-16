@@ -28,9 +28,10 @@ Gradle 会先检查前端类型，再将当前 `apps/mobile-h5` 构建到生成�
 
 ## 容器规则
 
-容器代码与 [Android 员工端](../android-staff/README.md) 一致（`MemberUrls` 对应 `StaffUrls`），改动时两边同步。
+容器代码与 [Android 员工端](../android-staff/README.md) 一致（`MemberUrls` 对应 `StaffUrls`），改动时两边同步；会员页面不显示电话链接，会员端不处理 `tel:`。
 
 - 只打开会员页面（`/member` 及各子页，以及旧链接 `/member/order`、`/member/addresses`）和 `/static/h5/` 下的打包资源，接口只发往配置的服务器 `/api/`；员工页、管理页和其他地址返回 403，跳转被拦下。页面清单由 `scripts/web-routes.test.mjs` 对照 `WEB_ROUTES.member` 检查。
 - 文件访问、外部内容导航和混合内容均关闭，不接受第三方 Cookie，关闭系统备份；只有调试版开启 WebView 调试。
 - Android 返回键先返回应用内上一页，根页返回桌面。状态栏、手势区和软键盘通过原生窗口边距处理。
 - Android 13 起，最近任务里的缩略图不显示会员信息；直接从 App 进入多任务时，系统显示的仍是实时画面。不禁止会员自己截图，方便保存取水码。
+- 页面渲染进程被系统回收或崩溃时，App 换一个新的 WebView 而不是退出：崩溃后显示「页面加载失败，请重试」，被回收则直接重新打开。两种情况都需要重新登录。

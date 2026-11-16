@@ -10,6 +10,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
 import android.webkit.CookieManager;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -29,17 +30,22 @@ import java.util.Collections;
 public final class MainActivity extends Activity {
     private static final String HOME = BuildConfig.MEMBER_ORIGIN + "/member";
     private final MemberUrls urls = new MemberUrls(BuildConfig.MEMBER_ORIGIN);
+    private FrameLayout root;
+    private WebViewAssetLoader assets;
     private WebView webView;
     private LinearLayout errorView;
 
-    @Override @SuppressLint("SetJavaScriptEnabled")
+    @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         // Tickets, orders and addresses stay out of the recent-apps thumbnail; members can still take screenshots.
         if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(false);
-        FrameLayout root = new FrameLayout(this);
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
+        assets = new WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this)).build();
+        root = new FrameLayout(this);
         root.setBackgroundColor(Color.rgb(248, 250, 252));
-        webView = new WebView(this);
+        webView = newWebView();
         root.addView(webView, new FrameLayout.LayoutParams(-1, -1));
         errorView = new LinearLayout(this);
         errorView.setOrientation(LinearLayout.VERTICAL);
@@ -47,11 +53,14 @@ public final class MainActivity extends Activity {
         errorView.setBackgroundColor(Color.rgb(248, 250, 252));
         TextView error = new TextView(this);
         error.setText(R.string.page_error);
-        errorView.addView(error);
+        error.setTextSize(16);
+        errorView.addView(error, new LinearLayout.LayoutParams(-2, -2));
         Button retry = new Button(this);
         retry.setText(R.string.retry);
         retry.setOnClickListener(v -> { errorView.setVisibility(View.GONE); webView.loadUrl(HOME); });
-        errorView.addView(retry);
+        LinearLayout.LayoutParams belowError = new LinearLayout.LayoutParams(-2, -2);
+        belowError.topMargin = Math.round(16 * getResources().getDisplayMetrics().density);
+        errorView.addView(retry, belowError);
         errorView.setVisibility(View.GONE);
         root.addView(errorView, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
@@ -63,19 +72,26 @@ public final class MainActivity extends Activity {
                 return WindowInsets.CONSUMED;
             });
         }
+        if (Build.VERSION.SDK_INT >= 33) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::navigateBack);
+        }
+        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
+            webView.loadUrl(HOME);
+        }
+    }
 
-        WebSettings settings = webView.getSettings();
+    @SuppressLint("SetJavaScriptEnabled")
+    private WebView newWebView() {
+        WebView view = new WebView(this);
+        WebSettings settings = view.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        webView.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false);
-        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
-        WebViewAssetLoader assets = new WebViewAssetLoader.Builder()
-            .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this)).build();
-        webView.setWebViewClient(new WebViewClient() {
+        view.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(view, false);
+        view.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
                 String asset = urls.asset(url);
@@ -95,13 +111,20 @@ public final class MainActivity extends Activity {
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (request.isForMainFrame()) errorView.setVisibility(View.VISIBLE);
             }
+
+            @Override public boolean onRenderProcessGone(WebView gone, RenderProcessGoneDetail detail) {
+                // The system may end the page's renderer, e.g. to free memory. Replace the dead WebView instead of
+                // letting the app crash; its login goes with it. After a crash the retry screen waits for a tap, so a
+                // page that keeps crashing cannot loop.
+                root.removeView(gone);
+                gone.destroy();
+                webView = newWebView();
+                root.addView(webView, 0, new FrameLayout.LayoutParams(-1, -1));
+                if (detail.didCrash()) errorView.setVisibility(View.VISIBLE); else webView.loadUrl(HOME);
+                return true;
+            }
         });
-        if (Build.VERSION.SDK_INT >= 33) {
-            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::navigateBack);
-        }
-        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
-            webView.loadUrl(HOME);
-        }
+        return view;
     }
 
     private void navigateBack() { if (webView.canGoBack()) webView.goBack(); else finish(); }

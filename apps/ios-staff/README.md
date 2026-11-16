@@ -35,7 +35,7 @@ xcodebuild -project apps/ios-staff/KunlunStaff.xcodeproj -scheme KunlunStaff -co
 
 ## 工作方式
 
-- 页面在 `kunlun-staff://localhost` 下由 `WKURLSchemeHandler` 提供：员工页面路由返回打包的 `www/index.html`，`/static/h5/` 返回打包资源，`/api/` 转发到服务器，其他地址一律返回 403。WebView 只能打开员工页面；`tel:` 链接交给系统电话（Android 员工端目前会忽略这类链接）。
+- 页面在 `kunlun-staff://localhost` 下由 `WKURLSchemeHandler` 提供：员工页面路由返回打包的 `www/index.html`，`/static/h5/` 返回打包资源，`/api/` 转发到服务器，其他地址一律返回 403。WebView 只能打开员工页面；`tel:` 链接交给系统电话（Android 员工端打开拨号盘，同样由员工自己拨出）。
 - 主机名必须保持 `localhost`。WebKit 只把这个主机名下的自定义协议页面当作安全上下文，页面生成幂等键用的 `crypto.randomUUID()` 依赖它。
 - 接口转发使用临时 URLSession，不用 Cookie 和缓存，也不跟随重定向。转发时保留页面的 `Authorization`、`Content-Type`、`Idempotency-Key` 等请求头，去掉 `Origin`、`Referer`、`Cookie`。服务器不可达时页面收到网络错误，照常提示「网络连接失败」。
 - 视口固定为 1 倍，小字号输入框聚焦时不放大。键盘与 Safari 一样覆盖在页面上，不会把底部导航顶到输入框上方。

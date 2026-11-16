@@ -24,6 +24,15 @@ public final class StaffUrlsTest {
         }
     }
 
+    @Test public void phoneLinksYieldOnlyPlausibleNumbers() {
+        assertEquals("13800000012", StaffUrls.phoneNumber("tel:13800000012"));
+        assertEquals("+86 138 0000 0012", StaffUrls.phoneNumber("tel:+86%20138%200000%200012"));
+        assertEquals("0571-8888 6666", StaffUrls.phoneNumber("TEL:0571-8888%206666"));
+        for (String url : new String[]{"tel:", "tel:12", "tel:*21%23", "tel:13800000012?body=x", "tel:1380000%0A0012", "sms:13800000012", "http://127.0.0.1:5188/staff", "javascript:alert(1)"}) {
+            assertNull(url, StaffUrls.phoneNumber(url));
+        }
+    }
+
     @Test public void httpsUsesTheConfiguredOriginAndStandardPort() {
         StaffUrls release = new StaffUrls("https://kunlun.idalee.cn");
         assertTrue(release.staffPage("https://kunlun.idalee.cn:443/staff"));

@@ -68,8 +68,10 @@ export function useStaffOperations() {
 }
 
 /** One member's tickets, deposit and addresses, with the businesses this role has on the phone. */
-function MemberDetailDialog({ member, onClose }: { member: MemberProfile; onClose: () => void }) {
-  const { refresh, setSelectedMemberId } = useStaffData();
+function MemberDetailDialog({ member: opened, onClose }: { member: MemberProfile; onClose: () => void }) {
+  const { members, refresh, setSelectedMemberId } = useStaffData();
+  // The list refreshes after a recharge, deposit or address change made from here; show that, not the row as it was when opened.
+  const member = members.find(m => m.id === opened.id) ?? opened;
   const { can } = useAuth();
   const layout = useMobileLayout();
   const ops = useStaffOperations();
