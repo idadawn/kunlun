@@ -45,6 +45,7 @@ kunlun/
     ├── admin-pc/                        # @kunlun/admin-pc：管理端 PC（React 18 + Vite + React Router）
     ├── mobile-h5/                       # @kunlun/mobile-h5：员工端 /staff 与会员端 /member H5（React 18 + Vite）
     ├── android-staff/                   # Android 员工端：打包 mobile-h5 员工页面的 WebView 容器
+    ├── android-member/                  # Android 会员端：打包 mobile-h5 会员页面的 WebView 容器
     ├── android-app/                     # Android 员工与会员 H5 调试 APK（Capacitor）
     ├── ios-member/                      # 原生 iOS 会员客户端（SwiftUI）
     └── ios-staff/                       # iOS 员工端：打包 mobile-h5 员工页面的 WKWebView 容器
@@ -241,6 +242,16 @@ kunlun/
   - 水单、押金、退款等日编号当时按 UTC 取日期，北京时间 0–8 点生成的单号带前一天的日期；已改为按北京时间，见「业务单号按北京时间取日期」一节。
   - 送水员没有 `member:write`，会员页的收货地址却显示新增、编辑、删除，填完保存才提示「当前账号没有此操作权限」，缺门牌号的提示也让送水员去编辑；已改为按 `member:write` 显示写操作，见「5.1 会员收货地址簿」。
   - Android 员工端会拦下 `tel:` 链接，iOS 端则交给系统电话（未改）。
+
+## 12. Android 会员端（2026-11-17）
+
+- `apps/android-member`（`cn.idalee.kunlun.member`）照 Android 员工端的做法实现：构建时把 `apps/mobile-h5` 打包进 APK，WebView 打开 `MEMBER_ORIGIN/member`，会员页面和 `/static/h5/` 资源由 `WebViewAssetLoader` 从包内返回，同源 `/api/` 照常发往服务器，其他地址返回 403，跳转被拦下。Debug 连 `http://127.0.0.1:5188`（只对 127.0.0.1 放行 HTTP），Release 只接受 HTTPS，默认正式服务。允许的页面 `MemberUrls.PAGES` 含会员各页和两个旧链接，由 `scripts/web-routes.test.mjs` 对照 `WEB_ROUTES.member` 检查；CI 的 android 任务同时构建、测试会员端 debug 和 release 包。
+- 和员工端一样不设 `VITE_NATIVE_APP`，登录页没有「切换到员工登录」。登录状态在 WebView 的 sessionStorage 里，App 被关掉后需要重新登录。Android 13 起最近任务的缩略图不显示会员信息（直接从 App 进入多任务时系统显示实时画面），不禁止截图。
+- 实测：Android 17 模拟器（Medium Phone）连本机临时后端（演示数据），会员陈静（`no.008621`）。密码错误时登录页提示「用户名或密码错误，或账号已停用」；店员在后端办理充值、送水下单并交付、送水和自提各留一单待办、收水袋押金后，会员端首页水票余额和预占、用水记录（配送地址、备注、状态）、押金与桶（合计 ¥135）、充值记录（含历史余额批次）都对得上；返回键先回应用内上一页；后端停掉时提示「网络连接失败，请检查网络后重试」，后端恢复后自动刷新；退出登录后旧令牌在服务器端返回 401；改密码时输错原密码只在对话框里提示，改成功后回到登录页，旧密码登录被拒、新密码可以登录；在 App 里请求或跳转 `/staff`、`/admin` 都被拦下。
+- 修正（会员 H5，网页会员中心同样生效）：
+  - 待自提的水单不显示取水码。会员到店要出示 6 位取水码，后端也返回给本人，但订单卡片没有渲染；iOS 会员端是显示的。现在会员的待自提水单在卡片底部显示取水码，员工端列表不变。
+  - 窄屏手机上水票卡片的「配送票 / 预占 1」被挤成「配送 / 票」两行。现在预占数放不下时单独换行。
+- 实测时去掉 adb 端口映射并不能模拟断网：WebView 会继续复用已建立的连接，所以改为直接停掉后端。
 
 ## 独立测试服务（2026-10-30，2026-11-01 更新）
 
