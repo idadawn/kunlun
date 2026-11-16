@@ -134,6 +134,8 @@ kunlun/
 
 接口：`GET/POST /api/members/{id}/addresses`，`PUT/DELETE /api/members/{id}/addresses/{addressId}`，`POST /api/members/{id}/addresses/{addressId}/default`。会员只能查看本人地址，不能修改；员工读取需 `member:read`，修改需 `member:write`。同一会员的地址变更先锁会员行。新建会员时填写的收货地址和门牌号成为首个默认地址。
 
+前端按同一规则显示写操作（2026-11-17）：`@kunlun/ui` 的 `AddressBook`（管理端会员档案、员工端会员页）只在 `useAuth().can(member:write)` 时显示新增、编辑、删除和设为默认，点单结算的 `AddressPicker` 也只在此时显示「新增收货地址」。没有该权限的账号（默认是送水员；角色只开通「门店点单」、未开通「新建会员」时也一样）只读查看：缺门牌号提示「未填写门牌号，请联系门店补充」，没有地址时提示联系门店添加，结算页另提示可改为到店自提。
+
 配送水单提交 `addressId`（省略时使用默认地址），没有可用地址时拒绝下单；`address_snapshot` 记录地址 ID、联系人、手机号、收货地址、门牌号和完整地址文本，之后修改或删除地址不影响已下单水单。升级前只有单行文本地址的会员在启动时自动迁移为一条默认地址，门牌号留空，提示员工补充。
 
 

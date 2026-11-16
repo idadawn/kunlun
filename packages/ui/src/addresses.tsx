@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { PHONE_PATTERN, fullAddress, type MemberAddress } from '@kunlun/shared';
-import { useApi } from './auth';
+import { KUNLUN_PERMISSIONS as P, PHONE_PATTERN, fullAddress, type MemberAddress } from '@kunlun/shared';
+import { useApi, useAuth } from './auth';
 import { ConfirmDialog, FormDialog, useDialogs, useRun, useToast } from './feedback';
 import { Icon } from './icons';
 
@@ -84,21 +84,26 @@ function useAddresses(memberId: string) {
   return { addresses, error, reload };
 }
 
-function AddressText({ address }: { address: MemberAddress }) {
+/** Whether this account may change addresses. The server allows it only with `member:write`; members never may. */
+const useCanEditAddresses = () => useAuth().can(P.MemberWrite);
+
+function AddressText({ address, writable }: { address: MemberAddress; writable: boolean }) {
   return (
     <div className="address-card-text">
       {address.fullAddress}
-      {!address.doorNo && <small>未填写门牌号，建议编辑补充，方便送水员上门</small>}
+      {!address.doorNo && <small>{writable ? '未填写门牌号，建议编辑补充，方便送水员上门' : '未填写门牌号，请联系门店补充'}</small>}
     </div>
   );
 }
 
 /**
  * Maintains a member's delivery addresses: add, edit, delete and choose the default.
+ * Accounts without `member:write` (couriers by default) see the addresses read-only.
  * `onChanged` runs after every change so callers can refresh the member's default address.
  */
 export function AddressBook({ owner, onChanged, compact = false }: { owner: AddressOwner; onChanged?: () => void | Promise<void>; compact?: boolean }) {
   const api = useApi();
+  const writable = useCanEditAddresses();
   const dialogs = useDialogs();
   const toast = useToast();
   const run = useRun();
@@ -128,13 +133,15 @@ export function AddressBook({ owner, onChanged, compact = false }: { owner: Addr
     <section className="address-book" aria-label="收货地址">
       <div className="h5-section-head membership-heading" style={{ margin: compact ? '0 0 10px' : undefined }}>
         <h3>收货地址{addresses ? `（${addresses.length}）` : ''}</h3>
-        <button type="button" className="btn primary sm" disabled={!addresses || full} title={full ? `最多保存 ${MAX_MEMBER_ADDRESSES} 个地址` : undefined} onClick={() => edit()}>
-          <Icon name="plus" size="sm" />新增地址
-        </button>
+        {writable && (
+          <button type="button" className="btn primary sm" disabled={!addresses || full} title={full ? `最多保存 ${MAX_MEMBER_ADDRESSES} 个地址` : undefined} onClick={() => edit()}>
+            <Icon name="plus" size="sm" />新增地址
+          </button>
+        )}
       </div>
       {error && <p className="account-error" role="alert">{error}</p>}
       {!addresses ? <p className="membership-note">正在加载收货地址…</p> : addresses.length === 0 ? (
-        <div className="address-empty">还没有收货地址。添加后，下单送水时会自动带出默认地址。</div>
+        <div className="address-empty">{writable ? '还没有收货地址。添加后，下单送水时会自动带出默认地址。' : '还没有收货地址，请联系门店添加。'}</div>
       ) : (
         <div className="address-list">
           {addresses.map(address => (
@@ -143,12 +150,14 @@ export function AddressBook({ owner, onChanged, compact = false }: { owner: Addr
                 <b>{address.contactName}</b><span>{address.contactPhone}</span>
                 {address.isDefault && <span className="tag green">默认</span>}
               </div>
-              <AddressText address={address} />
-              <div className="address-card-actions">
-                {!address.isDefault && <button type="button" className="btn sm" onClick={() => makeDefault(address)}>设为默认</button>}
-                <button type="button" className="btn sm" onClick={() => edit(address)}><Icon name="edit" size="sm" />编辑</button>
-                <button type="button" className="btn sm danger" onClick={() => remove(address)}><Icon name="trash" size="sm" />删除</button>
-              </div>
+              <AddressText address={address} writable={writable} />
+              {writable && (
+                <div className="address-card-actions">
+                  {!address.isDefault && <button type="button" className="btn sm" onClick={() => makeDefault(address)}>设为默认</button>}
+                  <button type="button" className="btn sm" onClick={() => edit(address)}><Icon name="edit" size="sm" />编辑</button>
+                  <button type="button" className="btn sm danger" onClick={() => remove(address)}><Icon name="trash" size="sm" />删除</button>
+                </div>
+              )}
             </article>
           ))}
         </div>
@@ -159,9 +168,10 @@ export function AddressBook({ owner, onChanged, compact = false }: { owner: Addr
 
 /**
  * Delivery address chooser for order forms. Selects the default address automatically and lets the
- * operator add a new one inline; the chosen id is sent with the order so the server snapshots it.
+ * operator add a new one inline (with `member:write`); the chosen id is sent with the order so the server snapshots it.
  */
 export function AddressPicker({ owner, value, onChange }: { owner: AddressOwner; value: string | null; onChange: (addressId: string | null) => void }) {
+  const writable = useCanEditAddresses();
   const dialogs = useDialogs();
   const run = useRun();
   const { addresses, error, reload } = useAddresses(owner.id);
@@ -180,7 +190,7 @@ export function AddressPicker({ owner, value, onChange }: { owner: AddressOwner;
   if (!addresses) return <p className="membership-note">正在加载收货地址…</p>;
   return (
     <div className="address-select" role="radiogroup" aria-label="选择收货地址">
-      {addresses.length === 0 && <div className="address-empty">该会员还没有收货地址，请先新增。</div>}
+      {addresses.length === 0 && <div className="address-empty">{writable ? '该会员还没有收货地址，请先新增。' : '该会员还没有收货地址，请联系门店添加，或改为到店自提。'}</div>}
       {addresses.map(address => (
         <button key={address.id} type="button" role="radio" className="address-option" aria-pressed={address.id === value} aria-checked={address.id === value} onClick={() => onChange(address.id)}>
           <Icon name="location" />
@@ -190,7 +200,7 @@ export function AddressPicker({ owner, value, onChange }: { owner: AddressOwner;
           </span>
         </button>
       ))}
-      {addresses.length < MAX_MEMBER_ADDRESSES && <button type="button" className="btn sm" onClick={add}><Icon name="plus" size="sm" />新增收货地址</button>}
+      {writable && addresses.length < MAX_MEMBER_ADDRESSES && <button type="button" className="btn sm" onClick={add}><Icon name="plus" size="sm" />新增收货地址</button>}
     </div>
   );
 }
