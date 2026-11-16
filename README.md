@@ -13,6 +13,7 @@
 - Android H5 应用：安装后可切换会员和员工登录入口，见 [Android H5 打包说明](docs/android-app.md)。
 - 会员中心 `/member`：会员登录后只读查看本人水票、用水与充值记录、押金和桶袋；下单、充值、交退押金都到店或找送水员办理。
 - iOS 会员客户端：SwiftUI 原生水票、记录、押金与账户页面，支持 iOS 17+，见 [iOS 开发与验证说明](apps/ios-member/README.md)。
+- Android 会员端：把会员页面打包进 APK，以内置 WebView 运行，只放行会员页面，支持 Android 8.0+，见 [Android 会员端说明](apps/android-member/README.md)。
 
 根入口跳转管理后台。员工和会员可在手机浏览器打开对应的 H5 入口。
 
@@ -32,6 +33,7 @@
 | `apps/admin-pc` | `@kunlun/admin-pc` | 管理端 PC（React 18 + Vite + React Router） |
 | `apps/mobile-h5` | `@kunlun/mobile-h5` | 员工端 `/staff` + 会员端 `/member` H5（React 18 + Vite） |
 | `apps/android-staff` | `cn.idalee.kunlun.staff` | Android 员工端 APK（内置页面、独立窗口，Android 8.0+） |
+| `apps/android-member` | `cn.idalee.kunlun.member` | Android 会员端 APK（内置会员页面、只读业务记录，Android 8.0+） |
 | `apps/android-app` | `cn.idalee.lvqilin` | Android 员工与会员 H5 调试 APK（Capacitor，Android 7.0+） |
 | `apps/ios-member` | `KunlunMember` | 原生 iOS 会员客户端（SwiftUI + App Intents，只读业务记录） |
 | `apps/ios-staff` | `cn.idalee.kunlun.staff` | iOS 员工端（内置员工页面 + WKWebView，iOS 17+） |

@@ -48,6 +48,12 @@ test('the Android and iOS staff apps open exactly the declared staff pages from 
  assert.deepEqual(ios,staffPages);
 });
 
+test('the Android member app opens exactly the declared member pages and their aliases from its bundle',()=>{
+ const java=readFileSync(join(root,'apps/android-member/app/src/main/java/cn/idalee/kunlun/member/MemberUrls.java'),'utf8');
+ const android=[...java.match(/PAGES = new HashSet<>\(Arrays\.asList\(([^)]*)\)/)[1].matchAll(/"([^"]+)"/g)].map(m=>m[1]).sort();
+ assert.deepEqual(android,allPaths('member').sort());
+});
+
 test('package classification and search never expose disabled packages',()=>{
  const plans=[{id:'a',name:'袋装自提100',waterType:'BAG_7_5L',fulfillMode:'PICKUP',price:100,buyQty:50,status:'ACTIVE'},{id:'b',name:'袋装自提499',waterType:'BAG_7_5L',fulfillMode:'PICKUP',price:499,buyQty:300,status:'ACTIVE'},{id:'c',name:'桶装配送100',waterType:'BUCKET_18_9L',fulfillMode:'DELIVERY',price:100,buyQty:13,status:'ACTIVE'},{id:'d',name:'停用袋装100',waterType:'BAG_7_5L',fulfillMode:'PICKUP',price:100,buyQty:50,status:'DISABLED'}];
  assert.equal(filterPlans(plans).length,3);

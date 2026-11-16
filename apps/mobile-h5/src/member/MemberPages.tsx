@@ -9,7 +9,7 @@ export interface MemberPageProps {
   go: (page: string) => void;
 }
 
-const MemberOrder = ({ order }: { order: WaterOrder }) => <OrderCard order={order} title={modeLabel(order.fulfillMode)} />;
+const MemberOrder = ({ order }: { order: WaterOrder }) => <OrderCard order={order} title={modeLabel(order.fulfillMode)} showPickupCode />;
 
 const StoreHint = () => (
   <div className="member-hint"><Icon name="info" size="sm" /><span>订水、充值、交退押金请到店里或找送水员办理，店员登记后这里随时可查。</span></div>

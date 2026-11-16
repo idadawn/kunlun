@@ -34,8 +34,11 @@ export function WorkbenchTabBar({ tabs, active, onNavigate }: { tabs: WorkbenchT
   );
 }
 
-/** H5 water order card. Staff see the delivery contact from the order's address snapshot. */
-export function OrderCard({ order, title, showContact = false, actions }: { order: WaterOrder; title: string; showContact?: boolean; actions?: ReactNode }) {
+/**
+ * H5 water order card. Staff see the delivery contact from the order's address snapshot; members see the code
+ * they show at the store to collect a pending pickup.
+ */
+export function OrderCard({ order, title, showContact = false, showPickupCode = false, actions }: { order: WaterOrder; title: string; showContact?: boolean; showPickupCode?: boolean; actions?: ReactNode }) {
   const active = isActiveOrder(order);
   const snapshot = order.addressSnapshot;
   const delivery = order.fulfillMode === 'DELIVERY';
@@ -57,6 +60,7 @@ export function OrderCard({ order, title, showContact = false, actions }: { orde
       {order.remark && <div className="h5-address">备注：{order.remark}</div>}
       <div className="h5-order-foot">
         <small>{active ? `预占 ${order.reservedQty} 张` : `实取 ${order.actualQty || 0} 张`}</small>
+        {showPickupCode && active && !delivery && order.pickupCode && <span className="h5-pickup-code">取水码<b>{order.pickupCode}</b></span>}
         {actions && <div className="membership-actions">{actions}</div>}
       </div>
     </div>
