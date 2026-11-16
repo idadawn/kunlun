@@ -43,7 +43,11 @@ kunlun/
 │   └── ui/                              # @kunlun/ui：品牌样式、图标、弹窗、登录门禁、套餐选择、地址簿与员工业务弹窗
 └── apps/
     ├── admin-pc/                        # @kunlun/admin-pc：管理端 PC（React 18 + Vite + React Router）
-    └── mobile-h5/                        # @kunlun/mobile-h5：员工端 /staff 与会员端 /member H5（React 18 + Vite）
+    ├── mobile-h5/                       # @kunlun/mobile-h5：员工端 /staff 与会员端 /member H5（React 18 + Vite）
+    ├── android-staff/                   # Android 员工端：打包 mobile-h5 员工页面的 WebView 容器
+    ├── android-app/                     # Android 员工与会员 H5 调试 APK（Capacitor）
+    ├── ios-member/                      # 原生 iOS 会员客户端（SwiftUI）
+    └── ios-staff/                       # iOS 员工端：打包 mobile-h5 员工页面的 WKWebView 容器
 ```
 
 ---
@@ -224,6 +228,19 @@ kunlun/
 - 水单 `ORD-yyyyMMdd-NNNNNN`、押金 `YJyyyyMMddNNNN`、押金退款 `TKyyyyMMddNNNN`、审核申请 `SQyyyyMMddNNNN` 中的日期取水站时区 Asia/Shanghai 的当天，与首页统计 `now() AT TIME ZONE 'Asia/Shanghai'` 同一口径。`BusinessNumbers.Day` 按固定 UTC+8 计算（上海自 1991 年起不用夏令时），不依赖运行镜像里的 tzdata。此前取 UTC 日期，北京时间 0–8 点生成的单号带前一天的日期（如 11-17 03:50 的水单是 `ORD-20261116-000001`），历史单号不改。
 - 序号来自 `business_number_counters`，键为 `(scope, period)`，period 就是这个日期串。新旧规则的日期串格式相同，同一日期只有一行计数，切换前后开出的号都在这一行上接着编；新出现的日期从 1 开始，`Next()` 用 EXISTS 跳过业务表里已被占用的号码，所以切换当天不会重号。会员编号 `No.NNNNNN` 不带日期，按租户计数，不受影响。
 - 日期取自 `BusinessNumbers.Clock`（默认 `TimeProvider.System`，仅测试替换）。`BusinessNumberTests` 覆盖北京零点、03:50（UTC 仍是前一天）和跨年，并在停住的时钟下经接口开出四类单号，验证 08:00 后沿用同一计数、计数行重建后跳过已占用号码。
+
+## 11. iOS 员工端（2026-11-17）
+
+- `apps/ios-staff` 按 Android 员工端的方式实现：构建阶段把 `apps/mobile-h5` 打包进 App 的 `www/`，WKWebView 加载 `kunlun-staff://localhost/staff`。页面看到的是同源 `/api/…`，由 `WKURLSchemeHandler` 转发到 `STAFF_ORIGIN`（Debug 默认 `http://127.0.0.1:5188`，Release 只接受 HTTPS），所以前端不需要改，后端也不需要为 App 放开 CORS。允许的页面列表 `StaffRoutes.pages` 与 Android 的 `StaffUrls.PAGES` 都由 `scripts/web-routes.test.mjs` 对照 `WEB_ROUTES.staff` 检查。
+- 自定义协议的主机名用 `localhost`，这样页面才是安全上下文；否则 `crypto.randomUUID()` 不存在，点单和办理业务生成幂等键时会报错。
+- 转发不带 Cookie、`Origin`、`Referer`，不跟随重定向，响应去掉 `Set-Cookie` 和压缩头（URLSession 已解压）。WebKit 可能随时停止某个请求，被停止后不能再回写，否则会抛异常，所以转发中的请求按任务登记，停止时取消。
+- 实测：iPhone 17 Pro Max 模拟器（iOS 26.5）连本机临时后端（演示数据），店员账号完成登录、点单（配送、水票、备注）、接单、确认交付扣票、会员搜索与办理、水费充值、新建会员、我的、左缘返回；断开后端时页面提示「网络连接失败」。最初让 SwiftUI 随键盘缩小 WebView，底部导航会被顶到输入框上方，已改为键盘覆盖页面，与 Safari 一致。
+- 送水员实测（同一环境）：首页只有自提核销、收押金、登记领还，底部没有点单；接单后收押金并交付；少送时不填原因被拦下（400 提示 AC-14），填写后交付；取水码格式不对时由表单拦下，码不对时服务端提示「6 位自提核销码不匹配」，码正确则核销成功；登记还回空桶；会员页没有充值和点单；退出登录。用送水员令牌直接调接口，下单、充值、新建会员、改地址都返回 403。
+- 管理员实测（同一环境）：首页「今日经营」卡片（今日充值、今日用水、待配送、待自提和近 7 天走势）；袋桶库存新购 10 个、报废 1 个、点数字直接改库存；退押金在没有可退桶袋时由表单拦下，登记还回 1 个桶后退 ¥50，管理员办理立即生效、不进审核；编辑收货地址成功，门牌号提示随之消失（地址按钮的问题只出在送水员）；水费充值 ¥100 / 16 桶后「退清剩余水票」¥100，批次标为已退款、剩余 0。「今日充值」是当天充值单的实付合计，不扣当天退款，所以全额退掉后仍显示 ¥100。
+- 顺带发现：
+  - 水单、押金、退款等日编号当时按 UTC 取日期，北京时间 0–8 点生成的单号带前一天的日期；已改为按北京时间，见「业务单号按北京时间取日期」一节。
+  - 送水员没有 `member:write`，会员页的收货地址却显示新增、编辑、删除，填完保存才提示「当前账号没有此操作权限」，缺门牌号的提示也让送水员去编辑；已改为按 `member:write` 显示写操作，见「5.1 会员收货地址簿」。
+  - Android 员工端会拦下 `tel:` 链接，iOS 端则交给系统电话（未改）。
 
 ## 独立测试服务（2026-10-30，2026-11-01 更新）
 

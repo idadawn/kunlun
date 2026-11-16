@@ -38,10 +38,14 @@ test('nginx serves exactly the declared routes from the right app',()=>{
  for(const bad of ['/admin.html','/member/index.html','/admin/nope','/staff/addresses','/static/admin/x.js'])assert.ok(!blocks.some(b=>b.regex.test(bad)),bad);
 });
 
-test('the Android staff app opens exactly the declared staff pages from its bundle',()=>{
+test('the Android and iOS staff apps open exactly the declared staff pages from their bundles',()=>{
+ const staffPages=['/staff',...WEB_ROUTES.staff.pages.map(p=>`/staff/${p}`)].sort();
  const java=readFileSync(join(root,'apps/android-staff/app/src/main/java/cn/idalee/kunlun/staff/StaffUrls.java'),'utf8');
- const pages=[...java.match(/PAGES = new HashSet<>\(Arrays\.asList\(([^)]*)\)/)[1].matchAll(/"([^"]+)"/g)].map(m=>m[1]).sort();
- assert.deepEqual(pages,['/staff',...WEB_ROUTES.staff.pages.map(p=>`/staff/${p}`)].sort());
+ const android=[...java.match(/PAGES = new HashSet<>\(Arrays\.asList\(([^)]*)\)/)[1].matchAll(/"([^"]+)"/g)].map(m=>m[1]).sort();
+ assert.deepEqual(android,staffPages);
+ const swift=readFileSync(join(root,'apps/ios-staff/Core/StaffRoutes.swift'),'utf8');
+ const ios=[...swift.match(/static let pages: Set<String> = \[([^\]]*)\]/)[1].matchAll(/"([^"]+)"/g)].map(m=>m[1]).sort();
+ assert.deepEqual(ios,staffPages);
 });
 
 test('package classification and search never expose disabled packages',()=>{
