@@ -246,8 +246,21 @@ export interface FinanceSummaryReport {
   depositDeductCount: number;
   depositRefundCount: number;
   unrefundedDepositPoolTotal: number;
+  /** Containers the unrefunded deposit pays for, those awaiting a scrap decision included. */
+  unrefundedDepositQty: number;
   netDepositFromFlows: number;
   reconciledZeroDiff: boolean;
+  /** Unused paid tickets of active recharge batches at their original paid price: what refunding them all would pay back. */
+  unusedRechargeValue: number;
+  unusedPaidTicketQty: number;
+  /** Gift tickets still on active recharge batches; a refund takes them back without paying for them. */
+  unusedGiftTicketQty: number;
+  /** Opening-balance tickets with no recorded price, left out of `unusedRechargeValue`. */
+  legacyTicketQty: number;
+  /** Money members could still ask back: the unrefunded deposit plus `unusedRechargeValue`. Not income. */
+  potentialRefundTotal: number;
+  /** Net recharge receipts minus `unusedRechargeValue`: the water fees members have already used up. */
+  rechargeEarnedTotal: number;
   completedOrderCount: number;
   waterFulfilledTotalQty: number;
   generatedAt: string;
@@ -422,6 +435,9 @@ export interface TicketBatch {
   createdAt: string;
   rechargeNo: string;
   name: string;
+  /** Remaining paid tickets at the original paid price (gifts are worth nothing); 0 for opening balances and refunded batches. */
+  remainingValue: number;
+  /** `remainingValue` while no open order holds tickets of the batch, else 0. */
   refundableAmount: number;
   refundedAmount: number;
   refundNo: string;
