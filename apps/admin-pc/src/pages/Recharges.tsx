@@ -35,7 +35,8 @@ export function Recharges() {
     <div className="stats-grid">
       <StatCard label="水费实收" icon="wallet" value={f ? `¥ ${money(f.rechargeRevenueTotal)}` : '—'} foot={f ? `累计充值 ${f.rechargeOrderCount} 笔` : NO_REPORTS} />
       <StatCard label="水费退款" icon="refresh" tone="orange" value={f ? `¥ ${money(f.rechargeRefundedTotal)}` : '—'} foot={f ? `退清剩余权益 ${f.rechargeRefundCount} 笔` : NO_REPORTS} />
-      <StatCard label="水费净收" icon="chart" tone="blue" value={f ? `¥ ${money(f.rechargeNetReceived)}` : '—'} foot="实收 − 退款，不含押金" />
+      <StatCard label="水费净收" icon="chart" tone="blue" value={f ? `¥ ${money(f.rechargeNetReceived)}` : '—'}
+        foot={f ? `实收 − 退款；其中 ¥${money(f.unusedRechargeValue)} 会员还没用完，可能要退` : '实收 − 退款，不含押金'} />
       <StatCard label="累计到账水票" icon="drop" tone="gold" value={f ? <>{f.ticketsSoldBuyQty + f.ticketsGiftedQty}<small>张</small></> : '—'}
         foot={f ? `付费 ${f.ticketsSoldBuyQty} · 赠送 ${f.ticketsGiftedQty}` : NO_REPORTS} />
     </div>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  KUNLUN_BRAND, KUNLUN_PERMISSIONS as P, PAY_METHODS, calcDepositGap, containerUnit, modeLabel, money, ticketSummary, ticketsFor, unitOf,
+  KUNLUN_BRAND, KUNLUN_PERMISSIONS as P, PAY_METHODS, calcDepositGap, containerKind, containerUnit, modeLabel, money, ticketSummary, ticketsFor, unitOf,
   type ContainerType, type CreateOrderResult, type FulfillMode, type MemberProfile, type PayMethod, type WaterProduct, type WaterType,
 } from '@kunlun/shared';
 import { AddressPicker } from './addresses';
@@ -11,7 +11,19 @@ import { Icon } from './icons';
 
 export const DELIVERY_SLOTS = ['尽快送达（约 45 分钟内）', '今天 14:00–16:00', '今天 16:00–18:00'];
 
-export interface DepositPosition { held: number; covered: number; unitDeposit: number }
+export interface DepositPosition {
+  held: number;
+  /** Containers the paid deposit covers: paid and not refunded, minus those awaiting a scrap decision. */
+  covered: number;
+  unitDeposit: number;
+  /** Deposit paid and not yet refunded, containers awaiting a scrap decision included. */
+  paidQty: number;
+  paidAmount: number;
+  pendingDamageQty: number;
+  /** Paid deposit the member could take back now: containers not held and not awaiting a scrap decision. */
+  refundableQty: number;
+  refundableAmount: number;
+}
 
 /** A member's held containers, deposit coverage (paid minus pending damage) and the current unit deposit, per container type. */
 export function useDepositPositions(memberId: string | undefined) {
@@ -19,12 +31,45 @@ export function useDepositPositions(memberId: string | undefined) {
   return useLoader(async () => {
     if (!memberId) return null;
     const [rows, configs] = await Promise.all([api.depositSummary(memberId), api.containerSummary()]);
-    const position = (type: ContainerType): DepositPosition => {
-      const row = rows.find(r => r.containerType === type);
-      return { held: row?.heldQty ?? 0, covered: (row?.paidQty ?? 0) - (row?.pendingDamageQty ?? 0), unitDeposit: configs.find(c => c.containerType === type)?.unitDeposit ?? 0 };
-    };
-    return Object.fromEntries(rows.map(r => [r.containerType, position(r.containerType)])) as Record<ContainerType, DepositPosition>;
+    return Object.fromEntries(rows.map(row => [row.containerType, {
+      held: row.heldQty, covered: row.paidQty - row.pendingDamageQty,
+      unitDeposit: configs.find(c => c.containerType === row.containerType)?.unitDeposit ?? 0,
+      paidQty: row.paidQty, paidAmount: Number(row.paidAmount), pendingDamageQty: row.pendingDamageQty,
+      refundableQty: row.refundableQty, refundableAmount: Number(row.refundableAmount),
+    } satisfies DepositPosition])) as Record<ContainerType, DepositPosition>;
   }, [api, memberId]);
+}
+
+/**
+ * What the member holds and has paid as deposit, one tile per container: the first thing the counter checks before a
+ * full-for-empty swap, and what a deposit refund would start from.
+ */
+function Holdings({ products, positions, error }: { products: WaterProduct[]; positions: Record<ContainerType, DepositPosition> | null; error: string }) {
+  const containers = [...new Map(products.map(p => [p.containerId, p])).values()];
+  if (!containers.length) return null;
+  return (
+    <section className="holdings" aria-label="手里的桶袋和已交押金">
+      {error ? <p className="account-error" role="alert">{error}</p>
+        : !positions ? <p className="membership-note">正在核对手里的桶袋和押金…</p>
+        : containers.map(p => {
+          const position = positions[p.containerId];
+          if (!position) return null;
+          const unit = containerUnit(p.containerId);
+          const owing = Math.max(0, position.held - Math.max(0, position.covered));
+          const [tone, status] = owing > 0 ? ['gold', `押金少 ${owing} 个`]
+            : position.refundableQty > 0 ? ['blue', `可退 ${position.refundableQty} 个 ¥${money(position.refundableAmount)}`]
+            : position.held > 0 ? ['green', '押金够'] : ['', ''];
+          return (
+            <div key={p.containerId} className={`holding${containerKind(p.containerId) === 'BAG' ? ' bag' : ''}${owing ? ' owing' : ''}`}>
+              <div className="holding-head"><span>{p.name}</span>{status && <span className={`tag ${tone}`}>{status}</span>}</div>
+              <div className="holding-held">手里 <b>{position.held}</b> 个{unit}</div>
+              <div className="holding-deposit">已交押金 <b>¥{money(position.paidAmount)}</b>{position.paidQty > 0 && <small> · {position.paidQty} 个</small>}</div>
+              {position.pendingDamageQty > 0 && <small>其中 {position.pendingDamageQty} 个{unit}待报废审核</small>}
+            </div>
+          );
+        })}
+    </section>
+  );
 }
 
 /** One container type's deposit outcome for a hand-over of `fullOut` full and `emptyIn` returned empties. */
@@ -193,6 +238,7 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
   };
 
   const again = () => { setPlaced([]); setReturns({}); setRemark(''); setStep('menu'); };
+  const clearCart = () => { setCart({}); setReturns({}); setError(''); };
 
   if (step === 'done') return (
     <div className="order-menu" ref={top}>
@@ -221,6 +267,7 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
         <b>{count ? lines.map(l => `${l.product.name.replace(/（.*?）|\(.*?\)/g, '')} ${l.qty}${l.unit}`).join(' · ') : '还没有选水'}</b>
         <small>{blocker && blocker !== '正在核对押金…' ? blocker : depositTotal > 0 ? `需补押金 ¥${money(depositTotal)}` : `扣${modeLabel(mode)}水票，无需另付水费`}</small>
       </span>
+      {step === 'menu' && count > 0 && <button type="button" className="cart-clear" aria-label="清空购物车" title="清空购物车" onClick={clearCart}><Icon name="trash" size="sm" />清空</button>}
       {step === 'menu'
         ? <button type="button" className="btn primary" disabled={!!blocker} onClick={() => setStep('checkout')}>选好了</button>
         : <button type="button" className="btn primary" disabled={!!blocker || busy} onClick={submit}>
@@ -284,6 +331,7 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
 
   return (
     <div className="order-menu" ref={top}>
+      <Holdings products={products} positions={positions} error={deposits.error} />
       <div className="mode-switch" role="tablist" aria-label="取水方式">
         {(['DELIVERY', 'PICKUP'] as const).map(m => (
           <button key={m} type="button" role="tab" aria-selected={mode === m} className={mode === m ? 'active' : ''} onClick={() => { setMode(m); setError(''); }}>
@@ -306,7 +354,7 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
               <div className="menu-info">
                 <b>{p.name}</b>
                 <small>{p.packaging} · {delivery ? `${minimumOf(p)}${unit}起送 · ${p.deliveryFee ? `配送费 ¥${money(p.deliveryFee)}` : '免费配送'}` : '门店领取'}</small>
-                {position && <small>押金 ¥{money(position.unitDeposit)}/个{position.held ? ` · 您有 ${position.held} 个空${unit}可换` : ''}</small>}
+                {position && <small>押金 ¥{money(position.unitDeposit)}/个{position.held ? ` · 手里 ${position.held} 个空${unit}可换` : ''}</small>}
                 <div className="menu-foot">
                   <span className="menu-tickets"><b>{tickets}</b>张{modeLabel(mode)}{unit}票</span>
                   {soldOut && !qty

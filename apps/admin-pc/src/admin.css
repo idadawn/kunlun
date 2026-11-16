@@ -59,6 +59,27 @@
 .dashboard-grid{display:grid;grid-template-columns:1.65fr 1fr;gap:18px;margin-bottom:18px}
 .bottom-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:18px}
 .card-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line-soft)}
+/* 工作台：可能要退给会员的钱（押金 + 没用完的水费），和真正赚到的水费分开看。 */
+.liability-card{margin-bottom:18px}
+.liability-card .card-head{gap:12px;flex-wrap:wrap}
+.liability-links{display:flex;gap:14px}
+.liability-body{display:flex;flex-direction:column;gap:16px;padding:18px 20px 20px}
+.liability-sum{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);gap:12px}
+.liability-item{display:flex;flex-direction:column;gap:4px;min-width:0;padding:14px 16px;border:1px solid var(--line-soft);border-radius:var(--r-md);background:var(--bg)}
+.liability-item>span{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12.5px}
+.liability-item>b{font-family:var(--font-num);font-size:26px;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.liability-item>small{color:var(--muted);font-size:12px;line-height:1.6}
+.liability-item.total{border-color:var(--gold-100);background:var(--gold-50)}
+.liability-item.total>b,.liability-item.total>span{color:var(--gold-600)}
+.liability-op{align-self:center;font-style:normal;font-size:22px;font-weight:600;color:var(--faint)}
+.liability-split{display:flex;flex-direction:column;gap:8px}
+.liability-split-text{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:13px;color:var(--text)}
+.liability-split-text b{margin-left:6px;font-family:var(--font-num);color:var(--ink)}
+.liability-split-text b.earned{color:var(--brand-600)}
+.liability-split-text b.unused{color:var(--gold-600)}
+.liability-bar{height:10px;border-radius:999px;background:var(--gold-100);overflow:hidden}
+.liability-bar i{display:block;height:100%;border-radius:999px;background:var(--grad-brand)}
+@media(max-width:900px){.liability-sum{grid-template-columns:minmax(0,1fr)}.liability-op{display:none}}
 .card-title{font-weight:600;color:var(--ink);font-size:15px}
 .card-title small{color:var(--muted);font-weight:400;font-size:12px;margin-left:8px}
 .text-btn{border:0;background:none;color:var(--brand-600);font-size:12.5px;font-weight:500;padding:0}
@@ -145,29 +166,58 @@ td b{color:var(--ink)}
 .setting-row{display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line-soft);font-size:12.5px;color:var(--muted)}
 .setting-row b{color:var(--ink)}
 
-/* Modal & Drawer */
-.drawer-mask{position:fixed;inset:0;background:var(--backdrop);backdrop-filter:blur(2px);z-index:100;display:none;align-items:center;justify-content:center;padding:20px}
-.drawer-mask.open{display:flex}
-.modal{background:#fff;border-radius:var(--r-xl);width:100%;max-width:520px;max-height:90vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg);overflow:hidden}
-.drawer-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--line)}
-.drawer-head h3{margin:0;color:var(--ink);font-size:16px}
-.modal-close{border:0;background:var(--line-soft);width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--muted)}
-.drawer-mask{justify-content:flex-end;padding:0}
-.drawer{width:460px;max-width:100%;height:100%;background:#fff;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)}
-.drawer-body{padding:20px 22px;overflow:auto;flex:1}
-.member-profile{display:flex;align-items:center;gap:12px;margin-bottom:16px}
-.member-profile h2{margin:0;font-size:18px;color:var(--ink)}
-.member-profile p{margin:3px 0 0;color:var(--muted);font-size:12px}
-.profile-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;background:var(--brand-50);padding:14px;border-radius:var(--r-md);text-align:center;margin-bottom:14px}
-.profile-stats b{display:block;font-family:var(--font-num);font-size:18px;color:var(--brand-700)}
-.profile-stats small{font-size:12px;color:var(--muted)}
-.drawer-actions{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:18px}
-.drawer-actions .btn{padding:0 8px;font-size:12px}
 .detail-card{border:1px solid var(--line);border-radius:var(--r-md);padding:14px 16px;margin-bottom:12px}
 .detail-card h4{margin:0 0 8px;color:var(--ink);font-size:13.5px}
-.detail-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px;color:var(--muted)}
+.detail-row{display:flex;justify-content:space-between;gap:16px;padding:7px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px;color:var(--muted)}
 .detail-row:last-child{border-bottom:0}
+.detail-row>span{flex:none}
 .detail-row b{color:var(--ink)}
+.detail-row .detail-wrap{text-align:right;white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* 会员 360° 档案：整页展示，页头办理，左侧水票与记录，右侧押金、资料和地址。 */
+.back-link{display:inline-flex;align-items:center;gap:4px;margin:-6px 0 12px;padding:0;border:0;background:none;color:var(--brand-600);font-size:13px;cursor:pointer}
+.back-link:hover{color:var(--brand-700)}
+.profile-placeholder{padding:40px 20px;text-align:center}
+.profile-hero{display:flex;align-items:center;flex-wrap:wrap;gap:16px 18px;padding:20px 22px;margin-bottom:18px;border:1px solid var(--brand-100);border-radius:var(--r-lg);background:var(--grad-hero)}
+.profile-avatar{width:56px;height:56px;flex:none;border-radius:16px;background:var(--grad-brand);color:#fff;display:grid;place-items:center;font-size:22px;font-weight:700;box-shadow:0 6px 16px rgba(16,152,128,.25)}
+.profile-id{flex:1 1 220px;min-width:0}
+.profile-id h2{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:0;font-size:21px;color:var(--ink)}
+.profile-id p{display:flex;flex-wrap:wrap;gap:4px 16px;margin:6px 0 0;color:var(--muted);font-size:13px}
+.profile-actions{display:flex;flex-wrap:wrap;gap:8px}
+.profile-stats-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+.profile-stats-grid .stat-value{font-size:24px}
+.profile-grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(330px,1fr);gap:18px;align-items:start}
+.profile-col{display:flex;flex-direction:column;gap:18px;min-width:0}
+.profile-card-body{padding:16px 20px 18px}
+.profile-head-actions{display:flex;gap:14px}
+.profile-table th,.profile-table td{padding:10px 12px}
+.profile-table th:first-child,.profile-table td:first-child{padding-left:0}
+.profile-table th{background:none;border-bottom:1px solid var(--line)}
+.profile-table tr:first-child td{border-top:0}
+.profile-table td small{display:block;margin-top:2px;color:var(--muted);font-size:12px}
+.profile-muted{color:var(--faint)}
+.profile-subhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:18px 0 10px;font-size:13.5px;color:var(--ink)}
+.profile-batches{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.profile-batches>.membership-note{grid-column:1/-1}
+.profile-batches .membership-card p{margin:6px 0}
+.profile-containers{display:flex;flex-direction:column;gap:12px}
+.profile-container{padding:12px 14px;border:1px solid var(--line-soft);border-radius:var(--r-md);background:var(--bg)}
+.profile-container-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:4px 10px;margin-bottom:10px}
+.profile-container-head b{color:var(--ink);font-size:13.5px}
+.profile-container-head small{color:var(--muted);font-size:12px}
+.profile-nums{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.profile-nums>div{display:flex;flex-direction:column;gap:1px;min-width:0}
+.profile-nums small{color:var(--muted);font-size:12px}
+.profile-nums b{font-family:var(--font-num);font-size:19px;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.profile-container .profile-nums>div:first-child b{color:var(--brand-600)}
+.profile-container.bag .profile-nums>div:first-child b{color:var(--aqua-600)}
+.profile-container p{margin:8px 0 0}
+.profile-warn{padding:7px 10px;border:1px solid var(--gold-100);border-radius:8px;background:var(--gold-50);color:var(--gold-600);font-size:12px}
+.profile-tabs{min-width:210px}
+/* Narrower windows: the last tile (可能要退的钱) takes the rest of its row instead of sitting alone. */
+@media(max-width:1360px){.profile-stats-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.profile-stats-grid>.stat-card:last-child{grid-column:span 2}}
+@media(max-width:1100px){.profile-grid{grid-template-columns:minmax(0,1fr)}.profile-stats-grid>.stat-card:last-child{grid-column:1/-1}}
+@media(max-width:700px){.profile-stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.profile-actions{width:100%}.profile-actions .btn{flex:1 1 auto;justify-content:center}}
 
 .required{color:var(--red-500);margin-right:2px}
 /* 水品与押金标准 */

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from 'react-router-dom';
 import { KUNLUN_BRAND, containerLabel, pathFor, resolveRoute } from '@kunlun/shared';
 import { ChangePasswordDialog, DialogProvider, Icon, Logo, useAuth, useDialogs, useToast, type IconName } from '@kunlun/ui';
 import { PAGE_NAMES, useGo } from './common';
@@ -152,14 +152,17 @@ function Topbar({ page, collapsed, toggle }: { page: string; collapsed: boolean;
   const { setMemberQuery } = useAdminData();
   const dialogs = useDialogs();
   const go = useGo();
+  const [params] = useSearchParams();
   const [search, setSearch] = useState('');
+  // A member's 360° profile is a page under 会员管理, addressed by `?id=`.
+  const profile = page === 'members' && params.has('id');
   const label = collapsed ? '展开导航栏' : '收起导航栏';
   return (
     <div className="topbar">
       <button type="button" className="sidebar-toggle" aria-label={label} title={label} aria-controls="adminSidebar" aria-expanded={!collapsed} onClick={toggle}>
         <svg className="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M9 4v16" /><path className="sidebar-toggle-arrow" d="m16 9-3 3 3 3" /></svg>
       </button>
-      <div className="breadcrumb">{KUNLUN_BRAND.store} / {GROUP_OF[page] && <>{GROUP_OF[page]} / </>}<b>{PAGE_NAMES[page]}</b> <span className="pill">{KUNLUN_BRAND.product}</span></div>
+      <div className="breadcrumb">{KUNLUN_BRAND.store} / {GROUP_OF[page] && <>{GROUP_OF[page]} / </>}{profile ? <>{PAGE_NAMES[page]} / <b>会员 360° 档案</b></> : <b>{PAGE_NAMES[page]}</b>} <span className="pill">{KUNLUN_BRAND.product}</span></div>
       <div className="top-actions">
         <label className="search-mini"><Icon name="search" />
           <input placeholder="搜索会员姓名、手机号、会员编号" aria-label="搜索会员" value={search} onChange={e => setSearch(e.target.value)}

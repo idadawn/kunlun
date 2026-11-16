@@ -134,6 +134,51 @@ public sealed class MembershipTests(TestHost host)
     }
 
     [Fact]
+    public async Task Deposits_And_Unused_Paid_Tickets_Add_Up_To_Money_Members_Could_Ask_Back()
+    {
+        using var c = await Admin(); var m = await Member(c);
+        var before = await c.GetFromJsonAsync<JsonElement>("/api/reports/finance-summary");
+        var pickup = (await Recharge(c, m, await Plan(c))).GetProperty("id").GetGuid();                 // 16 tickets for ¥100
+        var delivery = (await Recharge(c, m, await Plan(c, 13, 100, "DELIVERY"))).GetProperty("id").GetGuid(); // 13 tickets for ¥100
+        await GiftFromRetiredCoupon(pickup);
+        await Consume(c, m, 6);
+        await Consume(c, m, 6, "DELIVERY");
+        // An open order still holds two pickup tickets: not used yet, so they still count, but the batch cannot be refunded now.
+        var open = await Order(c, m, 2);
+        await Ok(await c.PostAsJsonAsync("/api/deposits/collect", new CollectDepositRequest(m, "BUCKET", 2, "CASH", Key())));
+
+        var batches = (await c.GetFromJsonAsync<JsonElement>($"/api/members/{m}/ticket-batches")).EnumerateArray().ToDictionary(b => b.GetProperty("id").GetGuid());
+        Assert.Equal(62.50m, batches[pickup].GetProperty("remainingValue").GetDecimal());   // 100 × 10 / 16, the gift is worth nothing
+        Assert.Equal(0m, batches[pickup].GetProperty("refundableAmount").GetDecimal());
+        Assert.Equal(53.85m, batches[delivery].GetProperty("remainingValue").GetDecimal()); // 100 × 7 / 13, rounded once
+        Assert.Equal(53.85m, batches[delivery].GetProperty("refundableAmount").GetDecimal());
+        var deposit = (await c.GetFromJsonAsync<JsonElement>($"/api/members/{m}/deposit-summary")).EnumerateArray()
+            .Single(r => r.GetProperty("containerType").GetString() == "BUCKET").GetProperty("paidAmount").GetDecimal();
+
+        var after = await c.GetFromJsonAsync<JsonElement>("/api/reports/finance-summary");
+        decimal Delta(JsonElement now, string name) => now.GetProperty(name).GetDecimal() - before.GetProperty(name).GetDecimal();
+        Assert.Equal(116.35m, Delta(after, "unusedRechargeValue"));
+        Assert.Equal(17m, Delta(after, "unusedPaidTicketQty"));
+        Assert.Equal(1m, Delta(after, "unusedGiftTicketQty"));
+        Assert.Equal(0m, Delta(after, "legacyTicketQty"));
+        Assert.Equal(deposit, Delta(after, "unrefundedDepositPoolTotal"));
+        Assert.Equal(2m, Delta(after, "unrefundedDepositQty"));
+        Assert.Equal(deposit + 116.35m, Delta(after, "potentialRefundTotal"));
+        Assert.Equal(200m - 116.35m, Delta(after, "rechargeEarnedTotal"));
+        Assert.Equal(after.GetProperty("unrefundedDepositPoolTotal").GetDecimal() + after.GetProperty("unusedRechargeValue").GetDecimal(), after.GetProperty("potentialRefundTotal").GetDecimal());
+        Assert.Equal(after.GetProperty("rechargeNetReceived").GetDecimal() - after.GetProperty("unusedRechargeValue").GetDecimal(), after.GetProperty("rechargeEarnedTotal").GetDecimal());
+
+        // Refunding pays out exactly what was counted, and the refunded batch leaves nothing to ask back.
+        await Ok(await c.PostAsJsonAsync($"/api/orders/{open.GetProperty("id").GetGuid()}/cancel", new CancelWaterOrderRequest("顾客改天再来")));
+        Assert.Equal(62.50m, (await Refund(c, pickup)).GetProperty("refundAmount").GetDecimal());
+        var refunded = await c.GetFromJsonAsync<JsonElement>("/api/reports/finance-summary");
+        Assert.Equal(53.85m, Delta(refunded, "unusedRechargeValue"));
+        Assert.Equal(200m - 62.50m - 53.85m, Delta(refunded, "rechargeEarnedTotal"));
+        Assert.Equal(0m, (await c.GetFromJsonAsync<JsonElement>($"/api/members/{m}/ticket-batches")).EnumerateArray()
+            .Single(b => b.GetProperty("id").GetGuid() == pickup).GetProperty("remainingValue").GetDecimal());
+    }
+
+    [Fact]
     public async Task Member_Only_Reads_Own_Records_And_Cannot_Mutate_Anything()
     {
         using var admin = await Admin(); var other = await Member(admin); using var c = host.CreateClient();

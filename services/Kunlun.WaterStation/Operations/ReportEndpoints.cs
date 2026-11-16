@@ -57,11 +57,12 @@ public static class ReportEndpoints
             }
 
             decimal depositCollectedTotal, unrefundedDepositPoolFromLots;
-            long depositCollectCount;
+            long depositCollectCount, unrefundedDepositQty;
             await using (var depCmd = new NpgsqlCommand("""
                 SELECT COUNT(*),
                        COALESCE(SUM(total_amount), 0.00),
-                       COALESCE(SUM(remaining_qty * unit_price), 0.00)
+                       COALESCE(SUM(remaining_qty * unit_price), 0.00),
+                       COALESCE(SUM(remaining_qty), 0)
                 FROM plugin_kunlun_waterstation.deposit_lots
                 WHERE tenant_id = @tid
                 """, conn))
@@ -72,6 +73,28 @@ public static class ReportEndpoints
                 depositCollectCount = r.GetInt64(0);
                 depositCollectedTotal = r.GetDecimal(1);
                 unrefundedDepositPoolFromLots = r.GetDecimal(2);
+                unrefundedDepositQty = r.GetInt64(3);
+            }
+
+            // 会员还没用完的水费：在用充值批次的剩余付费票按原实付单价折算，与退清单个批次同一口径
+            // （MembershipEndpoints.RemainingValue）；赠票退款时收回、不退钱；历史余额没有原价，只统计张数。
+            decimal unusedRechargeValue;
+            long unusedPaidTicketQty, unusedGiftTicketQty, legacyTicketQty;
+            await using (var unused = TicketBatches.Command(conn, null, """
+                SELECT COALESCE(sum(round(paid_amount * remaining_buy / fixed_qty, 2)) FILTER (WHERE source = 'PURCHASE'), 0.00),
+                       COALESCE(sum(remaining_buy) FILTER (WHERE source = 'PURCHASE'), 0),
+                       COALESCE(sum(remaining_gift) FILTER (WHERE source = 'PURCHASE'), 0),
+                       COALESCE(sum(remaining_buy + remaining_gift) FILTER (WHERE source <> 'PURCHASE'), 0)
+                FROM plugin_kunlun_waterstation.ticket_batches
+                WHERE tenant_id = @tid AND status = 'ACTIVE'
+                """, ("tid", tenantId)))
+            await using (var r = await unused.ExecuteReaderAsync(ct))
+            {
+                await r.ReadAsync(ct);
+                unusedRechargeValue = r.GetDecimal(0);
+                unusedPaidTicketQty = r.GetInt64(1);
+                unusedGiftTicketQty = r.GetInt64(2);
+                legacyTicketQty = r.GetInt64(3);
             }
 
             decimal depositRefundedTotal;
@@ -142,8 +165,16 @@ public static class ReportEndpoints
                 depositDeductedTotal,
                 depositDeductCount,
                 unrefundedDepositPoolTotal = unrefundedDepositPoolFromLots,
+                unrefundedDepositQty,
                 netDepositFromFlows,
                 reconciledZeroDiff = unrefundedDepositPoolFromLots == netDepositFromFlows,
+                unusedRechargeValue,
+                unusedPaidTicketQty,
+                unusedGiftTicketQty,
+                legacyTicketQty,
+                // 押金和没用完的水费都是会员可以要回去的钱，不是收入；水费净收里扣掉没用完的，才是会员已经用掉的水费。
+                potentialRefundTotal = unrefundedDepositPoolFromLots + unusedRechargeValue,
+                rechargeEarnedTotal = rechargeRevenueTotal - rechargeRefundedTotal - unusedRechargeValue,
                 completedOrderCount,
                 waterFulfilledTotalQty,
                 generatedAt = DateTimeOffset.UtcNow

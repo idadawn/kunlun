@@ -38,7 +38,7 @@ interface AdminData extends AdminSnapshot {
   setMemberFilter(filter: MemberFilter): void;
   memberPage: number;
   setMemberPage(page: number): void;
-  /** The member last opened in the 360° drawer; operation dialogs preselect them. */
+  /** The member whose 360° profile was opened last; operation dialogs preselect them. */
   selectedMemberId: string | null;
   setSelectedMemberId(id: string | null): void;
   refresh(): Promise<void>;

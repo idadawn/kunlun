@@ -204,6 +204,13 @@ kunlun/
 - JWT 校验（`OnTokenValidated`）在核对状态和 `token_version` 的同一查询里读出员工当前 `permissions`，替换令牌中的 `perm` 声明，所以收回或授予功能在下一次请求即生效，无需重新登录或递增令牌版本。`GET /api/auth/me` 对员工另返回 `mobileFeatures`。
 - 前端 `mobileLayout(features)` 是员工端与管理端预览共用的布局规则：前 `MOBILE_TAB_LIMIT`（3）个有独立页面的功能进入底部导航，其余非卡片功能为首页快捷入口。`@kunlun/ui` 的 `WorkbenchHome`、`WorkbenchTabBar`、`OrderCard` 与 `workbench.css`（由使用方显式引入，会员端不加载）同时用于员工端 `/staff` 和管理端 `/admin/mobile` 的手机框；袋桶库存的「新购 / 报废 / 修改数量」弹窗（`StockQuickDialog`、`StockEditDialog`）也移入 `@kunlun/ui`，管理端库存页与员工端 `/staff/inventory` 共用。员工端切换页面时重新读取 `me`，功能变化即时反映到导航和首页。
 
+## 8. 会员档案整页与「可能要退的钱」（2026-11-16）
+
+- 会员 360° 档案是 `Members` 页的一种状态：`/admin/members?id=<会员ID>`，不新增路由段（`resolveRoute` 只认两段路径，nginx、`scripts/vite-routes.ts` 与路由测试都不用改）。从列表打开时写入 `location.state.fromList`，返回时 `navigate(-1)`，直接打开的则替换为列表；列表滚动位置记在 `Members` 里。`pages/MemberProfile.tsx` 自己读取 `memberProfile`、`depositSummary`、`ticketBatches` 和最近记录（`ordersPage({ memberId })`，充值与押金流水按会员编号查询后再按编号核对），依赖 `useAdminData().version`，任何办理后的刷新都会重读。原抽屉及其样式已删除。
+- `GET /api/members/{id}/ticket-batches` 新增 `remainingValue`：在用 `PURCHASE` 批次剩余付费票按原实付单价折算的金额（`MembershipEndpoints.RemainingValue`，舍入到分），历史余额和已退款批次为 0；`refundableAmount` 是没有水单占用时的 `remainingValue`；退清批次也用同一函数计价。
+- `GET /api/reports/finance-summary` 新增 `unusedRechargeValue`（SQL 中按同一口径 `sum(round(paid_amount*remaining_buy/fixed_qty,2))`）、`unusedPaidTicketQty`、`unusedGiftTicketQty`、`legacyTicketQty`（历史余额张数，不计价）、`unrefundedDepositQty`、`potentialRefundTotal`（未退押金 + 没用完的水费）与 `rechargeEarnedTotal`（水费净收 − 没用完的水费）。集成测试 `Deposits_And_Unused_Paid_Tickets_Add_Up_To_Money_Members_Could_Ask_Back` 校验两笔充值、赠票、占用和押金带来的增量，以及退清后的回落。
+- 点单：`useDepositPositions` 额外带出已交押金个数与金额、待报废和现在可退；`OrderMenu` 顶部按配套容器显示持有与押金小卡（管理端弹窗与员工端共用）。购物袋的「清空」只清已选数量和换回空桶的改动，不清除本次结算已生成的幂等键：上一次提交若其实已在服务端成功，再提交同一水品也不会重复下单。
+
 ## 独立测试服务（2026-10-30，2026-11-01 更新）
 
 `kunlun-test.idalee.cn` 使用独立 Compose、数据库 `kunlun_test`、非超级用户 `kunlun_test_app` 及 JWT 密钥，承载管理端与 H5 的联调。`/healthz` 返回当前数据库名，部署检查据此确认连接的是测试库。详见 [测试部署](../deploy/test/README.md)。

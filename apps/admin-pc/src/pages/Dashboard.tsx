@@ -1,4 +1,4 @@
-import { KUNLUN_BRAND, containerKind, containerOf, money, waterFallbackLabel, type ContainerSummaryItem, type ContainerType, type OverviewReport, type WaterOrder } from '@kunlun/shared';
+import { KUNLUN_BRAND, containerKind, containerOf, money, waterFallbackLabel, type ContainerSummaryItem, type ContainerType, type FinanceSummaryReport, type OverviewReport, type WaterOrder } from '@kunlun/shared';
 import { Icon, useAuth } from '@kunlun/ui';
 import { useExport, useGo, useOperations } from '../common';
 import { useAdminData } from '../data';
@@ -50,7 +50,7 @@ export function Dashboard() {
       <div className="stat-card">
         <div className="stat-top"><span>水费净收（元）</span><span className="stat-icon"><Icon name="wallet" /></span></div>
         <div className="stat-value">{finance ? `¥ ${money(finance.rechargeNetReceived)}` : '—'}</div>
-        <div className="stat-foot">{finance ? `不含押金 · 在池押金 ¥${money(finance.unrefundedDepositPoolTotal)} 另行核算` : '需要报表权限'}</div>
+        <div className="stat-foot">{finance ? `不含押金 · 其中 ¥${money(finance.unusedRechargeValue)} 会员还没用完` : '需要报表权限'}</div>
       </div>
       <div className="stat-card">
         <div className="stat-top"><span>已核销用水</span><span className="stat-icon blue"><Icon name="drop" /></span></div>
@@ -68,6 +68,8 @@ export function Dashboard() {
         <div className="stat-foot">店里能用：桶 {bucket.inStationQty} · 袋 {bag.inStationQty}</div>
       </div>
     </div>
+
+    {finance && <Liabilities finance={finance} overview={overview} />}
 
     <div className="dashboard-grid">
       <div className="card">
@@ -114,6 +116,57 @@ export function Dashboard() {
       </div>
     </div>
   </>;
+}
+
+/**
+ * 可能要退给会员的钱：押金和会员还没用完的水费都收在账上，但会员退桶、退水费时要还回去，不是赚的钱。
+ * 水费净收拆成「已经用掉」（真正的收入）和「还没用完」两段，让人一眼分清哪些钱是自己的。
+ */
+function Liabilities({ finance: f, overview }: { finance: FinanceSummaryReport; overview: OverviewReport | null }) {
+  const go = useGo();
+  const net = Number(f.rechargeNetReceived);
+  const earned = Number(f.rechargeEarnedTotal);
+  const used = net > 0 ? Math.min(100, Math.max(0, earned / net * 100)) : 0;
+  return (
+    <div className="card liability-card">
+      <div className="card-head">
+        <div className="card-title">可能要退给会员的钱 <small>押金和没用完的水费都在账上，会员要回去时得退，不是赚的钱</small></div>
+        <div className="liability-links">
+          <button type="button" className="text-btn" onClick={() => go('deposits')}>押金明细 ›</button>
+          <button type="button" className="text-btn" onClick={() => go('recharges')}>水费明细 ›</button>
+        </div>
+      </div>
+      <div className="liability-body">
+        <div className="liability-sum">
+          <div className="liability-item">
+            <span><Icon name="deposit" size="sm" />押金在池</span>
+            <b>¥ {money(f.unrefundedDepositPoolTotal)}</b>
+            <small>{f.unrefundedDepositQty} 个桶袋的押金，会员还桶就要退{overview ? `；已还桶、现在就能退 ¥${money(overview.refundableDeposit)}` : ''}</small>
+          </div>
+          <i className="liability-op" aria-hidden="true">+</i>
+          <div className="liability-item">
+            <span><Icon name="wallet" size="sm" />没用完的水费</span>
+            <b>¥ {money(f.unusedRechargeValue)}</b>
+            <small>剩余付费水票 {f.unusedPaidTicketQty} 张，按原实付单价折算{f.unusedGiftTicketQty ? `；赠票 ${f.unusedGiftTicketQty} 张退款时收回、不退钱` : ''}</small>
+          </div>
+          <i className="liability-op" aria-hidden="true">=</i>
+          <div className="liability-item total">
+            <span><Icon name="refund" size="sm" />合计可能要退</span>
+            <b>¥ {money(f.potentialRefundTotal)}</b>
+            <small>{f.legacyTicketQty ? `另有 ${f.legacyTicketQty} 张历史余额水票没有原价，未计入` : '会员全部退桶、退清水费时要还回去的钱'}</small>
+          </div>
+        </div>
+        <div className="liability-split">
+          <div className="liability-split-text">
+            <span>水费净收<b>¥{money(net)}</b></span>
+            <span>= 会员已经用掉的（真正的收入）<b className="earned">¥{money(earned)}</b></span>
+            <span>+ 还没用完的（可能要退）<b className="unused">¥{money(f.unusedRechargeValue)}</b></span>
+          </div>
+          {net > 0 && <div className="liability-bar" role="img" aria-label={`水费净收中会员已用掉 ${Math.round(used)}%`}><i style={{ width: `${used}%` }} /></div>}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function OrderTag({ order: o }: { order: WaterOrder }) {

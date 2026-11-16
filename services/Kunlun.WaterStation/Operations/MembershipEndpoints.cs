@@ -65,6 +65,8 @@ public static class MembershipEndpoints
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct)) rows.Add(new
             {
+                // Remaining paid tickets at the original paid price (gifts are worth nothing): what refunding the batch pays back.
+                remainingValue = RemainingValue(r.GetString(1), r.GetString(11), r.GetDecimal(4), r.GetInt32(7), r.GetInt32(5)),
                 id = r.GetGuid(0),
                 source = r.GetString(1),
                 waterType = r.GetString(2),
@@ -80,7 +82,8 @@ public static class MembershipEndpoints
                 createdAt = r.GetDateTime(12),
                 rechargeNo = r.GetString(13),
                 name = r.GetString(14),
-                refundableAmount = r.GetString(1) == "PURCHASE" && r.GetString(11) == "ACTIVE" && r.GetInt32(9) + r.GetInt32(10) == 0 ? Math.Round(r.GetDecimal(4) * r.GetInt32(7) / r.GetInt32(5), 2, MidpointRounding.AwayFromZero) : 0,
+                // Refundable now only while no open order holds tickets of the batch.
+                refundableAmount = r.GetInt32(9) + r.GetInt32(10) == 0 ? RemainingValue(r.GetString(1), r.GetString(11), r.GetDecimal(4), r.GetInt32(7), r.GetInt32(5)) : 0,
                 refundedAmount = r.GetDecimal(15),
                 refundNo = r.GetString(16), waterLabel = r.GetString(17),
                 pendingRequestNo = r.IsDBNull(18) ? null : r.GetString(18),
@@ -209,6 +212,13 @@ public static class MembershipEndpoints
 
     public sealed record RechargeRefundResult(Guid Id, string RefundNo, decimal Amount, int BuyQty, int GiftQty);
 
+    /// <summary>
+    /// 一个充值批次剩余付费票按原实付单价折算的金额（赠票不值钱）：退清该批次时退给会员的钱。
+    /// 历史余额没有原价、已退款批次已经退清，都按 0 计。财务汇总的「未用完水费」用同一口径在 SQL 里求和。
+    /// </summary>
+    public static decimal RemainingValue(string source, string status, decimal paidAmount, int remainingBuy, int fixedQty) =>
+        source == "PURCHASE" && status == "ACTIVE" ? Math.Round(paidAmount * remainingBuy / fixedQty, 2, MidpointRounding.AwayFromZero) : 0;
+
     /// <summary>Checks a batch can be refunded and returns its amount at the original paid price; the caller holds the member lock.</summary>
     public static async Task<(Guid MemberId, string Water, string Mode, decimal Amount, int Buy, int Gift)> RefundableBatch(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid batchId, bool lockRow, CancellationToken ct)
     {
@@ -220,7 +230,7 @@ public static class MembershipEndpoints
         if (r.GetInt32(7) + r.GetInt32(8) > 0) throw new BusinessRuleException("该批次有未完成水单，请先完成或取消订单", 409);
         int buy = r.GetInt32(5), gift = r.GetInt32(6);
         if (buy + gift == 0) throw new BusinessRuleException("该批次已用完，无剩余权益");
-        var amount = Math.Round(r.GetDecimal(3) * buy / r.GetInt32(4), 2, MidpointRounding.AwayFromZero);
+        var amount = RemainingValue(r.GetString(0), r.GetString(9), r.GetDecimal(3), buy, r.GetInt32(4));
         return (r.GetGuid(10), r.GetString(1), r.GetString(2), amount, buy, gift);
     }
 

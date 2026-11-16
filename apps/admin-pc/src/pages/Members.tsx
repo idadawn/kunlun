@@ -1,11 +1,10 @@
-import { useEffect, useState } from 'react';
-import {
-  KUNLUN_PERMISSIONS as P, containerLabel, containerTickets, money, pageCount, shortDateTime, ticketGroups,
-  type DepositSummaryRow, type MemberProfile, type MemberTicket,
-} from '@kunlun/shared';
-import { AddressBook, CredentialsDialog, Icon, useAuth, useDialogs, useLoader } from '@kunlun/ui';
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { money, pageCount, ticketGroups, type MemberTicket } from '@kunlun/shared';
+import { Icon } from '@kunlun/ui';
 import { EmptyRow, Pager, useExport, useOperations } from '../common';
 import { MEMBER_PAGE_SIZE, useAdminData, type MemberFilter } from '../data';
+import { MemberProfilePage } from './MemberProfile';
 
 const PALETTE = [
   undefined,
@@ -24,12 +23,32 @@ function TicketCell({ tickets }: { tickets: MemberTicket[] }) {
   ))}</>;
 }
 
+const scroller = () => document.querySelector<HTMLElement>('.main-wrap');
+
+/**
+ * 会员管理：会员列表，或 `?id=` 指定会员的 360° 档案整页。档案页放在查询参数里，浏览器前进后退、刷新都停在原处；
+ * 回到列表时保留原来的搜索、筛选、页码和滚动位置。
+ */
 export function Members() {
-  const { members: rows, memberTotal, loaded, overview, memberQuery, setMemberQuery, memberFilter, setMemberFilter, memberPage, setMemberPage, setSelectedMemberId } = useAdminData();
+  const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const openId = params.get('id');
+  const listScroll = useRef(0);
+  useLayoutEffect(() => { scroller()?.scrollTo(0, openId ? 0 : listScroll.current); }, [openId]);
+  const open = (id: string) => {
+    listScroll.current = scroller()?.scrollTop ?? 0;
+    setParams({ id }, { state: { fromList: true } });
+  };
+  // Opened from the list: step back so the browser history stays list → profile; opened by link: replace it with the list.
+  const back = () => (location.state as { fromList?: boolean } | null)?.fromList ? navigate(-1) : setParams({}, { replace: true });
+  return openId ? <MemberProfilePage memberId={openId} onBack={back} /> : <MemberList onOpen={open} />;
+}
+
+function MemberList({ onOpen }: { onOpen: (id: string) => void }) {
+  const { members: rows, memberTotal, loaded, overview, memberQuery, setMemberQuery, memberFilter, setMemberFilter, memberPage, setMemberPage } = useAdminData();
   const ops = useOperations();
   const exportCsv = useExport();
-  const [openId, setOpenId] = useState<string | null>(null);
-  const open = rows.find(m => m.id === openId);
   const withTickets = rows.filter(m => m.tickets.some(t => t.available > 0)).length;
   const withContainers = rows.filter(m => m.heldBuckets + m.heldBags > 0).length;
   const filtered = !!(memberQuery.trim() || memberFilter.status || memberFilter.water);
@@ -78,7 +97,7 @@ export function Members() {
                 <td>¥ {money(m.depositAmount)}</td>
                 <td>{m.heldBuckets} 桶 / {m.heldBags} 袋</td>
                 <td>{(m.createdAt || '').slice(0, 10) || '—'}</td>
-                <td><button type="button" className="link" onClick={() => { setOpenId(m.id); setSelectedMemberId(m.id); }}>360° 详情</button></td>
+                <td><button type="button" className="link" onClick={() => onOpen(m.id)}>360° 档案</button></td>
               </tr>
             ))}
           </tbody>
@@ -86,87 +105,5 @@ export function Members() {
       </div>
       <div className="table-footer"><span>共 {memberTotal} 条记录 · 每页 {MEMBER_PAGE_SIZE} 条</span><Pager page={memberPage} total={memberTotal} pageSize={MEMBER_PAGE_SIZE} onChange={setMemberPage} /></div>
     </div>
-    {open && <MemberDrawer member={open} onClose={() => setOpenId(null)} />}
   </>;
-}
-
-function MemberDrawer({ member: m, onClose }: { member: MemberProfile; onClose: () => void }) {
-  const { api, can } = useAuth();
-  const dialogs = useDialogs();
-  const ops = useOperations();
-  const { version, refresh } = useAdminData();
-  const [deposits, setDeposits] = useState<DepositSummaryRow[] | null>(null);
-  const reports = can(P.ReportExport);
-  const recharges = useLoader(() => reports ? api.rechargeLedger({ q: m.memberNo, pageSize: 3 }) : Promise.resolve(null), [api, reports, m.memberNo, version]);
-
-  useEffect(() => {
-    let alive = true;
-    setDeposits(null);
-    api.depositSummary(m.id).then(rows => { if (alive) setDeposits(rows); }).catch(() => undefined);
-    return () => { alive = false; };
-  }, [api, m.id, m.depositAmount, m.heldBags, m.heldBuckets]);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('dialog[open]')) onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  const recent = recharges.data?.rows.filter(r => r.memberNo === m.memberNo) ?? [];
-  const tickets = ticketGroups(m.tickets);
-  const refundable = deposits ? deposits.reduce((sum, r) => sum + Number(r.refundableAmount), 0) : null;
-  const pendingDamage = deposits?.reduce((sum, r) => sum + r.pendingDamageQty, 0) ?? 0;
-  return (
-    <div className="drawer-mask open" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="drawer" role="dialog" aria-modal="true" aria-label="会员 360° 档案">
-        <div className="drawer-head"><h3>会员 360° 档案</h3><button type="button" className="modal-close" aria-label="关闭" onClick={onClose}><Icon name="close" /></button></div>
-        <div className="drawer-body">
-          <div className="member-profile">
-            <div className="avatar">{m.name[0]}</div>
-            <div><h2>{m.name}</h2><p>{m.memberNo} · 麒麟会员 · {(m.createdAt || '').slice(0, 10) || '档案'}</p></div>
-            <span className={`tag ${m.status === 'ACTIVE' ? 'green' : 'gray'}`} style={{ marginLeft: 'auto' }}>{m.status === 'ACTIVE' ? '正常' : '停用'}</span>
-          </div>
-          <div className="profile-stats">
-            <div><b>{containerTickets(m.tickets, 'BUCKET')}</b><small>桶装水票</small></div>
-            <div><b>{containerTickets(m.tickets, 'BAG')}</b><small>袋装水票</small></div>
-            <div><b>¥{Number(m.depositAmount).toFixed(0)}</b><small>押金余额</small></div>
-            <div><b>{m.heldBuckets} / {m.heldBags}</b><small>持有桶/袋</small></div>
-          </div>
-          <div className="drawer-actions">
-            <button type="button" className="btn primary" onClick={() => ops.order(m.id)}>点单</button>
-            <button type="button" className="btn" onClick={() => ops.recharge(m.id)}>水费充值</button>
-            <button type="button" className="btn" onClick={() => ops.deposit('collect', m.id)}>收押金</button>
-            <button type="button" className="btn" onClick={() => ops.movement(m.id)}>登记领还</button>
-          </div>
-          <div className="detail-card">
-            <h4>基础资料</h4>
-            <div className="detail-row"><span>联系电话</span><b>{m.phone}</b></div>
-            <div className="detail-row"><span>默认收货地址</span><b style={{ textAlign: 'right', maxWidth: 260 }}>{m.defaultAddress || '未设置'}</b></div>
-            <div className="detail-row"><span>会员卡号</span><b>{m.memberNo}</b></div>
-            {m.remark && <div className="detail-row"><span>备注</span><b style={{ textAlign: 'right', maxWidth: 260, whiteSpace: 'pre-wrap' }}>{m.remark}</b></div>}
-            <button type="button" className="btn sm" style={{ marginTop: 8 }} onClick={() => dialogs.open(close => <CredentialsDialog subjectType="MEMBER" id={m.id} onClose={close} />)}>设置登录账号</button>
-          </div>
-          <div className="detail-card">
-            <AddressBook key={m.id} owner={m} onChanged={refresh} compact />
-          </div>
-          <div className="detail-card">
-            <div className="detail-card-head"><h4>水票与充值</h4><button type="button" className="text-btn" onClick={() => ops.assets(m)}>水票批次 / 退款 ›</button></div>
-            {tickets.length
-              ? tickets.map(g => <div key={g.waterType} className="detail-row"><span>{g.name}</span><b>自提 {g.pickup} / 配送 {g.delivery} {g.unit}{g.reserved > 0 ? `（预占 ${g.reserved}）` : ''}</b></div>)
-              : <p className="membership-note">暂无水票</p>}
-            {reports && (recent.length
-              ? recent.map(r => <div key={r.rechargeNo} className="detail-row"><span>{shortDateTime(r.createdAt)} 充值</span><b>{r.planName} · ¥{money(r.paidAmount)}{r.refundNo ? '（已退）' : ''}</b></div>)
-              : <p className="membership-note">暂无充值记录</p>)}
-          </div>
-          <div className="detail-card">
-            <div className="detail-card-head"><h4>押金与容器</h4><button type="button" className="text-btn" onClick={() => ops.deposit('refund', m.id)}>退押金 ›</button></div>
-            {deposits ? deposits.map(r => (
-              <div key={r.containerType} className="detail-row"><span>{containerLabel(r.containerType)}</span><b>已交 {r.paidQty} 个 ¥{money(r.paidAmount)} · 持有 {r.heldQty} · 可退 {r.refundableQty}{r.pendingRefundQty > 0 ? ` · 审核中 ${r.pendingRefundQty}` : ''}</b></div>
-            )) : <p className="membership-note">押金明细查询中…</p>}
-            <div className="detail-row"><span>在池押金 / 当前可退</span><b style={{ color: 'var(--brand-600)' }}>¥{money(m.depositAmount)} / {refundable === null ? '查询中' : `¥${money(refundable)}`}</b></div>
-            {pendingDamage > 0 && <p className="membership-note">另有 {pendingDamage} 个待报废容器占用押金，确认报废后按原批次扣除。</p>}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 }

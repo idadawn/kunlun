@@ -31,8 +31,8 @@ export function useExport() {
 }
 
 /**
- * Opens the shared staff-operation dialogs and refreshes afterwards. They preselect the member last opened in the
- * 360° drawer; staff can search for any other member inside the dialog.
+ * Opens the shared staff-operation dialogs and refreshes afterwards. They preselect the member whose 360° profile was
+ * opened last; staff can search for any other member inside the dialog.
  */
 export function useOperations() {
   const data = useAdminData();
