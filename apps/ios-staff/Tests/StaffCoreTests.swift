@@ -32,6 +32,12 @@ private func url(_ text: String) -> URL { URL(string: text)! }
             #expect(StaffRoutes.resource(for: url(text)) == nil, "\(text)")
         }
     }
+
+    @Test func reviewRequestsUseTheReviewDeploymentOnly() {
+        let request = StaffProxy.request(method: "POST", path: "/api/auth/staff/login", query: nil, headers: [:],
+                                         body: nil, origin: .review)
+        #expect(request?.url?.absoluteString == "https://kunlun-test.idalee.cn/apple-review/api/auth/staff/login")
+    }
 }
 
 @Suite struct StaffOriginTests {

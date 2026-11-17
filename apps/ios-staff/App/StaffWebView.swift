@@ -4,19 +4,33 @@ import WebKit
 import os
 import KunlunStaffCore
 
+enum StaffAppAction: String {
+    case review, privacy, support
+}
+
 /// Shows the staff pages bundled with the app. Only staff pages can be opened; `tel:` links go to the phone app.
 struct StaffWebView: UIViewRepresentable {
     let origin: StaffOrigin
+    let reviewing: Bool
     /// Raised by the retry button to load the first page again.
     let attempt: Int
     @Binding var failed: Bool
+    let onAction: (StaffAppAction) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(failed: $failed) }
+    func makeCoordinator() -> Coordinator { Coordinator(failed: $failed, onAction: onAction) }
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
+        if reviewing {
+            configuration.websiteDataStore = .nonPersistent()
+        }
         configuration.setURLSchemeHandler(StaffSchemeHandler(origin: origin), forURLScheme: StaffRoutes.scheme)
         let scripts = configuration.userContentController
+        scripts.add(context.coordinator, name: "staffApp")
+        if reviewing {
+            scripts.addUserScript(WKUserScript(source: "window.kunlunStaffReview = true;",
+                                               injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         // The pages are laid out for phones: no pinch zoom, and no zoom when a small input gets focus.
         scripts.addUserScript(WKUserScript(source: Self.fixedViewport, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         #if DEBUG
@@ -48,8 +62,12 @@ struct StaffWebView: UIViewRepresentable {
     @MainActor final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var attempt = 0
         private let failed: Binding<Bool>
+        private let onAction: (StaffAppAction) -> Void
 
-        init(failed: Binding<Bool>) { self.failed = failed }
+        init(failed: Binding<Bool>, onAction: @escaping (StaffAppAction) -> Void) {
+            self.failed = failed
+            self.onAction = onAction
+        }
 
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                      decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
@@ -84,8 +102,16 @@ struct StaffWebView: UIViewRepresentable {
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+            if message.name == "staffApp",
+               message.frameInfo.isMainFrame,
+               let url = message.frameInfo.request.url, StaffRoutes.allowsNavigation(to: url),
+               let name = message.body as? String, let action = StaffAppAction(rawValue: name) {
+                onAction(action)
+            }
             #if DEBUG
-            if let text = message.body as? String { Self.webLog.info("\(text, privacy: .public)") }
+            if message.name == "staffLog", let text = message.body as? String {
+                Self.webLog.info("\(text, privacy: .public)")
+            }
             #endif
         }
 

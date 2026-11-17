@@ -1,0 +1,59 @@
+name: kunlun-review
+services:
+  database:
+    image: ${POSTGRES_IMAGE:?Set a pinned PostgreSQL image}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kunlun_review
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${REVIEW_DB_ADMIN_PASSWORD:?Required}
+      REVIEW_DB_PASSWORD: ${REVIEW_DB_PASSWORD:?Required}
+    volumes:
+      - data:/var/lib/postgresql/data
+      - ./init-database.sh:/docker-entrypoint-initdb.d/10-review.sh:ro
+    command: [postgres, -c, shared_buffers=24MB, -c, max_connections=20]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U postgres -d kunlun_review']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks: [database]
+    mem_limit: 128m
+  api:
+    image: ${ASPNET_IMAGE:?Set a pinned ASP.NET image}
+    restart: unless-stopped
+    user: '1654:1654'
+    read_only: true
+    tmpfs: ['/tmp:size=32m,mode=1777']
+    working_dir: /app
+    command: [dotnet, Kunlun.WaterStation.dll]
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Kunlun: 'Host=database;Database=kunlun_review;Username=kunlun_review_app;Password=${REVIEW_DB_PASSWORD:?Required};Maximum Pool Size=10'
+      Kunlun__Jwt__Issuer: kunlun.waterstation.review
+      Kunlun__Jwt__Audience: kunlun.review.clients
+      Kunlun__Jwt__SigningKey: ${REVIEW_JWT_KEY:?Required}
+      Kunlun__Bootstrap__Username: review_admin
+      Kunlun__Bootstrap__Password: ${REVIEW_ADMIN_PASSWORD:?Required}
+      Kunlun__SeedDemoData: 'false'
+    volumes:
+      - ${REVIEW_RELEASE_DIR:?Required}:/app:ro
+    depends_on:
+      database: { condition: service_healthy }
+    ports: ['127.0.0.1:18087:8080']
+    networks:
+      database:
+      gateway:
+        aliases: [kunlun-review-api]
+    mem_limit: 192m
+    logging:
+      driver: json-file
+      options: { max-size: 5m, max-file: '3' }
+volumes:
+  data:
+networks:
+  database:
+    internal: true
+  gateway:
+    external: true
+    name: atlas-wiki_default

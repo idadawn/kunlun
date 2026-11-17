@@ -20,13 +20,29 @@ enum StaffPalette {
         return StaffOrigin.resolve(arguments: ProcessInfo.processInfo.arguments, configured: configured, debug: debug)
     }()
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
+    @State private var reviewing = false
 
     var body: some Scene {
         WindowGroup {
             ZStack {
                 StaffPalette.background.ignoresSafeArea()
                 if let origin {
-                    StaffScreen(origin: origin)
+                    StaffScreen(origin: reviewing ? .review : origin, reviewing: reviewing, onAction: onAction)
+                        .id(reviewing)
+                        .safeAreaInset(edge: .top, spacing: 0) {
+                            if reviewing {
+                                HStack {
+                                    Label("审核演示 · 仅演示数据", systemImage: "testtube.2")
+                                    Spacer()
+                                    Button("返回正式环境") { reviewing = false }
+                                }
+                                .font(.footnote)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(.thinMaterial)
+                            }
+                        }
                 } else {
                     ContentUnavailableView("服务器地址无效", systemImage: "exclamationmark.triangle",
                                            description: Text("请检查构建设置 STAFF_ORIGIN：只能是 HTTPS 地址。"))
@@ -39,16 +55,29 @@ enum StaffPalette {
             }
         }
     }
+
+    private func onAction(_ action: StaffAppAction) {
+        switch action {
+        case .review:
+            reviewing = true
+        case .privacy:
+            openURL(URL(string: "https://kunlun.idalee.cn/privacy/ios")!)
+        case .support:
+            openURL(URL(string: "https://kunlun.idalee.cn/support/ios")!)
+        }
+    }
 }
 
 /// The staff pages, with a retry screen when the bundled pages cannot be opened.
 struct StaffScreen: View {
     let origin: StaffOrigin
+    let reviewing: Bool
+    let onAction: (StaffAppAction) -> Void
     @State private var failed = false
     @State private var attempt = 0
 
     var body: some View {
-        StaffWebView(origin: origin, attempt: attempt, failed: $failed)
+        StaffWebView(origin: origin, reviewing: reviewing, attempt: attempt, failed: $failed, onAction: onAction)
             // The keyboard covers the page as in Safari: WebKit scrolls the focused field above it and the fixed
             // bottom bars stay behind it. Shrinking the view instead lifts those bars over the field being typed in.
             .ignoresSafeArea(.keyboard)
