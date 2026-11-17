@@ -430,6 +430,26 @@ kunlun/
 - 交付弹窗（`packages/ui/src/operations/orders.tsx`）的数量标签和押金说明取水单 `productSnapshot.containerId` 对应的桶 / 袋；押金位置未加载或加载失败时拒绝提交。后台 `DEPOSIT_COVERAGE_INSUFFICIENT`、`INVALID_CONTAINER_RETURN` 的提示语也按水品的桶 / 袋说。订单导出列名改为“领出满桶/袋N、收回空桶/袋M”。
 - 测试：`ExpenseTests` 覆盖登记、重放与冲突、补登日期与时间窗口、作废不计入、导出、权限，以及新购带花费只记一次、店员有库存权限也不能填花费；`ReviewSettingsTests.Admins_Own_Gift_Waits_For_Approval_But_Their_Refunds_Do_Not` 改为管理员赠送也进待审核。
 
+## 23. 停用和删除会员（2026-11-17）
+
+- 权限 `member:manage`（`KunlunPermissions.MemberManage`，`metadata/permissions.json` 标高风险）：在 `AdminAll` 里，`MemberStatus.EnsureSchema` 启动时给已有管理员补上；不属于任何手机端功能。
+- 列：`members` 原有 `status`（`ACTIVE` / `DISABLED`），新增 `disabled_at`、`disabled_by`、`disable_reason`。会员档案和会员列表接口都返回这三项。
+- 接口（`Operations/MemberStatus.cs`）：
+  - `PATCH /api/members/{id}/status`（`{ status, reason }`）：停用要写原因（100 字以内）。先锁会员行，再查未完成的水单（`PENDING` / `DISPATCHED`）、`PENDING` 的 `refund_requests`（赠送和退款审核）和 `PENDING` 的 `container_damages`，有任何一项就返回 409 并列出。停用时 `token_version + 1`；状态没变时直接返回现状。
+  - `DELETE /api/members/{id}`：先锁会员行，统计充值单、水单、押金批次、桶袋流水、补录单、退款申请和报损；这些都没有时，还有水票批次或水票、押金、桶袋余额的也不能删。不能删时返回 409 并列出。能删时删掉地址和空的 `member_tickets`、`member_container_holdings` 行，再删会员。漏算的表由外键兜底：外键冲突同样返回 409。
+  - 两个接口都写 `auth_audit_logs`（`MEMBER_DISABLE` / `MEMBER_ENABLE` / `MEMBER_DELETE`）。`detail` 是 JSON，中文不转义。
+- 停用后的拦截原来就有，这次没改：登录和 `OnTokenValidated` 只认 `ACTIVE`；`TicketBatches.LockMember`（充值、收退押金、退款申请和审核、领还和报损、补录）和下单都拒绝非 `ACTIVE` 的会员，提示“会员已停用”。取消水单不查状态。
+- 新建会员撞到已停用会员的手机号时，409 的提示改为让员工去重新启用。
+- 前端：
+  - `MemberPicker` 只搜 `status=ACTIVE`，`usePickedMember` 忽略已停用的预选会员。
+  - 管理端会员档案：已停用时显示停用横幅（时间、经办人、原因和「重新启用」），收起所有办理按钮；「基础资料」卡片加「停用会员 / 重新启用」「删除」（需 `member:manage`）。会员列表名字旁标「已停用」。
+  - 员工手机端：会员列表标「已停用」；会员办理弹窗显示停用说明，收起办理按钮。
+- 测试：新增 `MemberStatusTests` 4 个：
+  - 停用后会员端退出且登录不了，员工办不了业务，余额不变，重新启用后恢复；
+  - 停用要权限和原因，有未完成的水单时拒绝，已停用会员的手机号不能重复建档；
+  - 只有没记录的会员能删，停用和删除都写审计；
+  - 已有管理员启动后自动获得权限。
+
 ## 独立测试服务（2026-10-30，2026-11-01 更新）
 
 `kunlun-test.idalee.cn` 使用独立 Compose、数据库 `kunlun_test`、非超级用户 `kunlun_test_app` 及 JWT 密钥，承载管理端与 H5 的联调。`/healthz` 返回当前数据库名，部署检查据此确认连接的是测试库。详见 [测试部署](../deploy/test/README.md)。

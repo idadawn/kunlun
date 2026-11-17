@@ -77,17 +77,22 @@ function MemberDetailDialog({ member: opened, onClose }: { member: MemberProfile
   const ops = useStaffOperations();
   const navigate = useNavigate();
   const order = () => { setSelectedMemberId(member.id); onClose(); navigate(pathFor('staff', 'order')); };
-  const depositActions = layout.has('depositCollect') || layout.has('depositRefund');
+  // A disabled member cannot be served: the server refuses every business, so none is offered here.
+  const disabled = member.status === 'DISABLED';
+  const depositActions = !disabled && (layout.has('depositCollect') || layout.has('depositRefund'));
   return (
     <Dialog title={`${member.name} · 会员办理`} description={`${member.phone} · ${member.memberNo}`} onClose={onClose}>
+      {disabled && (
+        <p className="member-disabled-note"><b>这位会员已停用{member.disableReason ? `：${member.disableReason}` : ''}</b>停用的会员办不了充值、点单、押金和领还；水票、押金都还在。需要时请管理员在电脑上重新启用。</p>
+      )}
       <div className="member-ledgers">
         <section>
-          <header><b>水票</b><button type="button" className="link" onClick={() => ops.assets(member)}>批次{layout.has('recharge') ? ' / 退款' : ''} ›</button></header>
+          <header><b>水票</b><button type="button" className="link" onClick={() => ops.assets(member)}>批次{layout.has('recharge') && !disabled ? ' / 退款' : ''} ›</button></header>
           {member.tickets.length === 0 && <p>暂无水票</p>}
           {ticketGroups(member.tickets).map(g => (
             <p key={g.waterType}>{g.name}<br /><b>自提 {g.pickup} · 配送 {g.delivery}</b> {g.unit}{g.reserved > 0 ? `（预占 ${g.reserved}）` : ''}</p>
           ))}
-          {layout.has('recharge') && <div className="member-ledger-actions"><button type="button" className="btn primary sm" onClick={ops.recharge}>水费充值</button></div>}
+          {layout.has('recharge') && !disabled && <div className="member-ledger-actions"><button type="button" className="btn primary sm" onClick={ops.recharge}>水费充值</button></div>}
         </section>
         <section className="deposit">
           <header><b>押金</b><small>独立记账</small></header>
@@ -99,7 +104,7 @@ function MemberDetailDialog({ member: opened, onClose }: { member: MemberProfile
           </div>}
         </section>
       </div>
-      {(layout.has('order') || layout.has('movement')) && <div className="membership-actions" style={{ margin: '12px 0 14px' }}>
+      {!disabled && (layout.has('order') || layout.has('movement')) && <div className="membership-actions" style={{ margin: '12px 0 14px' }}>
         {layout.has('order') && can(P.OrderCreate) && <button type="button" className="btn sm" onClick={order}>点单</button>}
         {layout.has('movement') && <button type="button" className="btn sm" onClick={ops.container}>登记领还</button>}
       </div>}

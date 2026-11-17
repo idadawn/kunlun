@@ -3,6 +3,8 @@ export const KUNLUN_PERMISSIONS = {
   MemberWrite: 'kunlun.waterstation:member:write',
   /** 补录会员上系统前的套餐余量、押金和手里的桶袋；默认只有管理员有，不随手机端功能开通。 */
   MemberOpening: 'kunlun.waterstation:member:opening',
+  /** 停用、重新启用和删除会员；默认只有管理员有，不随手机端功能开通。 */
+  MemberManage: 'kunlun.waterstation:member:manage',
   RechargeCreate: 'kunlun.waterstation:recharge:create',
   RechargeRefund: 'kunlun.waterstation:recharge:refund',
   DepositCollect: 'kunlun.waterstation:deposit:collect',
@@ -29,6 +31,7 @@ export const PERMISSION_TITLES: Readonly<Record<PermissionCode, string>> = {
   [P.MemberRead]: '查询会员',
   [P.MemberWrite]: '新建与修改会员',
   [P.MemberOpening]: '补录会员上系统前的数据',
+  [P.MemberManage]: '停用和删除会员',
   [P.RechargeCreate]: '水费充值登记',
   [P.RechargeRefund]: '退清水费',
   [P.DepositCollect]: '收押金',

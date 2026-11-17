@@ -214,6 +214,8 @@ td b{color:var(--ink)}
 .profile-container .profile-nums>div:first-child b{color:var(--brand-600)}
 .profile-container.bag .profile-nums>div:first-child b{color:var(--aqua-600)}
 .profile-container p{margin:8px 0 0}
+.profile-disabled{display:flex;align-items:center;flex-wrap:wrap;gap:10px 16px;margin:0 0 18px}
+.profile-disabled>div{flex:1 1 320px;min-width:0}
 .profile-warn{padding:7px 10px;border:1px solid var(--gold-100);border-radius:8px;background:var(--gold-50);color:var(--gold-600);font-size:12px}
 .profile-tabs{min-width:210px}
 /* Narrower windows: the last tile (可能要退的钱) takes the rest of its row instead of sitting alone. */

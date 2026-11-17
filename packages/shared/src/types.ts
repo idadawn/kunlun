@@ -52,7 +52,14 @@ export interface MemberProfile {
   createdAt?: string;
   /** Staff note recorded when the member was created; null when none. */
   remark?: string | null;
+  /** When, by whom and why the member was disabled; null while the member is active. */
+  disabledAt?: string | null;
+  disabledBy?: string | null;
+  disableReason?: string | null;
 }
+
+/** A member's status after 停用 / 重新启用. */
+export type MemberStatusResult = Pick<MemberProfile, 'id' | 'status' | 'disabledAt' | 'disabledBy' | 'disableReason'>;
 
 /** Tickets of one water product for one fulfilment mode; tickets of one product never pay for another. */
 export interface MemberTicket {

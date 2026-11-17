@@ -28,6 +28,7 @@ import type {
   MemberAddress,
   MemberOpeningRecord,
   MemberProfile,
+  MemberStatusResult,
   MemberQuery,
   OpeningEntry,
   SaveOpeningBody,
@@ -171,6 +172,12 @@ export class KunlunApi {
   createMember(body: { name: string; phone: string; defaultAddress?: string; doorNo?: string; remark?: string }) {
     return this.post<{ id: string; memberNo: string; name: string; phone: string }>('/api/members', body);
   }
+  /** 停用（要写原因）或重新启用会员；停用后会员端登录失效，员工也办不了他的业务。 */
+  setMemberStatus(memberId: string, status: ActiveStatus, reason?: string) {
+    return this.request<MemberStatusResult>(`/api/members/${memberId}/status`, { method: 'PATCH', ...json({ status, reason }) });
+  }
+  /** 删除一条业务记录都没有的会员（建错、重复的档案）；有记录的服务端拒绝，只能停用。 */
+  deleteMember(memberId: string) { return this.request<{ id: string; memberNo: string; deleted: boolean }>(`/api/members/${memberId}`, { method: 'DELETE' }); }
   listAddresses(memberId: string) { return this.request<MemberAddress[]>(`/api/members/${memberId}/addresses`); }
   createAddress(memberId: string, body: SaveMemberAddressRequest) {
     return this.post<MemberAddress>(`/api/members/${memberId}/addresses`, body);
