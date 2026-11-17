@@ -35,11 +35,15 @@ public static class MembershipEndpoints
                 // Quantity already asked back in refund requests that await review; new requests can only cover the rest.
                 await using var pendingCmd = Command(conn, null, "SELECT COALESCE(sum(quantity),0) FROM plugin_kunlun_waterstation.refund_requests WHERE tenant_id=@tid AND member_id=@mid AND kind='DEPOSIT' AND container_type=@container AND status='PENDING'", ("tid", repo.DefaultTenantId), ("mid", mid), ("container", container));
                 var pendingRefundQty = Convert.ToInt32(await pendingCmd.ExecuteScalarAsync(ct));
+                // Deposits staff took that wait for an admin: they cover containers already, but are not refundable until approved.
+                int pendingCollectQty; decimal pendingCollectAmount;
+                await using (var collectCmd = Command(conn, null, "SELECT COALESCE(sum(quantity),0), COALESCE(sum(estimated_amount),0) FROM plugin_kunlun_waterstation.refund_requests WHERE tenant_id=@tid AND member_id=@mid AND kind='COLLECT' AND container_type=@container AND status='PENDING'", ("tid", repo.DefaultTenantId), ("mid", mid), ("container", container)))
+                await using (var r = await collectCmd.ExecuteReaderAsync(ct)) { await r.ReadAsync(ct); pendingCollectQty = Convert.ToInt32(r.GetValue(0)); pendingCollectAmount = r.GetDecimal(1); }
                 await using var configCmd = Command(conn, null, "SELECT unit_deposit FROM plugin_kunlun_waterstation.container_configs WHERE tenant_id=@tid AND container_type=@container", ("tid", repo.DefaultTenantId), ("container", container));
                 var unitDeposit = (decimal?)await configCmd.ExecuteScalarAsync(ct) ?? throw new BusinessRuleException("押金标准尚未配置", 503);
                 // The deposit not held for a damage, oldest first: refunds take from the front at these prices.
                 var available = lots.Where(l => l.Qty > l.Reserved).Select(l => new { unitPrice = l.Price, quantity = l.Qty - l.Reserved }).ToList();
-                result.Add(new { containerType = container, waterType = product.WaterType, name = product.Name, containerKind = product.ContainerType, unitDeposit, paidQty, paidAmount = lots.Sum(l => l.Price * l.Qty), heldQty = held, pendingDamageQty = reservedQty, pendingDamageAmount = lots.Sum(l => l.Price * l.Reserved), refundableQty = refundQty, refundableAmount = amount, pendingRefundQty, lots = available });
+                result.Add(new { containerType = container, waterType = product.WaterType, name = product.Name, containerKind = product.ContainerType, unitDeposit, paidQty, paidAmount = lots.Sum(l => l.Price * l.Qty), heldQty = held, pendingDamageQty = reservedQty, pendingDamageAmount = lots.Sum(l => l.Price * l.Reserved), refundableQty = refundQty, refundableAmount = amount, pendingRefundQty, pendingCollectQty, pendingCollectAmount, lots = available });
             }
             return Results.Ok(result);
         }).RequireAuthorization();

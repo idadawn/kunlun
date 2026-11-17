@@ -302,8 +302,15 @@ public static class Settlements
         }
         await using (var cmd = Command(conn, tx, "SELECT order_no FROM plugin_kunlun_waterstation.water_orders WHERE tenant_id=@tid AND member_id=@mid AND status NOT IN ('COMPLETED','CANCELLED') ORDER BY created_at LIMIT 1", ("tid", tid), ("mid", mid)))
             if (await cmd.ExecuteScalarAsync(ct) is string order) plan.Blockers.Add($"有没完成的水单 {order}，请先完成或取消再结算");
-        await using (var cmd = Command(conn, tx, "SELECT request_no FROM plugin_kunlun_waterstation.refund_requests WHERE tenant_id=@tid AND member_id=@mid AND kind IN ('DEPOSIT','RECHARGE') AND status='PENDING' ORDER BY created_at LIMIT 1", ("tid", tid), ("mid", mid)))
-            if (await cmd.ExecuteScalarAsync(ct) is string request) plan.Blockers.Add($"有退款申请 {request} 在审核，处理完再结算");
+        // Anything still waiting for review changes what the member is owed: a deposit taken but not approved has no lot yet (the
+        // slip would charge for it again), a gift would land on refunded tickets, and a refund would pay twice.
+        await using (var cmd = Command(conn, tx, "SELECT request_no,kind FROM plugin_kunlun_waterstation.refund_requests WHERE tenant_id=@tid AND member_id=@mid AND status='PENDING' ORDER BY created_at LIMIT 1", ("tid", tid), ("mid", mid)))
+        await using (var r = await cmd.ExecuteReaderAsync(ct))
+            if (await r.ReadAsync(ct))
+            {
+                var what = r.GetString(1) switch { "DEPOSIT" => "押金退款申请", "RECHARGE" => "水费退款申请", "COLLECT" => "收的押金", "DAMAGE" => "损坏不赔付", _ => "赠送" };
+                plan.Blockers.Add($"有{what} {r.GetString(0)} 在等审核，请先到审核页处理再结算");
+            }
 
         var units = (await WaterProducts.List(conn, tid, ct)).ToDictionary(p => p.WaterType, p => p.Unit);
         var unpriced = 0;

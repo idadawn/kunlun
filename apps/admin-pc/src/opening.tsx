@@ -246,7 +246,7 @@ function ContainerRow({ row: r, lot, deposit, held, onDeposit, onHeld }: {
   const unit = containerUnit(r.containerType);
   const locked = !!lot?.locked;
   // Coverage once saved: the deposit paid in the system, plus the opening deposit as it will be.
-  const coveredNow = r.paidQty - r.pendingDamageQty;
+  const coveredNow = r.paidQty - r.pendingDamageQty + r.pendingCollectQty;
   const covered = coveredNow - (lot?.remainingQty ?? 0) + (locked ? lot!.remainingQty : deposit.qty);
   const owing = Math.max(0, held - covered);
   const each = deposit.qty > 0 && moneyOk(deposit.amount) ? Number(deposit.amount) / deposit.qty : null;

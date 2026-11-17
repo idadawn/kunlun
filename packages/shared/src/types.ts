@@ -174,7 +174,7 @@ export interface WaterOrder {
   createdAt: string;
   /** Delivery note from whoever placed the order, e.g. where to leave empty buckets. */
   remark?: string | null;
-  /** 交付时顾客没交够押金、记了欠押金写的备注（欠几个、报废了多少、报废费用给没给、为什么没交）；没欠为空。 */
+  /** 交付备注：顾客没交或没交够押金（交了几个、欠几个），损坏的桶袋赔没赔、不赔的原因；都没有为空。 */
   overrideReason?: string | null;
 }
 
@@ -212,10 +212,14 @@ export interface FulfillOrderRequest {
   emptyInM: number;
   pickupCode?: string | null;
   diffReason?: string | null;
-  /** 顾客没交够押金照样交付，差额记成欠押金；需要收押金权限，押金够时服务端不理会。 */
+  /** 顾客没交或没交够押金照样交付，差额记成欠押金；需要收押金权限，押金够时服务端不理会。 */
   forceCreditOverride?: boolean;
-  /** 记欠押金必填的备注，存进水单和袋桶台账。 */
+  /** 交付备注（交没交押金、损坏的桶袋赔没赔），记欠押金时必填；有就存进水单和袋桶台账，500 字以内。 */
   overrideReason?: string | null;
+  /** 交付时损坏的桶袋个数、顾客赔不赔、不赔的原因；不赔付按审核开关等管理员批准。 */
+  damagedQty?: number;
+  damageCompensated?: boolean | null;
+  damageReason?: string | null;
 }
 
 /**
@@ -584,6 +588,9 @@ export interface DepositSummaryRow {
   refundableAmount: number;
   /** Already asked back in refund requests awaiting review; new requests can cover only the rest. */
   pendingRefundQty: number;
+  /** Deposit staff took that waits for an admin to approve: it covers containers already, but is booked (and refundable) only once approved. */
+  pendingCollectQty: number;
+  pendingCollectAmount: number;
   /** The deposit not held for a damage, oldest first: refunds take from the front at these prices. Absent from older servers. */
   lots?: Array<{ unitPrice: number; quantity: number }>;
 }
@@ -701,11 +708,16 @@ export interface ContainerHoldingRow {
   pendingDamageAmount: number;
 }
 
-/** OPENING: containers a member already had before the system, written down (or corrected) by an opening entry. */
-export type CirculationBusinessType = 'TURNOVER' | 'DAMAGE_RETURN' | 'SCRAP' | 'SCRAP_WAIVED' | 'OPENING';
+/**
+ * OPENING: containers a member already had before the system, written down (or corrected) by an opening entry.
+ * RECEIVE / STORE_SCRAP: the store's own 新购 and 门店报废, from the stock records; no member is involved.
+ */
+export type CirculationBusinessType = 'TURNOVER' | 'DAMAGE_RETURN' | 'SCRAP' | 'SCRAP_WAIVED' | 'OPENING' | 'RECEIVE' | 'STORE_SCRAP';
 
 export interface CirculationRow {
+  /** The ledger number, or the stock record's number for RECEIVE / STORE_SCRAP. */
   ledgerNo: string;
+  /** Empty for the store's own RECEIVE / STORE_SCRAP. */
   memberName: string;
   memberNo: string;
   containerType: ContainerType;
@@ -720,6 +732,11 @@ export interface CirculationRow {
   depositDeductedAmount: number;
   remark: string;
   scrappedQty: number;
+  /** How many a RECEIVE added to the store; 0 otherwise. */
+  receivedQty: number;
+  /** 店里 before → after a RECEIVE / STORE_SCRAP; null on member rows. */
+  storeBefore: number | null;
+  storeAfter: number | null;
 }
 
 export type DamageStatus = 'PENDING' | 'SCRAPPED';
@@ -748,18 +765,26 @@ export interface ContainerDamageRow {
 }
 
 /** GIFT: tickets given away by hand on a recharge while gifts are reviewed, whoever typed them in. */
-export type RefundKind = 'DEPOSIT' | 'RECHARGE' | 'GIFT';
+/** 审核的种类：押金退款、水费退款、充值赠送、员工收的押金、交付时登记的损坏不赔付。 */
+export type RefundKind = 'DEPOSIT' | 'RECHARGE' | 'GIFT' | 'COLLECT' | 'DAMAGE';
 export type RefundRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
-/** 审核开关：充值时手动赠送（管理员账号填的也算）、店员退押金和退水费要不要管理员审核；管理员自己办理的退款直接生效。 */
+/**
+ * 审核开关：充值时手动赠送、店员退押金和退水费、员工收的押金、交付时登记的损坏不赔付要不要管理员审核。
+ * 赠送、收押金和损坏不赔付不分谁办的都要审核（门店共用一个管理员账号）；管理员自己办理的退款直接生效。
+ */
 export interface ReviewSettings {
   giftReview: boolean;
   refundReview: boolean;
+  /** 员工收的押金（含交付时收的）先记待审核，管理员核对到账批准后才算数。 */
+  depositReview: boolean;
+  /** 交付时损坏的桶袋选了不赔付，要管理员批准。 */
+  damageReview: boolean;
   updatedBy: string | null;
   updatedAt: string | null;
 }
 
-/** 审核申请：押金退款、退清充值剩余权益或店员手动赠送的水票，不需要审核时当场记为已通过。 */
+/** 审核申请：押金退款、退清充值剩余权益、店员手动赠送的水票、员工收的押金或交付时的损坏不赔付；不需要审核时当场记为已通过。 */
 export interface RefundRequestRow {
   id: string;
   requestNo: string;
@@ -796,6 +821,10 @@ export interface RefundRequestRow {
   requestedAmount?: number | null;
   /** Pending water refunds: the remaining paid tickets at the original price now (tickets stay usable during review). */
   currentAmount?: number | null;
+  /** A deposit staff took: the unit price it was taken at, booked at that price once approved. */
+  unitPrice: number | null;
+  /** A damage waiver: the order handed over when the damage was found. */
+  orderNo: string | null;
 }
 
 export interface RefundRequestQuery extends PageQuery {
@@ -929,7 +958,7 @@ export interface Expense {
   /** The purchase date (YYYY-MM-DD, Beijing), which decides the period it counts in. */
   spentOn: string;
   remark: string;
-  /** Set when recorded with a 新购: which container account it bought, and that stock record's number. */
+  /** Set when the containers went into stock (a 新购 with a cost, or a 买桶袋 expense that named them): which container, and that 新购's number. */
   containerType: ContainerType | null;
   inventoryOperationNo: string | null;
   status: ExpenseStatus;
@@ -955,6 +984,8 @@ export interface CreateExpenseRequest {
   /** YYYY-MM-DD; today when omitted. */
   spentOn?: string;
   remark?: string;
+  /** 买桶袋 only: which container was bought. `quantity` is added to the store as a 新购 (needs the inventory permission too); left out, only the money is recorded. */
+  containerType?: ContainerType;
 }
 
 /** 一段时间的收支：费用支出与分类（不含作废的），同期水费实收、退款、净收，结余 = 水费净收 − 费用支出。押金不算在内。 */

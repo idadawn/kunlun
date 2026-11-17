@@ -42,3 +42,14 @@ export function calcRefundableDepositQty(paidRemainingQty: number, heldQty: numb
 export function calcDepositGap(coveredQty: number, heldQty: number, fullOutN: number, emptyInM: number): number {
   return Math.max(0, heldQty + calcHoldingDelta(fullOutN, emptyInM) - coveredQty);
 }
+
+/**
+ * 应付押金拆成两段，个数相加就是 calcDepositGap：
+ * 之前欠的 = 手里的 - 押金覆盖的（多交了为负），本次的 = 满桶领出 - 空桶收回（多还了为负），应付 = max(0, 之前欠的 + 本次的)。
+ * 门店下单时还不知道会收回几个空桶，空桶收回传 0，本次的就是这次领的个数。
+ */
+export function depositBreakdown(coveredQty: number, heldQty: number, fullOutN: number, emptyInM: number) {
+  const before = heldQty - coveredQty;
+  const thisTime = calcHoldingDelta(fullOutN, emptyInM);
+  return { before, thisTime, due: Math.max(0, before + thisTime) };
+}

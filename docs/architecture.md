@@ -151,7 +151,7 @@ kunlun/
 
 - 会员端不再下单（2026-11-01）：`/member/order` 旧链接落到会员首页，服务端拒绝会员创建或取消水单（`MEMBER_READ_ONLY`）。
 - 门店点单：员工端 `/staff/order` 与管理端「门店点单」弹窗共用 `CounterOrder`（查找或新建顾客 + `OrderMenu`）。顾客在店选「到店取水」时，提交即依次创建水单、收取需补押金、按「满桶领出 N / 换回空桶 M」交付；配送则生成待送水单。原「代开水单」表单已移除。
-- 押金按 `calcDepositGap` 计算：需补个数 = max(0, 当前持有 + N − M − 押金覆盖)，押金覆盖 = 已交未退 − 待报废占用，与交付时服务端校验一致。下单时默认按「有多少空桶换多少」估算并提示；配送交付弹窗按实际换回数量计算，不足时可选收款方式先收押金再交付，交付时服务端仍会拦截押金不足。交付时押金区分应付、实付、欠押金（`DepositSettle`）：实付默认收齐，顾客没给够就往下调，差额以 `forceCreditOverride` + `overrideReason` 交给 `POST /api/orders/{id}/fulfill` 记欠押金。服务端要求收押金权限和非空备注（≤500 字），备注存入 `water_orders.override_reason` 与袋桶台账备注；欠的押金不单独记账，就是会员持有超出押金覆盖的个数，下次交付并入应付。备注由 `OwedNoteFields` 收集：有没有报废、报废几个、报废费用给没给、为什么没交。实付大于 0 时先弹「押金真的收到了吗？」（`useConfirmDepositReceived`），只有点「已收到」才收押金并交付。登记破损时交过的押金先扣；不够扣的部分带 `acceptUncovered` + `uncoveredNote` 登记，记入 `container_damages.uncovered_qty / uncovered_note`，报废时只扣已占用的押金批次。
+- 押金按 `calcDepositGap` 计算：需补个数 = max(0, 当前持有 + N − M − 押金覆盖)，押金覆盖 = 已交未退 − 待报废占用，与交付时服务端校验一致。`depositBreakdown` 把它拆成「之前欠的（持有 − 押金覆盖）」和「本次的（N − M）」，界面按手里、本次领、应付押金三行显示算式（`DepositRows`）。门店下单（送水上门、凭码自提）不知道会收回几个空桶，按 M = 0 算需补押金（`DepositEstimate`），送达时每收回一个少交一个；交付（配送、有水单的自提、门店当场取水）用 `HandoverDeposit`：应付大于 0 时先问客户是否支付押金，是就带出实付（默认等于应付，可往下调），否就全部记欠押金；再问有没有损坏的桶袋、赔不赔、不赔的原因。少交的以 `forceCreditOverride` 交给 `POST /api/orders/{id}/fulfill` 记欠押金，服务端要求收押金权限和非空备注。交付备注由 `composeHandoverNote` 自动拼成一句（交没交、欠几个、损坏几个、赔没赔），作为 `overrideReason`（≤500 字）存入 `water_orders.override_reason` 与袋桶台账备注，不欠押金时也保存；欠的押金不单独记账，就是会员持有超出押金覆盖的个数，下次交付并入应付。实付大于 0 时先弹「押金真的收到了吗？」（`useConfirmDepositReceived`），只有点「已收到」才收押金并交付。登记破损时交过的押金先扣；不够扣的部分带 `acceptUncovered` + `uncoveredNote` 登记，记入 `container_damages.uncovered_qty / uncovered_note`，报废时只扣已占用的押金批次。
 
 ## 5.3 列表分页与筛选
 
@@ -168,27 +168,42 @@ kunlun/
 
 路由 `/admin/inventory` 和 `/admin/assets` 独立呈现，主 HTML 与 `assets/inventory.js` 为唯一前端维护源，构建同步到两端。会员持有、周转流水、破损记录由服务器过滤和分页，避免仅展示最近记录造成台账遗漏。
 
-## 6.1 审核申请：退款与手动赠送
+## 6.1 审核申请：退款、手动赠送、收押金与损坏不赔付
 
-`refund_requests` 记录所有退款和需审核的手动赠送：`kind`（`DEPOSIT` 押金退款 / `RECHARGE` 退清水费 / `GIFT` 店员充值时手动赠送）、会员、容器与数量或充值批次（`GIFT` 用 `quantity` 记赠送张数）、申请时估算金额、退款方式、原因、`status`（`PENDING` / `APPROVED` / `REJECTED`）、申请人与审核人、审核备注、实际退款单号与金额。部分唯一索引 `(batch_id, kind) WHERE status='PENDING'` 保证同一充值批次每类最多一笔待审核。旧库启动时放宽 `kind` 与形状约束（检测约束定义是否含 `GIFT`）。
+`refund_requests` 记录所有退款和需审核的业务：`kind`（`DEPOSIT` 押金退款 / `RECHARGE` 退清水费 / `GIFT` 充值时手动赠送 / `COLLECT` 员工收的押金 / `DAMAGE` 交付时损坏不赔付）、会员、容器与数量或充值批次（`GIFT` 用 `quantity` 记赠送张数）、申请时估算金额、退款或收款方式、原因、`status`（`PENDING` / `APPROVED` / `REJECTED`）、申请人与审核人、审核备注、实际退款单号与金额。`COLLECT` 另记收款单价 `unit_price`，`estimated_amount` 是收的金额，通过后 `refund_no` / `refund_amount` 记押金单号和入账金额；`DAMAGE` 用 `quantity` 记损坏个数、`reason` 记不赔付原因、`order_no` 记水单号，幂等键 `damage:{orderId}`。部分唯一索引 `(batch_id, kind) WHERE status='PENDING'` 保证同一充值批次每类最多一笔待审核。旧库启动时放宽 `kind` 与形状约束（检测约束定义是否含 `COLLECT`），补 `unit_price`、`order_no` 两列。
 
-`review_settings`（每租户一行）保存两个审核开关 `gift_review`、`refund_review`，默认都为真：
+`review_settings`（每租户一行）保存四个审核开关 `gift_review`、`refund_review`、`deposit_review`、`damage_review`，默认都为真；后两列以 `ADD COLUMN IF NOT EXISTS ... DEFAULT TRUE` 补上，已有水站升级后即打开：
 
-- `GET /api/settings/review`：员工可读，弹窗据此显示“申请”还是“当场办理”。
-- `PUT /api/settings/review`：需 `staff:manage`，记录修改人和时间。
+- `GET /api/settings/review`：员工可读，弹窗据此显示“申请”还是“当场办理”、收的押金和不赔付要不要等管理员。
+- `PUT /api/settings/review`：需 `staff:manage`，记录修改人和时间；`depositReview`、`damageReview` 不传时保持原值（兼容旧页面）。
 
-审核规则：退款时，有对应审核权限的账号（押金 `deposit:refund_approve`，水费 `recharge:refund`）自己办理总是直接生效；其他账号在开关打开时提交申请、关闭时直接生效。直接生效的也写一条 `APPROVED` 申请，备注“管理员直接办理”或“无需审核，直接退款”。手动赠送（2026-11-17 起）不看账号：`gift_review` 打开时一律记为 `GIFT` 待审核申请，管理员账号填的也一样，可由同一管理员批准（门店共用一个管理员账号收银）；关闭时当场到账。
+审核规则：退款时，有对应审核权限的账号（押金 `deposit:refund_approve`，水费 `recharge:refund`）自己办理总是直接生效；其他账号在开关打开时提交申请、关闭时直接生效。直接生效的也写一条 `APPROVED` 申请，备注“管理员直接办理”或“无需审核，直接退款”。手动赠送（2026-11-17 起）不看账号：`gift_review` 打开时一律记为 `GIFT` 待审核申请，管理员账号填的也一样，可由同一管理员批准（门店共用一个管理员账号收银）；关闭时当场到账。收押金和损坏不赔付（2026-11-18 起）同样不看账号，由同一权限 `deposit:refund_approve` 审核，可由同一管理员批准。
 
 - `POST /api/recharges` 增加 `giftQty`（0–1000，手动赠送）。需审核时付费票当场到账，赠送记为 `GIFT` 待审核申请，响应带 `pendingGiftQty`、`giftRequestNo`；否则赠送与付费票一起到账。`recharge_orders.manual_gift_qty` 记录店员填的赠送数，`gift_qty` 只记已到账的；同一幂等键改了赠送数返回 409。
 - `POST /api/refund-requests`：提交退款（带幂等键）。押金需 `deposit:refund_apply` 或 `deposit:refund_approve`，申请数量不得超过 已交未退 − 持有 − 待报废 − 其他待审核数量；水费需 `recharge:create` 或 `recharge:refund`，批次须属于该会员且可退；原因选填。需审核时只写申请、不动账，否则在同一事务内退款并记为已通过，响应带 `status`、`refundNo`、`refundAmount`。
-- `GET /api/refund-requests?status&kind&q&page&pageSize`：分页列表（需 `member:read`），带会员、容器或批次信息，赠送带原充值实收和付费张数（`rechargePaid`、`rechargeBuyQty`）。
-- `POST /api/refund-requests/{id}/approve`：审核通过，押金需 `deposit:refund_approve`，水费和赠送需 `recharge:refund`。先锁会员、再锁申请，在同一事务内调用 `ExecuteDepositRefund` / `ExecuteRechargeRefund`（幂等键 `refund-request:{id}`），赠送调用 `GrantGift`（批次和充值单的赠送数、会员水票、`RECHARGE_GIFT` 流水），再写回审核结果；重复通过返回原结果，已驳回的返回 409。充值已退款的赠送不能再批准。
-- `POST /api/refund-requests/{id}/reject`：驳回，原因必填，不动账；已通过的不能驳回。退清一笔充值时，其待审核的赠送自动驳回（“充值已退款，赠送作废”）。
+- `GET /api/refund-requests?status&kind&q&page&pageSize`：分页列表（需 `member:read`），带会员、容器或批次信息，赠送带原充值实收和付费张数（`rechargePaid`、`rechargeBuyQty`），收押金带 `unitPrice`，损坏不赔付带 `orderNo`。
+- `POST /api/refund-requests/{id}/approve`：审核通过，押金退款、收押金和损坏不赔付需 `deposit:refund_approve`，水费和赠送需 `recharge:refund`。收押金调用 `FinanceEndpoints.InsertDepositLot`，按申请的单价、收款方式（审核时可改）、幂等键、收款人和收款时间记成押金批次并加会员押金余额；损坏不赔付不动账。先锁会员、再锁申请，在同一事务内调用 `ExecuteDepositRefund` / `ExecuteRechargeRefund`（幂等键 `refund-request:{id}`），赠送调用 `GrantGift`（批次和充值单的赠送数、会员水票、`RECHARGE_GIFT` 流水），再写回审核结果；重复通过返回原结果，已驳回的返回 409。充值已退款的赠送不能再批准。
+- `POST /api/refund-requests/{id}/reject`：驳回，原因必填，不动账；已通过的不能驳回。驳回收押金先锁会员：这笔作废，会员持有超出押金覆盖的部分就是欠押金。退清一笔充值时，其待审核的赠送自动驳回（“充值已退款，赠送作废”）。
 - 原 `POST /api/deposits/refund`、`POST /api/ticket-batches/{id}/refund` 仅对有审核权限的账号开放，成功后由 `RefundRequests.RecordDirect` 补记一笔 `APPROVED` 申请（如该批次已有待审核申请则直接将其通过）。
+- `POST /api/deposits/collect`：`deposit_review` 打开时由 `RefundRequests.RequestCollect` 写一笔 `COLLECT` 待审核申请，不建押金批次、不加押金余额，响应 `{ requestId, requestNo, status: 'PENDING', totalAmount, ... }`；关闭时直接建批次，响应 `status: 'APPROVED'` 和 `depositNo`。同一幂等键重试先找押金批次、再找 `COLLECT` 申请（`CollectReplay`），批准前后都答回同一笔。
+- 押金覆盖 = Σ(批次 `remaining_qty − reserved_damage_qty`) + 待审核 `COLLECT` 的个数（`RefundRequests.PendingCollectQty`），交付校验、登记领还、报废和补录写台账时都这样算，所以收的押金待审核时交付照常；但待审核的不算押金余额、不能退。`GET /api/members/{id}/deposit-summary` 每种容器另带 `pendingCollectQty`、`pendingCollectAmount`。
+- `POST /api/orders/{id}/fulfill` 增加 `damagedQty`（0–10000）、`damageCompensated`、`damageReason`（不赔付时必填，≤200 字；缺了返回 `DAMAGE_COMPENSATION_REQUIRED` / `DAMAGE_REASON_REQUIRED`）。有损坏且不赔付时在交付事务内由 `RefundRequests.RequestDamage` 写一笔 `DAMAGE`：`damage_review` 打开为待审核，关闭则直接记为已通过（备注“无需审核”）；响应带 `damageRequestNo`、`damageReviewStatus`。
+- 停用会员前检查的待审核申请包括全部五类。
 - `GET /api/members/{id}/deposit-summary` 增加 `pendingRefundQty`，`GET /api/members/{id}/ticket-batches` 增加 `pendingRequestNo`（仅退款）和 `pendingGiftQty`。
 - 流水接口：`/api/ledgers/recharges` 增加 `giftReview`（赠送审核状态、张数、审核人、备注），`/api/ledgers/recharge-refunds` 与 `/api/ledgers/deposits` 增加 `applicantName`，押金流水另带 `reason`（退款或报废原因）。
 
 报废扣押可选免扣：`POST /api/containers/damages/{id}/scrap` 的 `deductDeposit=false` 时只释放押金批次的 `reserved_damage_qty`，不减少批次剩余、不扣会员押金；`container_damages.deposit_waived` 标记，周转流水业务类型为 `SCRAP_WAIVED`、扣押金额 0。财务汇总、押金流水和导出中的扣押统计排除免扣记录，剩余押金 = 累计收押 − 累计退押 − 累计报废扣押 仍成立。
+
+## 6.2 实退金额、按金额收退押金与会员退款结算（2026-11-18）
+
+- 实退金额：`ApplyRefundRequest.Amount`、`ApproveRefundRequest.Amount` 可选，不传就按账退。水费退款不超过批次 `paid_amount`；押金退款不超过所退那几个按原收款单价的合计（`FinanceEndpoints.FifoValue`）。申请时填的金额和按账不同才存 `refund_requests.requested_amount`；有它的申请审核时必须带 `amount`，否则 409，免得旧页面批准一个没看到的金额。列表给待审核水费退款另返回 `currentAmount`（按现在的剩余付费票折算），已退款的水费退款的 `remainingBuy` / `remainingGift` 取自 `recharge_refunds` 的实退票数。不带金额的请求保持原来的请求哈希，旧客户端重放照样匹配。
+- 押金少退：`deposit_refunds.deducted_amount` 记原价 − 实退，约束放宽为 `refund_amount >= 0`。批次和会员 `deposit_amount` 仍按原价减少；财务汇总的 `depositDeductedTotal` 和押金流水的 `DEDUCT` 把它算进去，`reconciledZeroDiff` 照样成立。
+- 收押金和补录按金额：`CollectDepositRequest.Amount`、`OpeningDepositInput.Amount` 是总金额，单价 = 金额 ÷ 个数（`Money.UnitPrice`，分不匀返回 400）；收押金要审核时单价记在 `COLLECT` 申请的 `unit_price` 上，批准时按它记批次。重放比较金额。`GET /api/members/{id}/deposit-summary` 返回 `lots`（没被破损暂占的批次单价和个数，先进先出），前端据此把金额折成个数。
+- 退款结算：`member_settlements` 每次一行（`settlement_no` 为 `JS{日期}{序号}`、按账 `computed_amount`、实退 `amount`、退款单 `receipt`）。`POST /api/members/{id}/settlement/preview` 和 `POST /api/members/{id}/settlement` 共用一份计划：
+  - 水票按批次原实付单价折算剩余付费票，赠票一并收回。
+  - 每种桶袋：坏的（扣押金时）和不还的个数超过押金覆盖的部分，按现行标准从退款里补成来源 `SETTLEMENT` 的押金批次（收款方式同退款）；然后按批次先进先出依次分给坏的、不还的、退押金的和留在会员手里的。坏的和不还的走 `ContainerCirculation.RecordDamage` 加 `Scrap`（扣押金，或坏的选水站承担时不扣），还回好的回到店里，留着的照旧在会员手里。
+  - 实退和按账的差额先摊到各笔水费退款（每笔 0 到原实付），再从押金退款里少退（记 `deducted_amount`）。执行时在会员锁内重算，按账金额和预览的 `expectedAmount` 不一致返回 409。
+  - 需要 `recharge:refund` 和 `deposit:refund_approve`。会员已停用、有未完成的水单或有任何待审核申请（含待审核的收押金：它算进覆盖却还没有批次）时不能结算。`GET /api/members/{id}/settlements` 列出这位会员的退款单。
 
 ## 7. 员工手机端功能与角色权限（2026-11-16）
 
@@ -449,6 +464,14 @@ kunlun/
   - 停用要权限和原因，有未完成的水单时拒绝，已停用会员的手机号不能重复建档；
   - 只有没记录的会员能删，停用和删除都写审计；
   - 已有管理员启动后自动获得权限。
+
+## 24. 会员列表停用删除、买桶袋支出入库和台账（2026-11-18）
+
+- 管理端会员列表「操作」列加「停用 / 启用」「删除」（需 `member:manage`）。停用弹窗、重新启用确认和删除确认从会员档案移到 `apps/admin-pc/src/memberStatus.tsx` 的 `useMemberStatusActions`，列表和档案的停用横幅共用；档案「基础资料」只留设置登录账号。接口不变。
+- `CreateExpenseRequest` 增加可选 `ContainerType`：只用于 `CONTAINER`，另需 `container:inventory_manage`（没有时 403，提示可以只记钱）。同一事务里先写支出（`container_type` 即这个容器），再由 `ContainerInventory.ReceiveForExpense` 锁容器行、店里加 `Quantity`、写一条 `RECEIVE` / `EXTERNAL` 库存记录（请求键 `expense:{支出ID}`，收据带 `expense: { expenseNo, amount, payMethod }`，原因取支出备注，空时为“新购”），最后把库存单号写回支出的 `inventory_operation_no`。容器不存在时整笔回滚。请求哈希只在带容器时加入 `containerType`，只记钱的请求哈希形状不变；重放直接返回原支出，不会再入库。作废支出不动库存。
+- `GET /api/containers/circulation` 改为会员流水 `container_ledgers` 与店里的库存记录 `UNION ALL`：`member_id IS NULL` 的 `RECEIVE` 和 `source_state <> 'DAMAGED'` 的 `SCRAP`（条件在 `ContainerCirculation.StoreFlows`），业务类型分别是 `RECEIVE`、`STORE_SCRAP`；`referenceNo` 是收据里的支出单号；新增 `receivedQty`、`storeBefore`、`storeAfter`（会员行为 null；店里的行会员名和会员号为空串）。会员破损的确认报废带 `member_id`，只出现在会员流水里。对店里的行，搜索匹配库存记录号、原因和支出单号；排序为 `created_at DESC`、会员流水 `id DESC`、单号 `DESC`。`/api/exports/container-ledgers` 同样合并，店里的行会员ID和持有余额为空，末尾加“新购数量”列。
+- 前端：费用支出登记弹窗选「买桶袋」后要选容器（显示店里现有数量）或「只记钱，不加库存」，提交前提示店里 N → M；没有库存权限时只能只记钱。支出列表“已加到店里库存”链接袋桶库存。袋桶台账流转记录里店里的行会员一栏写“店里”，标签「新购」「店里报废」，写明店里 N → M，支出单号链接费用支出。
+- 测试：`ExpenseTests` 新增买桶袋入库只记一次（店里数量、修改记录、台账、导出、重放与冲突、只记钱、作废不减库存）和只有支出权限不能入库；坏请求补上非买桶袋带容器、容器 ID 不合法或不存在（整笔回滚）。`ContainerCirculationTests` 新增店里新购、门店报废进台账和导出，会员破损报废只记一行。
 
 ## 独立测试服务（2026-10-30，2026-11-01 更新）
 

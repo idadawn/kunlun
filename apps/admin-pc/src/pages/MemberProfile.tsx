@@ -6,11 +6,12 @@ import {
   type TicketBatch, type WaterOrder,
 } from '@kunlun/shared';
 import {
-  AddressBook, BatchCards, ConfirmDialog, CredentialsDialog, FormDialog, Icon, ReasonChips, RefundBatchDialog, SettlementDialog, SettlementRecords,
-  canSettle, useAuth, useDialogs, useLoader, useRun, useSettlements, useToast,
+  AddressBook, BatchCards, CredentialsDialog, Icon, RefundBatchDialog, SettlementDialog, SettlementRecords, canSettle, useAuth, useDialogs, useLoader,
+  useRun, useSettlements,
 } from '@kunlun/ui';
 import { StatCard, useOperations } from '../common';
 import { useAdminData } from '../data';
+import { useMemberStatusActions } from '../memberStatus';
 import { OpeningCard, OpeningDialog } from '../opening';
 
 /** Rows shown in each tab of 最近记录. */
@@ -30,7 +31,7 @@ export function MemberProfilePage({ memberId, onBack }: { memberId: string; onBa
   const member = profile.data?.id === memberId ? profile.data : null;
   return <>
     <button type="button" className="back-link" onClick={onBack}><Icon name="back" size="sm" />返回会员列表</button>
-    {member ? <Profile member={member} onDeleted={onBack} />
+    {member ? <Profile member={member} />
       : <div className="card profile-placeholder">{profile.error ? <p className="account-error" role="alert">{profile.error}</p> : <p className="membership-note">正在读取会员档案…</p>}</div>}
   </>;
 }
@@ -38,14 +39,15 @@ export function MemberProfilePage({ memberId, onBack }: { memberId: string; onBa
 /** A batch whose tickets are still in use: active with tickets left. */
 const inUse = (b: TicketBatch) => b.status === 'ACTIVE' && b.remainingBuy + b.remainingGift > 0;
 
-function Profile({ member: m, onDeleted }: { member: MemberProfile; onDeleted: () => void }) {
+function Profile({ member: m }: { member: MemberProfile }) {
   const { api, can } = useAuth();
   const dialogs = useDialogs();
   const run = useRun();
-  const toast = useToast();
   const ops = useOperations();
+  const status = useMemberStatusActions();
   const { version, refresh } = useAdminData();
   // A disabled member cannot be served: the server refuses every business, so the page offers none until they are enabled again.
+  // Disabling and deleting live in the member list's 操作 column; a disabled member's banner can enable them again.
   const disabled = m.status === 'DISABLED';
   const manage = can(P.MemberManage);
   const deposits = useLoader(() => api.depositSummary(m.id), [api, m.id, version]);
@@ -76,24 +78,6 @@ function Profile({ member: m, onDeleted }: { member: MemberProfile; onDeleted: (
     : undefined;
 
   const settle = run(() => dialogs.open(close => <SettlementDialog memberId={m.id} memberName={m.name} onClose={close} onDone={refresh} />));
-  const disable = run(() => dialogs.open(close => <DisableMemberDialog member={m} onClose={close} onDone={refresh} />));
-  const enable = run(async () => {
-    const enabled = await dialogs.open<boolean>(close => <ConfirmDialog title="重新启用会员" confirmLabel="重新启用" onClose={close}
-      message={`重新启用后，${m.name}可以登录会员端，员工也能照常为这位会员办理业务。`}
-      onConfirm={async () => { await api.setMemberStatus(m.id, 'ACTIVE'); }} />);
-    if (!enabled) return;
-    await refresh();
-    toast(`已重新启用 ${m.name}`);
-  });
-  const remove = run(async () => {
-    const deleted = await dialogs.open<boolean>(close => <ConfirmDialog title="删除会员" confirmLabel="确认删除" onClose={close}
-      message={<>只有一条记录都没有的会员才能删除，比如建错了、重复的档案；地址会一起删掉，删了找不回来。<br />有充值、水单、押金等记录的会员不能删，请用「停用」。</>}
-      onConfirm={async () => { await api.deleteMember(m.id); }} />);
-    if (!deleted) return;
-    toast(`已删除会员 ${m.name}（${m.memberNo}）`);
-    onDeleted();
-    await refresh();
-  });
 
   return <>
     <section className="profile-hero" aria-label="会员概况">
@@ -117,7 +101,7 @@ function Profile({ member: m, onDeleted }: { member: MemberProfile; onDeleted: (
         )}
       </div>}
     </section>
-    {disabled && <DisabledBanner member={m} onEnable={manage ? enable : undefined} />}
+    {disabled && <DisabledBanner member={m} onEnable={manage ? () => status.enable(m) : undefined} />}
 
     <div className="stats-grid profile-stats-grid">
       <StatCard label="可用水票" icon="ticket" value={<>{available}<small>张</small></>}
@@ -190,10 +174,6 @@ function Profile({ member: m, onDeleted }: { member: MemberProfile; onDeleted: (
             <div className="card-title">基础资料</div>
             <div className="profile-head-actions">
               <button type="button" className="text-btn" onClick={() => dialogs.open(close => <CredentialsDialog subjectType="MEMBER" id={m.id} onClose={close} />)}>设置登录账号</button>
-              {manage && (disabled
-                ? <button type="button" className="text-btn" onClick={enable}>重新启用</button>
-                : <button type="button" className="text-btn" title="不再来的会员：停用后办不了业务，会员端也登录不了，记录和余额都留着" onClick={disable}>停用会员</button>)}
-              {manage && <button type="button" className="text-btn" title="只能删除一条记录都没有的会员，比如建错了的档案" onClick={remove}>删除</button>}
             </div>
           </div>
           <div className="profile-card-body">
@@ -227,42 +207,11 @@ function DisabledBanner({ member: m, onEnable }: { member: MemberProfile; onEnab
   );
 }
 
-const DISABLE_REASONS = ['不再来了', '搬走了', '重复建档', '会员要求注销'] as const;
-
-/** 停用会员要写原因。还有的水票、押金和桶袋先列出来：停用后都还在，要退钱得先退再停用，或者重新启用后再退。 */
-function DisableMemberDialog({ member: m, onClose, onDone }: { member: MemberProfile; onClose: () => void; onDone: () => unknown }) {
-  const { api } = useAuth();
-  const toast = useToast();
-  const [reason, setReason] = useState('');
-  const tickets = m.tickets.reduce((sum, t) => sum + t.available + t.reserved, 0);
-  const holds = [
-    tickets > 0 && `${tickets} 张水票`,
-    Number(m.depositAmount) > 0 && `押金 ¥${money(m.depositAmount)}`,
-    m.heldBuckets + m.heldBags > 0 && `手里 ${m.heldBuckets} 个桶、${m.heldBags} 个袋`,
-  ].filter((hold): hold is string => !!hold);
-  const submit = async () => {
-    const text = reason.trim();
-    if (!text) throw new Error('请写明停用原因');
-    await api.setMemberStatus(m.id, 'DISABLED', text);
-    await onDone();
-    toast(`已停用会员 ${m.name}`);
-  };
-  return (
-    <FormDialog title="停用会员" description={`${m.name} · ${m.memberNo}`} submitLabel="确认停用" onClose={onClose} onSubmit={submit}
-      extraActions={<button type="button" className="btn" onClick={onClose}>取消</button>}>
-      <p className="membership-note">停用后会员端马上登录不了，员工也不能再为这位会员充值、点单、收退押金、退款、登记领还和补录。没完成的水单、待审核的赠送和退款要先办完。以后需要可以重新启用。</p>
-      {holds.length > 0 && <p className="profile-warn">还有 {holds.join('、')}：停用后都还在，照样算在账上。要退钱请先退再停用，或者重新启用后再退。</p>}
-      <label htmlFor="disableReason">停用原因</label>
-      <input id="disableReason" className="input" required maxLength={100} placeholder="如：搬走了" value={reason} onChange={e => setReason(e.target.value)} />
-      <ReasonChips options={DISABLE_REASONS} value={reason} onPick={setReason} />
-    </FormDialog>
-  );
-}
-
 /** One container's deposit: what the member holds, what they paid and what they could take back now. */
 function ContainerDeposit({ row: r }: { row: DepositSummaryRow }) {
   const unit = containerUnit(r.containerType);
-  const owing = Math.max(0, r.heldQty - Math.max(0, r.paidQty - r.pendingDamageQty));
+  // Deposit taken but still waiting for an admin covers containers already, as at the hand-over.
+  const owing = Math.max(0, r.heldQty - Math.max(0, r.paidQty - r.pendingDamageQty + r.pendingCollectQty));
   return (
     <div className={`profile-container${r.containerKind === 'BAG' ? ' bag' : ''}`}>
       <div className="profile-container-head"><b>{containerLabel(r.containerType)}</b><small>现行押金 ¥{money(r.unitDeposit)}/个</small></div>
@@ -272,6 +221,7 @@ function ContainerDeposit({ row: r }: { row: DepositSummaryRow }) {
         <div><small>现在可退</small><b>¥{money(r.refundableAmount)}</b><small>{r.refundableQty} 个</small></div>
       </div>
       {owing > 0 && <p className="profile-warn">手里的{unit}比押金多 {owing} 个，下次交付时会提示补交押金。</p>}
+      {r.pendingCollectQty > 0 && <p className="membership-note">另收了押金 ¥{money(r.pendingCollectAmount)}（{r.pendingCollectQty} 个），等管理员在「审核」里核对到账，批准后计入已交押金。</p>}
       {r.pendingRefundQty > 0 && <p className="membership-note">退押金审核中 {r.pendingRefundQty} 个，批准后退款。</p>}
       {r.pendingDamageQty > 0 && <p className="membership-note">{r.pendingDamageQty} 个{unit}待确认报废，占用押金 ¥{money(r.pendingDamageAmount)}，确认报废后按原批次扣除。</p>}
     </div>

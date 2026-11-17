@@ -160,6 +160,39 @@ public sealed class SettlementTests(TestHost host)
     }
 
     [Fact]
+    public async Task Typed_Deposits_Waiting_For_Review_Keep_Their_Price_And_Hold_Up_A_Settlement()
+    {
+        using var admin = await Login();
+        var (mid, memberNo) = await Member(admin);
+        await Recharge(admin, mid);
+        await Ok(await admin.PutAsJsonAsync("/api/settings/review", new SaveReviewSettingsRequest(true, true, true, false)));
+        try
+        {
+            var collect = new CollectDepositRequest(mid, "BUCKET", 2, "WECHAT", Key(), 90m);
+            var pending = await Ok(await admin.PostAsJsonAsync("/api/deposits/collect", collect));
+            Assert.Equal(("PENDING", 45m, 90m), (pending.GetProperty("status").GetString(), M(pending, "unitPrice"), M(pending, "totalAmount")));
+            // The same key with another amount is another collect; the same amount replays.
+            await Fails(await admin.PostAsJsonAsync("/api/deposits/collect", collect with { Amount = 80m }), HttpStatusCode.Conflict);
+            Assert.True((await Ok(await admin.PostAsJsonAsync("/api/deposits/collect", collect))).GetProperty("idempotentReplay").GetBoolean());
+
+            // The deposit is paid but has no lot yet, so a slip would charge for it again: settling waits for the review.
+            var blocked = await Ok(await Preview(admin, mid));
+            Assert.Contains("收的押金", Assert.Single(blocked.GetProperty("blockers").EnumerateArray()).GetString());
+
+            var request = Assert.Single(await Requests(admin, $"kind=COLLECT&status=PENDING&q={memberNo}"));
+            await Ok(await admin.PostAsJsonAsync($"/api/refund-requests/{request.GetProperty("id").GetGuid()}/approve", new ApproveRefundRequest(null, null)));
+            var lot = Assert.Single((await Deposit(admin, mid, "BUCKET")).GetProperty("lots").EnumerateArray());
+            Assert.Equal((45m, 2), (M(lot, "unitPrice"), I(lot, "quantity")));
+            Assert.Empty((await Ok(await Preview(admin, mid))).GetProperty("blockers").EnumerateArray());
+            await Reconciled(admin);
+        }
+        finally
+        {
+            await Ok(await admin.PutAsJsonAsync("/api/settings/review", new SaveReviewSettingsRequest(true, true, false, false)));
+        }
+    }
+
+    [Fact]
     public async Task Settlement_Refunds_Tickets_And_Deposit_And_Charges_For_Containers_Not_Returned()
     {
         using var admin = await Login();

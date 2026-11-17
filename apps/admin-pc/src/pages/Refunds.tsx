@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  KUNLUN_PERMISSIONS as P, PAY_METHODS, containerLabel, modeLabel, money, payMethodLabel, shortDateTime, unitOf, waterFallbackLabel,
+  KUNLUN_PERMISSIONS as P, PAY_METHODS, containerLabel, containerUnit, modeLabel, money, payMethodLabel, shortDateTime, unitOf, waterFallbackLabel,
   type PayMethod, type RefundKind, type RefundRequestQuery, type RefundRequestRow, type RefundRequestStatus, type ReviewSettings,
 } from '@kunlun/shared';
 import { Field, FormDialog, Icon, ReasonChips, parseYuan, sameYuan, useAuth, useDialogs, useLoader, useRun, useToast } from '@kunlun/ui';
@@ -9,17 +9,35 @@ import { useAdminData } from '../data';
 
 type Tab = RefundRequestStatus | '';
 const TABS: Array<[Tab, string]> = [['PENDING', '待审核'], ['APPROVED', '已通过'], ['REJECTED', '已驳回'], ['', '全部']];
-const KINDS: Record<RefundKind, [string, string]> = { GIFT: ['充值赠送', 'green'], DEPOSIT: ['押金退款', 'blue'], RECHARGE: ['水费退款', 'gold'] };
-const REJECT_REASONS: Record<'GIFT' | 'REFUND', readonly string[]> = {
-  GIFT: ['不符合赠送规则', '赠送数量不对', '会员没有要求赠送'],
-  REFUND: ['容器尚未归还', '申请信息有误', '会员已撤回申请', '重复申请'],
+const KINDS: Record<RefundKind, [string, string]> = {
+  GIFT: ['充值赠送', 'green'], COLLECT: ['收押金', 'aqua'], DEPOSIT: ['押金退款', 'blue'], RECHARGE: ['水费退款', 'gold'], DAMAGE: ['损坏不赔付', 'red'],
+};
+const APPROVED_TEXT: Record<RefundKind, string> = { GIFT: '已到账', COLLECT: '已入账', DEPOSIT: '已退款', RECHARGE: '已退款', DAMAGE: '已同意' };
+const REFUND_REJECT = {
+  title: '驳回退款申请', reasons: ['容器尚未归还', '申请信息有误', '会员已撤回申请', '重复申请'], done: '账目未变动',
+  hint: '驳回后会员的押金和水票保持不变，可重新提交申请。',
+};
+/** What rejecting each kind says: the dialog title, the reasons offered, the toast and what it leaves behind. */
+const REJECT: Record<RefundKind, { title: string; reasons: readonly string[]; done: string; hint: string }> = {
+  GIFT: { title: '驳回赠送', reasons: ['不符合赠送规则', '赠送数量不对', '会员没有要求赠送'], done: '赠送不到账', hint: '驳回后这次充值的付费水票照常可用，只是不送。' },
+  COLLECT: {
+    title: '驳回收押金', reasons: ['钱没到账', '金额不对', '重复登记'], done: '这笔押金作废，会员按欠押金算',
+    hint: '驳回后这笔押金作废、不入账，会员手里多出的桶袋算欠押金，下次交付时算进应付押金。钱其实到了的话请批准，不要驳回。',
+  },
+  DEPOSIT: REFUND_REJECT,
+  RECHARGE: REFUND_REJECT,
+  DAMAGE: {
+    title: '驳回不赔付', reasons: ['要顾客赔', '原因不成立', '登记有误'], done: '请提醒员工去找顾客赔',
+    hint: '驳回不动任何账目，只记下驳回原因；请提醒员工去找顾客把损坏的桶袋赔上。',
+  },
 };
 const statusText = (r: Pick<RefundRequestRow, 'kind' | 'status'>): [string, string] =>
-  r.status === 'PENDING' ? ['待审核', 'orange'] : r.status === 'REJECTED' ? ['已驳回', 'gray'] : [r.kind === 'GIFT' ? '已到账' : '已退款', 'green'];
+  r.status === 'PENDING' ? ['待审核', 'orange'] : r.status === 'REJECTED' ? ['已驳回', 'gray'] : [APPROVED_TEXT[r.kind], 'green'];
 
 /**
- * 审核：充值时手动赠送的水票（管理员账号填的也算）、店员办理的退押金和退水费，按顶部两个开关决定要不要在这里等管理员审核。
- * 通过即当场退款或让赠票到账，驳回不动任何账目；不要审核的和管理员自己办理的退款也在这里留有已通过的记录。
+ * 审核：充值时手动赠送的水票、员工收的押金、交付时损坏桶袋不赔付（这三样管理员账号办的也算）和店员办理的退押金、退水费，
+ * 按顶部四个开关决定要不要在这里等管理员审核。通过即当场退款、让赠票到账或把押金入账；驳回不动账目，收押金驳回就作废这笔，
+ * 会员变成欠押金。不要审核的退款、损坏不赔付和管理员自己办理的退款也在这里留有已通过的记录。
  */
 export function Refunds() {
   const { api } = useAuth();
@@ -32,11 +50,11 @@ export function Refunds() {
   const filtered = !!(q || kind);
   const table = usePagedTable(page => api.refundRequests({ ...filter, page, pageSize: PAGE_SIZE }), [filter]);
   const rows = table.data?.rows ?? [];
-  const empty = table.error || (!table.data ? '正在加载…' : filtered ? '没有符合条件的记录' : tab === 'PENDING' ? '没有待审核的赠送或退款' : '暂无记录');
+  const empty = table.error || (!table.data ? '正在加载…' : filtered ? '没有符合条件的记录' : tab === 'PENDING' ? '没有待审核的记录' : '暂无记录');
 
   return <>
     <div className="page-head">
-      <div><h2>审核</h2><p>手动赠送和店员的退款要不要等管理员，由下面两个开关决定；赠送不分谁填的都在这里批准，管理员自己办理的退款直接生效，每笔都留有记录</p></div>
+      <div><h2>审核</h2><p>手动赠送、收押金、损坏不赔付和店员的退款要不要等管理员，由下面四个开关决定；前三样不分谁办的都在这里批准，管理员自己办理的退款直接生效，每笔退款都留有记录</p></div>
     </div>
     <ReviewSwitches />
     <div className="tabs" role="tablist">
@@ -62,12 +80,20 @@ export function Refunds() {
           </tbody>
         </table>
       </div>
-      <div className="table-footer"><span>共 {table.total} 条 · 按账：押金按原收款批次单价先进先出，水费按剩余付费票（赠票收回）；实退金额以办理或审核的人确认的为准</span><Pager page={table.page} total={table.total} onChange={table.setPage} /></div>
+      <div className="table-footer"><span>共 {table.total} 条 · 收的押金批准后按收款时的单价入账；退款按账：押金按原收款批次单价先进先出，水费按剩余付费票（赠票收回）；实退金额以办理或审核的人确认的为准</span><Pager page={table.page} total={table.total} onChange={table.setPage} /></div>
     </div>
   </>;
 }
 
-/** The two switches; only administrators may flip them, everyone else sees how they are set. */
+type SwitchField = 'giftReview' | 'refundReview' | 'depositReview' | 'damageReview';
+const SWITCH_TOASTS: Record<SwitchField, [on: string, off: string]> = {
+  giftReview: ['已打开：手动赠送要审核', '已关闭：手动赠送当场到账'],
+  refundReview: ['已打开：店员退押金、退水费要审核', '已关闭：店员可以当场退款'],
+  depositReview: ['已打开：收押金要审核', '已关闭：收押金当场入账'],
+  damageReview: ['已打开：损坏不赔付要审核', '已关闭：损坏不赔付直接生效'],
+};
+
+/** The four switches; only administrators may flip them, everyone else sees how they are set. */
 function ReviewSwitches() {
   const { api, can } = useAuth();
   const toast = useToast();
@@ -75,13 +101,13 @@ function ReviewSwitches() {
   const settings = useLoader(() => api.reviewSettings(), [api]);
   const editable = can(P.StaffManage);
   const s = settings.data;
-  const flip = (field: 'giftReview' | 'refundReview') => run(async () => {
+  const flip = (field: SwitchField) => run(async () => {
     if (!s) return;
-    const next = await api.saveReviewSettings({ giftReview: s.giftReview, refundReview: s.refundReview, [field]: !s[field] });
+    const next = await api.saveReviewSettings({
+      giftReview: s.giftReview, refundReview: s.refundReview, depositReview: s.depositReview, damageReview: s.damageReview, [field]: !s[field],
+    });
     settings.setData(next);
-    toast(field === 'giftReview'
-      ? next.giftReview ? '已打开：手动赠送要审核' : '已关闭：手动赠送当场到账'
-      : next.refundReview ? '已打开：店员退押金、退水费要审核' : '已关闭：店员可以当场退款');
+    toast(SWITCH_TOASTS[field][next[field] ? 0 : 1]);
   })();
   if (settings.error) return <p className="account-error" role="alert">审核设置读取失败：{settings.error}</p>;
   if (!s) return null;
@@ -91,12 +117,18 @@ function ReviewSwitches() {
         hint={s.giftReview ? '充值时填的赠送（管理员账号填的也一样）在这里批准后才到账；付费水票当场到账' : '充值时填的赠送当场到账'} />
       <SwitchCard label="店员退押金、退水费要审核" on={s.refundReview} disabled={!editable} onToggle={() => flip('refundReview')}
         hint={s.refundReview ? '店员只能提交申请，管理员通过后才退款' : '店员当场就能退款'} />
+      <SwitchCard label="收押金要审核" on={s.depositReview} disabled={!editable} onToggle={() => flip('depositReview')}
+        hint={s.depositReview
+          ? '员工收的押金（交付时收的也算，管理员账号收的也一样）先记待审核，核对到账批准后才入账；交付照常，驳回就作废，会员变成欠押金'
+          : '收的押金当场入账'} />
+      <SwitchCard label="损坏不赔付要审核" on={s.damageReview} disabled={!editable} onToggle={() => flip('damageReview')}
+        hint={s.damageReview ? '交付时损坏的桶袋选了不赔付，要在这里批准；驳回就提醒员工去找顾客赔，账目不变' : '不赔付直接生效，这里留一条已同意的记录'} />
       <small className="review-switches-foot">{switchedText(s)}{editable ? '' : '；只有管理员能修改'}</small>
     </div>
   );
 }
 
-const switchedText = (s: ReviewSettings) => s.updatedBy && s.updatedAt ? `${s.updatedBy} 于 ${shortDateTime(s.updatedAt)} 修改` : '默认两项都要审核';
+const switchedText = (s: ReviewSettings) => s.updatedBy && s.updatedAt ? `${s.updatedBy} 于 ${shortDateTime(s.updatedAt)} 修改` : '默认都要审核';
 
 function SwitchCard({ label, hint, on, disabled, onToggle }: { label: string; hint: string; on: boolean; disabled: boolean; onToggle: () => void }) {
   return (
@@ -107,7 +139,7 @@ function SwitchCard({ label, hint, on, disabled, onToggle }: { label: string; hi
   );
 }
 
-const reviewPermission = (kind: RefundKind) => kind === 'DEPOSIT' ? P.DepositRefundApprove : P.RechargeRefund;
+const reviewPermission = (kind: RefundKind) => kind === 'DEPOSIT' || kind === 'COLLECT' || kind === 'DAMAGE' ? P.DepositRefundApprove : P.RechargeRefund;
 
 function RequestRow({ row: r }: { row: RefundRequestRow }) {
   const { can } = useAuth();
@@ -143,7 +175,10 @@ function RequestRow({ row: r }: { row: RefundRequestRow }) {
 }
 
 function RequestContent({ row: r }: { row: RefundRequestRow }) {
-  if (r.kind === 'DEPOSIT') return <>{r.containerType ? containerLabel(r.containerType) : '容器'} × {r.quantity}</>;
+  const container = r.containerType ? containerLabel(r.containerType) : '容器';
+  if (r.kind === 'DEPOSIT') return <>{container} × {r.quantity}</>;
+  if (r.kind === 'COLLECT') return <>{container} × {r.quantity}{r.unitPrice != null && <><br /><small>押金 ¥{money(r.unitPrice)}/个</small></>}</>;
+  if (r.kind === 'DAMAGE') return <>损坏 {container} × {r.quantity}{r.orderNo && <><br /><small className="container-reference" title={r.orderNo}>水单 {r.orderNo}</small></>}</>;
   const unit = r.waterType ? unitOf(r.waterType) : '张';
   const recharge = <>
     <small>{r.planName ?? '充值批次'}</small><br />
@@ -161,24 +196,35 @@ const booksOf = (r: RefundRequestRow) => Number(r.currentAmount ?? r.estimatedAm
 
 function RequestAmount({ row: r }: { row: RefundRequestRow }) {
   if (r.kind === 'GIFT') return r.rechargePaid == null ? <>—</> : <>充值 ¥ {money(r.rechargePaid)}<br /><small>付费 {r.rechargeBuyQty}{r.waterType ? unitOf(r.waterType) : ''}</small></>;
+  if (r.kind === 'DAMAGE') return <>—<br /><small>不动账</small></>;
+  const pay = <small>{r.payMethod ? payMethodLabel(r.payMethod) : '—'}</small>;
+  if (r.kind === 'COLLECT') return <>
+    {r.status === 'APPROVED' ? <b className="amount-in">+¥ {money(r.refundAmount ?? r.estimatedAmount)}</b> : <>¥ {money(r.estimatedAmount)}</>}<br />{pay}
+  </>;
   const approved = r.status === 'APPROVED';
   const hand = approved ? r.refundAmount != null && !sameYuan(Number(r.refundAmount), Number(r.estimatedAmount)) : r.requestedAmount != null;
   return <>
     {approved ? <b className="amount-out">−¥ {money(r.refundAmount ?? 0)}</b>
       : r.requestedAmount != null ? <>申请退 ¥ {money(r.requestedAmount)}</> : <>约 ¥ {money(booksOf(r))}</>}<br />
     {hand && <><small>按账{approved ? '' : '约'} ¥{money(approved ? r.estimatedAmount : booksOf(r))}</small><br /></>}
-    <small>{r.payMethod ? payMethodLabel(r.payMethod) : '—'}</small>
+    {pay}
   </>;
 }
 
-/** 通过即按当前账目当场退款或让赠票到账；需要驳回时另开一步填写驳回原因。 */
+/** 通过即按当前账目当场退款、让赠票到账或把收的押金入账；需要驳回时另开一步填写驳回原因。 */
 function ReviewDialog({ row: r, onClose, onDone }: { row: RefundRequestRow; onClose: () => void; onDone: () => Promise<void> }) {
   const { api } = useAuth();
   const toast = useToast();
   const dialogs = useDialogs();
   const run = useRun();
-  const gift = r.kind === 'GIFT';
+  const { kind } = r;
   const unit = r.waterType ? unitOf(r.waterType) : '张';
+  const container = r.containerType ? containerLabel(r.containerType) : '容器';
+  const piece = r.containerType ? containerUnit(r.containerType) : '桶袋';
+  // Gifts and damage waivers move no money; for the rest the reviewer can correct how the money actually went.
+  const movesMoney = kind !== 'GIFT' && kind !== 'DAMAGE';
+  // Only refunds pay an amount, which the reviewer confirms.
+  const refund = kind === 'DEPOSIT' || kind === 'RECHARGE';
   const [pay, setPay] = useState<PayMethod>(r.payMethod ?? 'CASH');
   const [note, setNote] = useState('');
   // The reviewer confirms what is paid back: the applicant's figure when they typed one, else the books.
@@ -189,34 +235,47 @@ function ReviewDialog({ row: r, onClose, onDone }: { row: RefundRequestRow; onCl
   const edited = value === null || !sameYuan(value, initial);
   const moved = r.requestedAmount != null && r.currentAmount != null && !sameYuan(Number(r.currentAmount), Number(r.estimatedAmount));
   const approve = async () => {
-    if (!gift && value === null) throw new Error('请填写实退金额，最多两位小数');
+    if (refund && value === null) throw new Error('请填写实退金额，最多两位小数');
     // Untouched and nothing typed by the applicant: the server pays what the books say at this moment.
-    const typed = !gift && (r.requestedAmount != null || edited) ? { amount: value! } : {};
-    const result = await api.approveRefund(r.id, gift ? { note: note.trim() || undefined } : { payMethod: pay, note: note.trim() || undefined, ...typed });
+    const typed = refund && (r.requestedAmount != null || edited) ? { amount: value! } : {};
+    const result = await api.approveRefund(r.id, { ...(movesMoney ? { payMethod: pay } : {}), note: note.trim() || undefined, ...typed });
     await onDone();
-    toast(gift ? `已批准，赠送 ${r.quantity}${unit}已到账` : `已通过并退款 ¥${money(result.refundAmount)}（${result.refundNo}）`);
+    toast(kind === 'GIFT' ? `已批准，赠送 ${r.quantity}${unit}已到账`
+      : kind === 'COLLECT' ? `已批准，押金 ¥${money(result.refundAmount)} 已入账（${result.refundNo}）`
+      : kind === 'DAMAGE' ? `已同意不赔付（${r.requestNo}）`
+      : `已通过并退款 ¥${money(result.refundAmount)}（${result.refundNo}）`);
     onClose();
   };
   const reject = run(async () => {
     if (await dialogs.open<boolean>(close => <RejectDialog row={r} onClose={close} onDone={onDone} />)) onClose();
   });
+  const submitLabel = kind === 'GIFT' ? '批准赠送' : kind === 'COLLECT' ? '钱已到账，批准' : kind === 'DAMAGE' ? '同意不赔付'
+    : value === null ? '通过并退款' : `通过并退款 ¥${money(value)}`;
+  const happened = kind === 'COLLECT' ? '收款' : kind === 'DAMAGE' ? '交付时登记' : '提交';
   return (
-    <FormDialog title={gift ? '审核充值赠送' : `审核${KINDS[r.kind][0]}`} description={`${r.requestNo} · ${r.applicantName} 于 ${new Date(r.createdAt).toLocaleString('zh-CN')} 提交`}
-      submitLabel={gift ? '批准赠送' : value === null ? '通过并退款' : `通过并退款 ¥${money(value)}`} onClose={onClose} onSubmit={approve}
+    <FormDialog title={kind === 'GIFT' ? '审核充值赠送' : `审核${KINDS[kind][0]}`} description={`${r.requestNo} · ${r.applicantName} 于 ${new Date(r.createdAt).toLocaleString('zh-CN')} ${happened}`}
+      submitLabel={submitLabel} onClose={onClose} onSubmit={approve}
       extraActions={<button type="button" className="btn danger" onClick={reject}>驳回</button>}>
       <div className="membership-summary">
         <b>{r.memberName} · {r.memberNo}</b>
-        {gift
+        {kind === 'GIFT'
           ? <p>{r.planName}（{r.rechargeNo}）{r.rechargePaid != null ? `收 ¥${money(r.rechargePaid)}，` : ''}{r.applicantName} 另送 {r.quantity}{unit}</p>
-          : r.kind === 'DEPOSIT'
-            ? <p>退还 {r.containerType ? containerLabel(r.containerType) : '容器'}押金 {r.quantity} 个</p>
-            : <p>退清 {r.planName}（{r.rechargeNo}）：退付费票 {r.remainingBuy ?? 0}，收回赠票 {r.remainingGift ?? 0}</p>}
-        {r.reason && <p>原因：{r.reason}</p>}
-        {gift ? <strong>批准后到账 {r.quantity}{unit}</strong> : <strong>按账{r.currentAmount != null ? '应退' : '约退'} ¥{money(books)}</strong>}
-        {!gift && r.requestedAmount != null && <p>{r.applicantName} 填的是申请退 ¥{money(r.requestedAmount)}</p>}
+          : kind === 'COLLECT'
+            ? <p>{container}：{r.applicantName} 收了 {r.quantity} 个{piece}的押金{r.unitPrice != null ? `，每个 ¥${money(r.unitPrice)}` : ''}{r.payMethod ? `，${payMethodLabel(r.payMethod)}` : ''}</p>
+            : kind === 'DAMAGE'
+              ? <p>{r.orderNo ? `水单 ${r.orderNo} ` : ''}交付时损坏 {r.quantity} 个{piece}（{container}），顾客不赔付</p>
+              : kind === 'DEPOSIT'
+                ? <p>退还 {container}押金 {r.quantity} 个</p>
+                : <p>退清 {r.planName}（{r.rechargeNo}）：退付费票 {r.remainingBuy ?? 0}，收回赠票 {r.remainingGift ?? 0}</p>}
+        {r.reason && <p>{kind === 'DAMAGE' ? '不赔付的原因' : '原因'}：{r.reason}</p>}
+        <strong>{kind === 'GIFT' ? `批准后到账 ${r.quantity}${unit}`
+          : kind === 'COLLECT' ? `批准后入账 ¥${money(r.estimatedAmount)}`
+          : kind === 'DAMAGE' ? '批准、驳回都不动账'
+          : `按账${r.currentAmount != null ? '应退' : '约退'} ¥${money(books)}`}</strong>
+        {refund && r.requestedAmount != null && <p>{r.applicantName} 填的是申请退 ¥{money(r.requestedAmount)}</p>}
       </div>
       {moved && <p className="profile-warn">申请后会员又用了水票：申请时按账 ¥{money(r.estimatedAmount)}，现在按账 ¥{money(r.currentAmount!)}，请核对实退金额。</p>}
-      {!gift && (
+      {refund && (
         <Field label="实退金额（元）" htmlFor="reviewAmount">
           <div className="refund-amount">
             <input id="reviewAmount" className="input" type="number" inputMode="decimal" required min={0} step={0.01} value={amount} onChange={e => setAmount(e.target.value)} />
@@ -224,15 +283,23 @@ function ReviewDialog({ row: r, onClose, onDone }: { row: RefundRequestRow; onCl
           </div>
         </Field>
       )}
-      {!gift && <Field label="实际退款方式" htmlFor="reviewPay"><select id="reviewPay" className="select" value={pay} onChange={e => setPay(e.target.value as PayMethod)}>{PAY_METHODS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}</select></Field>}
+      {movesMoney && (
+        <Field label={kind === 'COLLECT' ? '实际收款方式' : '实际退款方式'} htmlFor="reviewPay">
+          <select id="reviewPay" className="select" value={pay} onChange={e => setPay(e.target.value as PayMethod)}>{PAY_METHODS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}</select>
+        </Field>
+      )}
       <Field label="审核备注（选填）" htmlFor="reviewNote"><input id="reviewNote" className="input" maxLength={500} value={note} onChange={e => setNote(e.target.value)} /></Field>
       <p className="membership-note">
-        {gift
+        {kind === 'GIFT'
           ? '批准后赠送的水票马上到账；驳回就不送，充值本身不受影响。'
-          : <>{r.kind === 'DEPOSIT'
-            ? '通过时重新核对会员手里的桶袋，按原收款批次单价算押金；实退比这少，差额记为扣押金。若期间又领用了桶袋导致可退不足，请驳回后重新申请。'
-            : '按账是剩余付费票按原实付单价折算，赠票一并收回；实退以这里填的为准，最多退原实付。有订单占用水票时须先处理订单。'}
-            请确认已线下把钱退给会员，系统不发起支付平台转账。</>}
+          : kind === 'COLLECT'
+            ? '先核对微信、支付宝或钱箱里这笔钱到没到。批准后押金按收款时的单价入账，会员以后退桶袋就按这笔退；钱没到就驳回，这笔作废，会员手里多出的桶袋算欠押金。'
+            : kind === 'DAMAGE'
+              ? '批准就是水站自己承担这次损坏，账目不变；不同意就驳回，并提醒员工去找顾客赔。'
+              : <>{kind === 'DEPOSIT'
+                ? '通过时重新核对会员手里的桶袋，按原收款批次单价算押金；实退比这少，差额记为扣押金。若期间又领用了桶袋导致可退不足，请驳回后重新申请。'
+                : '按账是剩余付费票按原实付单价折算，赠票一并收回；实退以这里填的为准，最多退原实付。有订单占用水票时须先处理订单。'}
+                请确认已线下把钱退给会员，系统不发起支付平台转账。</>}
       </p>
     </FormDialog>
   );
@@ -242,18 +309,18 @@ function RejectDialog({ row: r, onClose, onDone }: { row: RefundRequestRow; onCl
   const { api } = useAuth();
   const toast = useToast();
   const [note, setNote] = useState('');
-  const gift = r.kind === 'GIFT';
+  const text = REJECT[r.kind];
   return (
-    <FormDialog title={gift ? '驳回赠送' : '驳回退款申请'} description={`${r.requestNo} · ${r.memberName}`} submitLabel="确认驳回" onClose={() => onClose()} onSubmit={async () => {
+    <FormDialog title={text.title} description={`${r.requestNo} · ${r.memberName}`} submitLabel="确认驳回" onClose={() => onClose()} onSubmit={async () => {
       if (!note.trim()) throw new Error('请填写驳回原因');
       await api.rejectRefund(r.id, note.trim());
       await onDone();
-      toast(gift ? `已驳回 ${r.requestNo}，赠送不到账` : `已驳回 ${r.requestNo}，账目未变动`);
+      toast(`已驳回 ${r.requestNo}，${text.done}`);
       onClose(true);
     }}>
       <Field label="驳回原因" htmlFor="rejectNote"><input id="rejectNote" className="input" required maxLength={500} value={note} onChange={e => setNote(e.target.value)} /></Field>
-      <ReasonChips options={REJECT_REASONS[gift ? 'GIFT' : 'REFUND']} value={note} onPick={setNote} />
-      <p className="membership-note">{gift ? '驳回后这次充值的付费水票照常可用，只是不送。' : '驳回后会员的押金和水票保持不变，可重新提交申请。'}</p>
+      <ReasonChips options={text.reasons} value={note} onPick={setNote} />
+      <p className="membership-note">{text.hint}</p>
     </FormDialog>
   );
 }
