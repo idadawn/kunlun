@@ -4,12 +4,14 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Kunlun.WaterStation.Auth;
 using Kunlun.WaterStation.Operations;
+using Npgsql;
 using Xunit;
 
 namespace Kunlun.WaterStation.Tests;
 
 /// <summary>
 /// 费用支出：买桶袋、配件耗材、维修等花出去的钱一笔一条，作废的不算；进经营汇总和收支统计，可导出。
+/// 登记买桶袋时选了哪种桶袋，买的个数同时加到店里，袋桶库存和袋桶台账都记一笔「新购」。
 /// 袋桶库存「新购」时填了花费，同时记一笔买桶袋支出，两边互相带单号。
 /// </summary>
 [Collection("KunlunIntegration")]
@@ -34,6 +36,8 @@ public sealed class ExpenseTests(TestHost host)
     }
     private static async Task<JsonElement> Summary(HttpClient c, string query = "") => await Ok(await c.GetAsync("/api/expenses/summary" + query));
     private static async Task<JsonElement> Rows(HttpClient c, string query) => (await Ok(await c.GetAsync($"/api/expenses?{query}&page=1"))).GetProperty("rows");
+    private static async Task<int> InStore(HttpClient c, string type) =>
+        (await c.GetFromJsonAsync<JsonElement>("/api/containers/summary")).EnumerateArray().Single(x => x.GetProperty("containerType").GetString() == type).GetProperty("inStationQty").GetInt32();
 
     [Fact]
     public async Task Expenses_Are_Recorded_Counted_And_Voided_Without_Being_Deleted()
@@ -106,8 +110,12 @@ public sealed class ExpenseTests(TestHost host)
         {
             Valid() with { Category = "FOOD" }, Valid() with { Item = " " }, Valid() with { Amount = 0m }, Valid() with { Amount = 1.234m },
             Valid() with { PayMethod = "CARD" }, Valid() with { Quantity = 0 }, Valid() with { SpentOn = TodayDate().AddDays(1) },
+            // Only 买桶袋 goes into stock, and only into a container a water product has.
+            Valid() with { ContainerType = "BAG" }, Valid() with { Category = "CONTAINER", ContainerType = "bag!" }, Valid() with { Category = "CONTAINER", ContainerType = "NOPE" },
         })
             Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync("/api/expenses", bad)).StatusCode);
+        // A refused purchase records neither money nor stock.
+        Assert.Empty((await Rows(admin, "q=电费&category=CONTAINER")).EnumerateArray());
 
         Assert.Equal(HttpStatusCode.Forbidden, (await clerk.PostAsJsonAsync("/api/expenses", Valid())).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await clerk.GetAsync("/api/expenses?page=1")).StatusCode);
@@ -176,6 +184,95 @@ public sealed class ExpenseTests(TestHost host)
         finally
         {
             await Ok(await admin.PutAsJsonAsync("/api/mobile/roles/CLERK", new SaveRoleMobileRequest(saved)));
+        }
+    }
+
+    [Fact]
+    public async Task A_Container_Expense_Puts_Its_Containers_In_The_Store_Once_And_In_The_Ledger()
+    {
+        using var admin = await Login("YG0001");
+        var bags = await InStore(admin, "BAG");
+        var buckets = await InStore(admin, "BUCKET");
+        var before = await Summary(admin);
+
+        var request = new CreateExpenseRequest("CONTAINER", "5L 袋装水 · 配套水袋", 100m, "WECHAT", Key(), 20, Remark: "批发市场买的", ContainerType: "BAG");
+        var expense = await Ok(await admin.PostAsJsonAsync("/api/expenses", request));
+        var expenseNo = expense.GetProperty("expenseNo").GetString()!;
+        var operationNo = expense.GetProperty("inventoryOperationNo").GetString()!;
+        Assert.Equal("BAG", expense.GetProperty("containerType").GetString());
+        Assert.StartsWith("CK", operationNo);
+        Assert.Equal(bags + 20, await InStore(admin, "BAG"));
+        Assert.Equal(before.GetProperty("expenseTotal").GetDecimal() + 100m, (await Summary(admin)).GetProperty("expenseTotal").GetDecimal());
+
+        // 袋桶库存's history has the 新购, carrying the expense; the note is the expense's remark.
+        var history = await admin.GetFromJsonAsync<JsonElement>("/api/containers/inventory-operations?containerType=BAG");
+        var stocked = history.EnumerateArray().Select(h => h.GetProperty("operation")).Single(o => o.GetProperty("operationNo").GetString() == operationNo);
+        Assert.Equal("RECEIVE", stocked.GetProperty("action").GetString());
+        Assert.Equal(20, stocked.GetProperty("quantity").GetInt32());
+        Assert.Equal(bags + 20, stocked.GetProperty("after").GetProperty("inStationQty").GetInt32());
+        Assert.Equal("批发市场买的", stocked.GetProperty("reason").GetString());
+        Assert.Equal(expenseNo, stocked.GetProperty("expense").GetProperty("expenseNo").GetString());
+        Assert.Equal(100m, stocked.GetProperty("expense").GetProperty("amount").GetDecimal());
+
+        // A retry returns the same expense and stocks nothing more; the key cannot be reused for another container or for money only.
+        Assert.Equal(expense.GetProperty("id").GetGuid(), (await Ok(await admin.PostAsJsonAsync("/api/expenses", request))).GetProperty("id").GetGuid());
+        Assert.Equal(bags + 20, await InStore(admin, "BAG"));
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync("/api/expenses", request with { ContainerType = "BUCKET" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync("/api/expenses", request with { ContainerType = null })).StatusCode);
+
+        // 袋桶台账 lists it as the store's own 新购, found by the expense number, and exports it.
+        var ledger = await admin.GetFromJsonAsync<JsonElement>($"/api/containers/circulation?q={expenseNo}");
+        var row = Assert.Single(ledger.GetProperty("rows").EnumerateArray());
+        Assert.Equal("RECEIVE", row.GetProperty("businessType").GetString());
+        Assert.Equal(operationNo, row.GetProperty("ledgerNo").GetString());
+        Assert.Equal(expenseNo, row.GetProperty("referenceNo").GetString());
+        Assert.Equal(20, row.GetProperty("receivedQty").GetInt32());
+        Assert.Equal("", row.GetProperty("memberName").GetString());
+        Assert.Equal(bags, row.GetProperty("storeBefore").GetInt32());
+        Assert.Equal(bags + 20, row.GetProperty("storeAfter").GetInt32());
+        Assert.Equal(0, (await admin.GetFromJsonAsync<JsonElement>($"/api/containers/circulation?q={expenseNo}&containerType=BUCKET")).GetProperty("total").GetInt32());
+        var csv = await admin.GetStringAsync("/api/exports/container-ledgers");
+        Assert.Contains("流水号,会员ID,容器类型,领出,归还,持有变化,持有余额,操作人,时间,业务类型,扣押金额,关联单号,原因,报废数量,新购数量", csv);
+        Assert.Contains($"{operationNo},,", csv);
+        Assert.Contains($",RECEIVE,0.00,{expenseNo},批发市场买的,0,20", csv);
+
+        // A 买桶袋 that names no container records only the money.
+        var moneyOnly = await Ok(await admin.PostAsJsonAsync("/api/expenses", new CreateExpenseRequest("CONTAINER", "15L 空桶", 60m, "CASH", Key(), 2)));
+        Assert.Equal(JsonValueKind.Null, moneyOnly.GetProperty("containerType").ValueKind);
+        Assert.Equal(JsonValueKind.Null, moneyOnly.GetProperty("inventoryOperationNo").ValueKind);
+        Assert.Equal(buckets, await InStore(admin, "BUCKET"));
+
+        // Voiding the expense takes the money out of the totals and leaves the bags in the store.
+        await Ok(await admin.PostAsJsonAsync($"/api/expenses/{expense.GetProperty("id").GetGuid()}/void", new VoidExpenseRequest("记错了")));
+        Assert.Equal(bags + 20, await InStore(admin, "BAG"));
+    }
+
+    [Fact]
+    public async Task Stocking_A_Container_Expense_Needs_The_Stock_Permission_Too()
+    {
+        using var admin = await Login("YG0001");
+        using var clerk = await Login("YG0012");
+        const string grant = "UPDATE plugin_kunlun_waterstation.staff SET permissions=permissions || '[\"kunlun.waterstation:expense:manage\"]'::jsonb WHERE staff_no='YG0012'";
+        const string revoke = "UPDATE plugin_kunlun_waterstation.staff SET permissions=permissions - 'kunlun.waterstation:expense:manage' WHERE staff_no='YG0012'";
+        await using (var conn = host.OpenDatabase())
+        await using (var cmd = new NpgsqlCommand(grant, conn))
+            Assert.Equal(1, await cmd.ExecuteNonQueryAsync());
+        try
+        {
+            // Permissions are read on every request: the clerk may now record money, but not put containers in the store.
+            var bags = await InStore(admin, "BAG");
+            var denied = await clerk.PostAsJsonAsync("/api/expenses", new CreateExpenseRequest("CONTAINER", "5L 水袋", 50m, "CASH", Key(), 10, ContainerType: "BAG"));
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+            Assert.Contains("袋桶库存权限", await denied.Content.ReadAsStringAsync());
+            var money = await Ok(await clerk.PostAsJsonAsync("/api/expenses", new CreateExpenseRequest("CONTAINER", "5L 水袋", 50m, "CASH", Key(), 10)));
+            Assert.Equal(JsonValueKind.Null, money.GetProperty("inventoryOperationNo").ValueKind);
+            Assert.Equal(bags, await InStore(admin, "BAG"));
+        }
+        finally
+        {
+            await using var conn = host.OpenDatabase();
+            await using var cmd = new NpgsqlCommand(revoke, conn);
+            await cmd.ExecuteNonQueryAsync();
         }
     }
 }

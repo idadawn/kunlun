@@ -4,7 +4,7 @@ import {
   type CirculationBusinessType, type CirculationRow, type ContainerDamageRow, type ContainerHoldingRow, type ContainerType, type Paged,
 } from '@kunlun/shared';
 import { DepositDialog, Field, FormDialog, MemberPicker, ReasonChips, Stepper, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
-import { EmptyRow, Pager, useExport, useOperations } from '../common';
+import { EmptyRow, Pager, useExport, useGo, useOperations } from '../common';
 import { useAdminData } from '../data';
 
 /** Common ways a bucket or bag gets damaged, offered as one-tap reasons when registering damage or scrapping. */
@@ -27,14 +27,25 @@ type Ledger = ({ tab: 'holdings' } & Paged<ContainerHoldingRow>) | ({ tab: 'move
 const TABS: Array<[Tab, string]> = [['movements', '流转记录'], ['holdings', '会员手里'], ['damages', '破损报废']];
 const BUSINESS: Record<CirculationBusinessType, [string, string]> = {
   TURNOVER: ['领还', 'green'], DAMAGE_RETURN: ['破损还回', 'orange'], SCRAP: ['报废 · 扣押金', 'orange'], SCRAP_WAIVED: ['报废 · 不扣押金', 'gray'],
-  OPENING: ['上系统前', 'gold'],
+  OPENING: ['上系统前', 'gold'], RECEIVE: ['新购', 'blue'], STORE_SCRAP: ['店里报废', 'orange'],
 };
+/** The store's own rows: no member, and the numbers that change are the store's. */
+const isStore = (r: CirculationRow) => r.businessType === 'RECEIVE' || r.businessType === 'STORE_SCRAP';
+/** Notes the system writes when none is given; the tag already says as much. */
+const PLAIN_REASONS = ['新购', '报废'];
 const time = (value: string) => new Date(value).toLocaleString('zh-CN', { hour12: false });
+
+/** The row's note in words; notes the system filled in itself say nothing the tag does not. */
+const remarkOf = (r: CirculationRow) => r.remark === '独立领还' ? '单独登记' : isStore(r) && PLAIN_REASONS.includes(r.remark) ? '' : r.remark;
 
 /** One flow row in words: what was taken, brought back or scrapped. */
 function happened(r: CirculationRow) {
   // Written down, not moved: containers the member already had before the system (or a correction of that figure).
   if (r.businessType === 'OPENING') return r.deltaHeld > 0 ? '补录原来就在会员手里的' : '更正补录的数量';
+  if (isStore(r)) {
+    const store = r.storeBefore !== null && r.storeAfter !== null ? `，店里 ${r.storeBefore} → ${r.storeAfter} 个` : '';
+    return r.businessType === 'RECEIVE' ? `买进 ${r.receivedQty} 个${store}` : `报废店里的 ${r.scrappedQty} 个${store}`;
+  }
   const parts = [
     r.fullOutQty ? `领走 ${r.fullOutQty} 个` : '',
     r.emptyInQty ? `${r.businessType === 'DAMAGE_RETURN' ? '破损还回' : '还回'} ${r.emptyInQty} 个` : '',
@@ -50,6 +61,7 @@ export function Assets() {
   const run = useRun();
   const ops = useOperations();
   const exportCsv = useExport();
+  const go = useGo();
   const manage = can(P.ContainerInventoryManage);
   const canScrap = manage && can(P.DepositRefundApprove);
   const [tab, setTab] = useState<Tab>('movements');
@@ -95,15 +107,18 @@ export function Assets() {
       return (
         <tr key={r.ledgerNo}>
           <td>{time(r.createdAt)}<br /><small className="container-reference" title={r.ledgerNo}>{r.ledgerNo}</small></td>
-          <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>
+          <td>{isStore(r) ? <span className="stock-muted">店里</span> : <><b>{r.memberName}</b><br /><small>{r.memberNo}</small></>}</td>
           <td>{containerLabel(r.containerType)}</td>
           <td><span className={`tag ${tone}`}>{label}</span><br /><b>{happened(r)}</b></td>
-          <td>{r.deltaHeld === 0 ? `${r.heldAfter} 个（不变）` : <b>{r.heldAfter - r.deltaHeld} → {r.heldAfter} 个</b>}</td>
+          <td>{isStore(r) ? <span className="stock-muted">—</span> : r.deltaHeld === 0 ? `${r.heldAfter} 个（不变）` : <b>{r.heldAfter - r.deltaHeld} → {r.heldAfter} 个</b>}</td>
           <td>{r.depositDeductedAmount ? <b className="amount-out">扣 ¥{money(r.depositDeductedAmount)}</b> : '—'}</td>
           <td className="inventory-reason">
-            {r.referenceNo && <small className="container-reference" title={r.referenceNo}>{r.referenceNo.startsWith('ORD-') ? `水单 ${r.referenceNo}` : r.referenceNo}</small>}
-            {r.referenceNo && r.remark && <br />}
-            {r.remark === '独立领还' ? '单独登记' : r.remark}
+            {r.referenceNo && (isStore(r)
+              // A 新购 that came with money links to its 买桶袋 expense.
+              ? <button type="button" className="link" title={r.referenceNo} onClick={() => go('expenses')}>支出 {r.referenceNo}</button>
+              : <small className="container-reference" title={r.referenceNo}>{r.referenceNo.startsWith('ORD-') ? `水单 ${r.referenceNo}` : r.referenceNo}</small>)}
+            {r.referenceNo && remarkOf(r) && <br />}
+            {remarkOf(r)}
           </td>
           <td>{r.operatorName}</td>
         </tr>
@@ -140,7 +155,7 @@ export function Assets() {
   const total = result?.total ?? 0;
   return <>
     <div className="page-head">
-      <div><h2>袋桶台账</h2><p>每次领走、还回、破损和报废都记一笔：谁、什么时候、几个，会员手里从几个变成几个</p></div>
+      <div><h2>袋桶台账</h2><p>每次新购、领走、还回、破损和报废都记一笔：谁、什么时候、几个，会员手里或店里从几个变成几个</p></div>
       <div className="head-actions">
         <button type="button" className="btn" onClick={() => exportCsv('container-ledgers')}>导出流转记录</button>
         <button type="button" className="btn" onClick={() => reportDamage()}>登记破损</button>

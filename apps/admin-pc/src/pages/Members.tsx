@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { money, pageCount, ticketGroups, type MemberTicket } from '@kunlun/shared';
-import { Icon } from '@kunlun/ui';
+import { KUNLUN_PERMISSIONS as P, money, pageCount, ticketGroups, type MemberTicket } from '@kunlun/shared';
+import { Icon, useAuth } from '@kunlun/ui';
 import { EmptyRow, Pager, useExport, useOperations } from '../common';
 import { MEMBER_PAGE_SIZE, useAdminData, type MemberFilter } from '../data';
+import { useMemberStatusActions } from '../memberStatus';
 import { MemberProfilePage } from './MemberProfile';
 
 const PALETTE = [
@@ -49,6 +50,10 @@ function MemberList({ onOpen }: { onOpen: (id: string) => void }) {
   const { members: rows, memberTotal, loaded, overview, memberQuery, setMemberQuery, memberFilter, setMemberFilter, memberPage, setMemberPage } = useAdminData();
   const ops = useOperations();
   const exportCsv = useExport();
+  const { can } = useAuth();
+  // 停用 / 启用 and 删除 sit in each row's 操作 column for accounts with 「停用和删除会员」.
+  const manage = can(P.MemberManage);
+  const status = useMemberStatusActions();
   const withTickets = rows.filter(m => m.tickets.some(t => t.available > 0)).length;
   const withContainers = rows.filter(m => m.heldBuckets + m.heldBags > 0).length;
   const filtered = !!(memberQuery.trim() || memberFilter.status || memberFilter.water);
@@ -97,7 +102,13 @@ function MemberList({ onOpen }: { onOpen: (id: string) => void }) {
                 <td>¥ {money(m.depositAmount)}</td>
                 <td>{m.heldBuckets} 桶 / {m.heldBags} 袋</td>
                 <td>{(m.createdAt || '').slice(0, 10) || '—'}</td>
-                <td><button type="button" className="link" onClick={() => onOpen(m.id)}>360° 档案</button></td>
+                <td className="row-actions">
+                  <button type="button" className="link" onClick={() => onOpen(m.id)}>360° 档案</button>
+                  {manage && (m.status === 'DISABLED'
+                    ? <button type="button" className="link" aria-label={`重新启用会员 ${m.name}`} onClick={() => status.enable(m)}>启用</button>
+                    : <button type="button" className="link" aria-label={`停用会员 ${m.name}`} title="不再来的会员：停用后办不了业务，会员端也登录不了，记录和余额都留着" onClick={() => status.disable(m)}>停用</button>)}
+                  {manage && <button type="button" className="link danger" aria-label={`删除会员 ${m.name}`} title="只能删除一条记录都没有的会员，比如建错了的档案" onClick={() => status.remove(m)}>删除</button>}
+                </td>
               </tr>
             ))}
           </tbody>
