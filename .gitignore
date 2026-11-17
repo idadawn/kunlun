@@ -25,3 +25,6 @@ dist/
 DerivedData/
 *.xcresult/
 xcuserdata/
+
+# Database backups never belong in the repository
+*.dump

@@ -1,0 +1,11 @@
+# Installed as /etc/systemd/system/kunlun-db-backup@.service; instances: prod, test. See deploy/al/README.md.
+[Unit]
+Description=Back up the Kunlun %i PostgreSQL database
+After=docker.service
+# A failed or timed-out run emails the failure (kunlun-db-backup-notify@.service); a successful run sends nothing.
+OnFailure=kunlun-db-backup-notify@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/kunlun-db-backup %i
+TimeoutStartSec=1h

@@ -1,0 +1,14 @@
+# Installed as /etc/systemd/system/kunlun-db-backup-notify@.service. Never enabled: kunlun-db-backup@.service starts it
+# through OnFailure= with the failed unit's full name as the instance, e.g.
+# kunlun-db-backup-notify@kunlun-db-backup@prod.service.service. %i (not %I, which turns "-" into "/") is that name.
+# See deploy/al/README.md.
+[Unit]
+Description=Email that %i failed
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/kunlun-db-backup-notify %i
+# Up to 2 min reading the journal, then up to three send attempts 30 s and 60 s apart.
+TimeoutStartSec=10min

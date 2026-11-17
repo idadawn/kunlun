@@ -1,0 +1,18 @@
+# Copied to /etc/kunlun-db-backup-notify.conf on al (root, mode 600) and filled in there. Never commit real values.
+# Read by /usr/local/sbin/kunlun-db-backup-notify to email backup failures. One KEY=value per line; # starts a comment.
+
+# Mail provider's SMTP server, e.g. smtp.qq.com, smtp.163.com, smtp.exmail.qq.com, smtp.qiye.aliyun.com.
+# Aliyun blocks outbound port 25 on al: use 465 (TLS from the start) or 587 (STARTTLS).
+SMTP_HOST=
+SMTP_PORT=465
+
+# Login account and its SMTP password. QQ and 163 mail: enable SMTP in the web settings and use the authorization
+# code it generates, not the login password. Enterprise mail usually wants a client-specific password.
+SMTP_USER=
+SMTP_PASSWORD=
+
+# Sender address; empty means SMTP_USER (QQ and 163 mail refuse any other sender).
+MAIL_FROM=
+
+# Recipients, comma-separated.
+MAIL_TO=
