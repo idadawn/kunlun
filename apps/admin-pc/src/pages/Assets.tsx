@@ -27,11 +27,14 @@ type Ledger = ({ tab: 'holdings' } & Paged<ContainerHoldingRow>) | ({ tab: 'move
 const TABS: Array<[Tab, string]> = [['movements', '流转记录'], ['holdings', '会员手里'], ['damages', '破损报废']];
 const BUSINESS: Record<CirculationBusinessType, [string, string]> = {
   TURNOVER: ['领还', 'green'], DAMAGE_RETURN: ['破损还回', 'orange'], SCRAP: ['报废 · 扣押金', 'orange'], SCRAP_WAIVED: ['报废 · 不扣押金', 'gray'],
+  OPENING: ['上系统前', 'gold'],
 };
 const time = (value: string) => new Date(value).toLocaleString('zh-CN', { hour12: false });
 
 /** One flow row in words: what was taken, brought back or scrapped. */
 function happened(r: CirculationRow) {
+  // Written down, not moved: containers the member already had before the system (or a correction of that figure).
+  if (r.businessType === 'OPENING') return r.deltaHeld > 0 ? '补录原来就在会员手里的' : '更正补录的数量';
   const parts = [
     r.fullOutQty ? `领走 ${r.fullOutQty} 个` : '',
     r.emptyInQty ? `${r.businessType === 'DAMAGE_RETURN' ? '破损还回' : '还回'} ${r.emptyInQty} 个` : '',
