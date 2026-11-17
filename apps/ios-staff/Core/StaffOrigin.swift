@@ -8,8 +8,13 @@ public struct StaffOrigin: Equatable, Sendable {
     public let scheme: String
     public let host: String
     public let port: Int
+    let apiPrefix: String
 
     public init?(_ text: String, allowLoopbackHTTP: Bool) {
+        self.init(text, allowLoopbackHTTP: allowLoopbackHTTP, apiPrefix: "")
+    }
+
+    private init?(_ text: String, allowLoopbackHTTP: Bool, apiPrefix: String) {
         guard let parts = URLComponents(string: text.trimmingCharacters(in: .whitespaces)),
               let scheme = parts.scheme?.lowercased(), let host = parts.host?.lowercased(), !host.isEmpty,
               parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil,
@@ -22,7 +27,12 @@ public struct StaffOrigin: Equatable, Sendable {
         self.scheme = scheme
         self.host = host
         self.port = parts.port ?? (scheme == "https" ? 443 : 80)
+        self.apiPrefix = apiPrefix
     }
+
+    /// The dedicated App Review deployment has its own database and signing key.
+    public static let review = StaffOrigin("https://kunlun-test.idalee.cn", allowLoopbackHTTP: false,
+                                           apiPrefix: "/apple-review")!
 
     public var url: URL {
         let standardPort = scheme == "https" ? 443 : 80

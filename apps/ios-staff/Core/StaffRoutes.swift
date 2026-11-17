@@ -42,7 +42,7 @@ public enum StaffRoutes {
     /// The server address of an API call.
     public static func upstream(path: String, query: String?, origin: StaffOrigin) -> URL? {
         guard var parts = URLComponents(url: origin.url, resolvingAgainstBaseURL: false) else { return nil }
-        parts.percentEncodedPath = path
+        parts.percentEncodedPath = origin.apiPrefix + path
         parts.percentEncodedQuery = query
         return parts.url
     }
