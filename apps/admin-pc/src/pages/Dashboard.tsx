@@ -177,6 +177,10 @@ function Liabilities({ finance: f, overview }: { finance: FinanceSummaryReport; 
   const net = Number(f.rechargeNetReceived);
   const earned = Number(f.rechargeEarnedTotal);
   const used = net > 0 ? Math.min(100, Math.max(0, earned / net * 100)) : 0;
+  // Packages members bought before the system: owed back like recharges, but that money never came in as 水费实收.
+  const openingUnused = Number(f.openingUnusedValue ?? 0);
+  const openingRefunded = Number(f.openingRefundedTotal ?? 0);
+  const unused = Number(f.unusedRechargeValue) + openingUnused;
   return (
     <div className="card liability-card">
       <div className="card-head">
@@ -196,14 +200,18 @@ function Liabilities({ finance: f, overview }: { finance: FinanceSummaryReport; 
           <i className="liability-op" aria-hidden="true">+</i>
           <div className="liability-item">
             <span><Icon name="wallet" size="sm" />没用完的水费</span>
-            <b>¥ {money(f.unusedRechargeValue)}</b>
-            <small>剩余付费水票 {f.unusedPaidTicketQty} 张，按原实付单价折算{f.unusedGiftTicketQty ? `；赠票 ${f.unusedGiftTicketQty} 张退款时收回、不退钱` : ''}</small>
+            <b>¥ {money(unused)}</b>
+            <small>
+              剩余付费水票 {Number(f.unusedPaidTicketQty) + Number(f.openingPaidTicketQty ?? 0)} 张，按原实付单价折算
+              {openingUnused > 0 && `；其中上系统前买的 ${f.openingPaidTicketQty} 张 ¥${money(openingUnused)}`}
+              {f.unusedGiftTicketQty ? `；赠票 ${f.unusedGiftTicketQty} 张退款时收回、不退钱` : ''}
+            </small>
           </div>
           <i className="liability-op" aria-hidden="true">=</i>
           <div className="liability-item total">
             <span><Icon name="refund" size="sm" />合计可能要退</span>
             <b>¥ {money(f.potentialRefundTotal)}</b>
-            <small>{f.legacyTicketQty ? `另有 ${f.legacyTicketQty} 张历史余额水票没有原价，未计入` : '会员全部退桶、退清水费时要还回去的钱'}</small>
+            <small>{f.legacyTicketQty ? `另有 ${f.legacyTicketQty} 张水票没有原价（历史余额、套餐不清楚），未计入` : '会员全部退桶、退清水费时要还回去的钱'}</small>
           </div>
         </div>
         <div className="liability-split">
@@ -211,8 +219,10 @@ function Liabilities({ finance: f, overview }: { finance: FinanceSummaryReport; 
             <span>水费净收<b>¥{money(net)}</b></span>
             <span>= 会员已经用掉的（真正的收入）<b className="earned">¥{money(earned)}</b></span>
             <span>+ 还没用完的（可能要退）<b className="unused">¥{money(f.unusedRechargeValue)}</b></span>
+            {openingRefunded > 0 && <span>− 退给上系统前买的套餐<b className="unused">¥{money(openingRefunded)}</b></span>}
           </div>
           {net > 0 && <div className="liability-bar" role="img" aria-label={`水费净收中会员已用掉 ${Math.round(used)}%`}><i style={{ width: `${used}%` }} /></div>}
+          {openingUnused > 0 && <small className="liability-note">上系统前买的套餐还没用完 ¥{money(openingUnused)}：当时收的钱没进系统，不在水费净收里，会员要退时一样得退。</small>}
         </div>
       </div>
     </div>

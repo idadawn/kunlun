@@ -1,4 +1,4 @@
-import type { ContainerType, ExpenseCategory, FulfillMode, MemberProfile, MemberTicket, OrderStatus, PayMethod, WaterOrder, WaterProduct, WaterType } from './types';
+import type { ContainerType, ExpenseCategory, FulfillMode, MemberProfile, MemberTicket, OrderStatus, PayMethod, TicketBatch, WaterOrder, WaterProduct, WaterType } from './types';
 
 // Name and container of every water product by code. Each app passes the product lists it loads to rememberProducts;
 // the two original products are known before the first load.
@@ -61,7 +61,15 @@ export const PAY_METHODS: ReadonlyArray<{ value: PayMethod; label: string }> = [
   { value: 'ALIPAY', label: '支付宝收款码' },
   { value: 'BANK', label: '银行转账' },
 ];
-export const payMethodLabel = (value: string) => PAY_METHODS.find(p => p.value === value)?.label ?? value;
+/** OPENING marks a deposit paid before the station used the system, recorded later; it was not taken in that day. */
+export const payMethodLabel = (value: string) => value === 'OPENING' ? '上系统前已收' : PAY_METHODS.find(p => p.value === value)?.label ?? value;
+
+/**
+ * A batch with a known original price: a recharge, or a package from before the system recorded with what was paid.
+ * Only these count toward 没用完的水费 and can be refunded at the original price.
+ */
+export const isPricedBatch = (batch: Pick<TicketBatch, 'source' | 'paidAmount'>) =>
+  batch.source === 'PURCHASE' || (batch.source === 'OPENING' && Number(batch.paidAmount) > 0);
 
 /** 费用支出类别，与后台 Expenses.Categories 一致。 */
 export const EXPENSE_CATEGORIES: ReadonlyArray<{ value: ExpenseCategory; label: string; hint: string }> = [

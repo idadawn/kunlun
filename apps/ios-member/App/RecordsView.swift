@@ -46,18 +46,33 @@ struct RechargeView: View {
                     if batches.isEmpty { ContentUnavailableView("暂无充值记录", systemImage: "ticket", description: Text("充值请到门店办理。")) }
                     ForEach(batches) { batch in
                         Card {
-                            HStack(alignment: .top) { Text(batch.name).font(.headline); Spacer(); Text(batch.paidAmount.yuan).font(.headline).foregroundStyle(Brand.green) }
+                            HStack(alignment: .top) {
+                                Text(batch.name).font(.headline)
+                                Spacer()
+                                // A package recorded without its price has no amount to show, rather than ¥0.00.
+                                if batch.hasUnknownPackage { Text("套餐不清楚").font(.headline).foregroundStyle(.secondary) }
+                                else if batch.isOpening {
+                                    VStack(alignment: .trailing, spacing: 2) {
+                                        Text(batch.paidAmount.yuan).font(.headline).foregroundStyle(Brand.green)
+                                        Text("当时实付").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                } else { Text(batch.paidAmount.yuan).font(.headline).foregroundStyle(Brand.green) }
+                            }
                             Text([batch.waterName(in: store.profile.value?.tickets ?? []), modeTitle(batch.fulfillMode)]
                                 .filter { !$0.isEmpty }.joined(separator: " · "))
                                 .font(.subheadline).foregroundStyle(.secondary)
-                            DetailLine(title: "购票 / 赠票", value: "\(batch.fixedQty) / \(batch.giftQty) 份")
+                            // Without a known package, fixedQty is only what was left when it was recorded, not what was bought.
+                            if !batch.hasUnknownPackage { DetailLine(title: "购票 / 赠票", value: "\(batch.fixedQty) / \(batch.giftQty) 份") }
                             DetailLine(title: "剩余购票 / 赠票", value: "\(batch.remainingBuy) / \(batch.remainingGift) 份")
                             if batch.reservedBuy + batch.reservedGift > 0 { DetailLine(title: "其中已预留", value: "\(batch.reservedBuy + batch.reservedGift) 份") }
                             if let quantity = batch.pendingGiftQty, quantity > 0 { Text("赠票 \(quantity) 份待审核").font(.footnote).foregroundStyle(.orange) }
                             if batch.pendingRequestNo != nil { Text("水费退款申请审核中").font(.footnote).foregroundStyle(.orange) }
                             if batch.status == "REFUNDED" { DetailLine(title: "已退款", value: batch.refundedAmount.yuan) }
+                            if batch.hasUnknownPackage { Text("可以照常用水，不能按原价退，详情请向门店核对").font(.footnote).foregroundStyle(.secondary) }
                             // Legacy balances carry a placeholder date (2000-01-01), so they show the note instead.
                             if batch.source == "LEGACY" { Text("历史余额，详情请向门店核对").font(.footnote).foregroundStyle(.secondary) }
+                            // An opening package's date is when the member was set up in the system, not when it was bought.
+                            else if let note = batch.openingNote { Text(note).font(.caption).foregroundStyle(.secondary) }
                             else { Text(displayDate(batch.createdAt)).font(.caption).foregroundStyle(.secondary) }
                             if !batch.rechargeNo.isEmpty { Text(batch.rechargeNo).font(.caption2.monospaced()).foregroundStyle(.secondary).textSelection(.enabled) }
                         }

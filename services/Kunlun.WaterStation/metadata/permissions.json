@@ -10,6 +10,11 @@
       "title": "新建与修改会员"
     },
     {
+      "code": "kunlun.waterstation:member:opening",
+      "title": "补录会员上系统前的套餐余量、押金与持有桶袋",
+      "risk": "high"
+    },
+    {
       "code": "kunlun.waterstation:recharge:create",
       "title": "水费实收充值登记"
     },

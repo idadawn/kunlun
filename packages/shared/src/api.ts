@@ -26,8 +26,11 @@ import type {
   InventoryRequest,
   LedgerQuery,
   MemberAddress,
+  MemberOpeningRecord,
   MemberProfile,
   MemberQuery,
+  OpeningEntry,
+  SaveOpeningBody,
   MobileConfigOverview,
   OrderQuery,
   OverviewReport,
@@ -183,6 +186,10 @@ export class KunlunApi {
   }
   depositSummary(memberId: string) { return this.request<DepositSummaryRow[]>(`/api/members/${memberId}/deposit-summary`); }
   ticketBatches(memberId: string) { return this.request<TicketBatch[]>(`/api/members/${memberId}/ticket-batches`); }
+  /** What was recorded from before the member used the system: the opening deposits and every opening entry, newest first. */
+  memberOpening(memberId: string) { return this.request<MemberOpeningRecord>(`/api/members/${memberId}/opening`); }
+  /** Records or corrects packages, deposits and holdings from before the system in one go; needs the opening permission. */
+  saveMemberOpening(memberId: string, body: SaveOpeningBody) { return this.post<OpeningEntry>(`/api/members/${memberId}/opening`, body); }
 
   // Products & plans
   listProducts() { return this.request<WaterProduct[]>('/api/products'); }

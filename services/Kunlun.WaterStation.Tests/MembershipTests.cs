@@ -165,8 +165,11 @@ public sealed class MembershipTests(TestHost host)
         Assert.Equal(2m, Delta(after, "unrefundedDepositQty"));
         Assert.Equal(deposit + 116.35m, Delta(after, "potentialRefundTotal"));
         Assert.Equal(200m - 116.35m, Delta(after, "rechargeEarnedTotal"));
-        Assert.Equal(after.GetProperty("unrefundedDepositPoolTotal").GetDecimal() + after.GetProperty("unusedRechargeValue").GetDecimal(), after.GetProperty("potentialRefundTotal").GetDecimal());
-        Assert.Equal(after.GetProperty("rechargeNetReceived").GetDecimal() - after.GetProperty("unusedRechargeValue").GetDecimal(), after.GetProperty("rechargeEarnedTotal").GetDecimal());
+        // Packages recorded from before the system (MemberOpeningTests) are money members could ask back too, but never came in as recharges.
+        Assert.Equal(after.GetProperty("unrefundedDepositPoolTotal").GetDecimal() + after.GetProperty("unusedRechargeValue").GetDecimal() + after.GetProperty("openingUnusedValue").GetDecimal(),
+            after.GetProperty("potentialRefundTotal").GetDecimal());
+        Assert.Equal(after.GetProperty("rechargeNetReceived").GetDecimal() - after.GetProperty("unusedRechargeValue").GetDecimal() + after.GetProperty("openingRefundedTotal").GetDecimal(),
+            after.GetProperty("rechargeEarnedTotal").GetDecimal());
 
         // Refunding pays out exactly what was counted, and the refunded batch leaves nothing to ask back.
         await Ok(await c.PostAsJsonAsync($"/api/orders/{open.GetProperty("id").GetGuid()}/cancel", new CancelWaterOrderRequest("顾客改天再来")));

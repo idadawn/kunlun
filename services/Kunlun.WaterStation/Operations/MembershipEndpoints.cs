@@ -50,10 +50,16 @@ public static class MembershipEndpoints
         {
             if (!CanRead(user, mid)) return Results.Forbid();
             await using var conn = await db.OpenConnectionAsync(ct);
+            // Packages recorded from before the system (OPENING) carry their own snapshot instead of a recharge; one nothing has
+            // used or refunded yet can still be removed as a mistake. Members read this list too, so the staff note and who entered
+            // it stay on the opening entry.
             await using var cmd = Command(conn, null, """
                 SELECT b.id,b.source,b.water_type,b.fulfill_mode,b.paid_amount,b.fixed_qty,b.gift_qty,b.remaining_buy,b.remaining_gift,
-                  b.reserved_buy,b.reserved_gift,b.status,b.created_at,COALESCE(r.recharge_no,''),COALESCE(r.plan_snapshot->>'name','历史余额待核对'),
-                  COALESCE(f.amount,0),COALESCE(f.refund_no,''),COALESCE(r.plan_snapshot->>'waterLabel',''),q.request_no,COALESCE(g.quantity,0)
+                  b.reserved_buy,b.reserved_gift,b.status,b.created_at,COALESCE(r.recharge_no,''),COALESCE(r.plan_snapshot->>'name',b.opening_snapshot->>'name','历史余额待核对'),
+                  COALESCE(f.amount,0),COALESCE(f.refund_no,''),COALESCE(r.plan_snapshot->>'waterLabel',b.opening_snapshot->>'waterLabel',''),q.request_no,COALESCE(g.quantity,0),
+                  (b.opening_snapshot - 'note' - 'operatorName')::text,
+                  b.source='OPENING' AND NOT EXISTS(SELECT 1 FROM plugin_kunlun_waterstation.order_ticket_allocations a WHERE a.batch_id=b.id)
+                    AND NOT EXISTS(SELECT 1 FROM plugin_kunlun_waterstation.refund_requests x WHERE x.batch_id=b.id)
                 FROM plugin_kunlun_waterstation.ticket_batches b
                 LEFT JOIN plugin_kunlun_waterstation.recharge_orders r ON r.id=b.recharge_id
                 LEFT JOIN plugin_kunlun_waterstation.recharge_refunds f ON f.batch_id=b.id
@@ -87,7 +93,10 @@ public static class MembershipEndpoints
                 refundedAmount = r.GetDecimal(15),
                 refundNo = r.GetString(16), waterLabel = r.GetString(17),
                 pendingRequestNo = r.IsDBNull(18) ? null : r.GetString(18),
-                pendingGiftQty = r.GetInt32(19)
+                pendingGiftQty = r.GetInt32(19),
+                // OPENING only: entry number, package, note and who recorded it when; null for every other batch.
+                opening = r.IsDBNull(20) ? (JsonElement?)null : JsonSerializer.Deserialize<JsonElement>(r.GetString(20)),
+                removable = r.GetBoolean(21)
             });
             return Results.Ok(rows);
         }).RequireAuthorization();
@@ -215,10 +224,13 @@ public static class MembershipEndpoints
 
     /// <summary>
     /// 一个充值批次剩余付费票按原实付单价折算的金额（赠票不值钱）：退清该批次时退给会员的钱。
-    /// 历史余额没有原价、已退款批次已经退清，都按 0 计。财务汇总的「未用完水费」用同一口径在 SQL 里求和。
+    /// 历史余额和套餐不清楚的上系统前余额没有原价、已退款批次已经退清，都按 0 计。财务汇总的「未用完水费」用同一口径在 SQL 里求和。
     /// </summary>
     public static decimal RemainingValue(string source, string status, decimal paidAmount, int remainingBuy, int fixedQty) =>
-        source == "PURCHASE" && status == "ACTIVE" ? Math.Round(paidAmount * remainingBuy / fixedQty, 2, MidpointRounding.AwayFromZero) : 0;
+        Priced(source, paidAmount) && status == "ACTIVE" ? Math.Round(paidAmount * remainingBuy / fixedQty, 2, MidpointRounding.AwayFromZero) : 0;
+
+    /// <summary>Batches with a known original price: recharges, and packages recorded from before the system together with what was paid.</summary>
+    public static bool Priced(string source, decimal paidAmount) => source == "PURCHASE" || (source == MemberOpening.Source && paidAmount > 0);
 
     /// <summary>Checks a batch can be refunded and returns its amount at the original paid price; the caller holds the member lock.</summary>
     public static async Task<(Guid MemberId, string Water, string Mode, decimal Amount, int Buy, int Gift)> RefundableBatch(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid batchId, bool lockRow, CancellationToken ct)
@@ -226,7 +238,10 @@ public static class MembershipEndpoints
         await using var cmd = Command(conn, tx, "SELECT source,water_type,fulfill_mode,paid_amount,fixed_qty,remaining_buy,remaining_gift,reserved_buy,reserved_gift,status,member_id FROM plugin_kunlun_waterstation.ticket_batches WHERE tenant_id=@tid AND id=@id" + (lockRow ? " FOR UPDATE" : ""), ("tid", tid), ("id", batchId));
         await using var r = await cmd.ExecuteReaderAsync(ct);
         if (!await r.ReadAsync(ct)) throw new BusinessRuleException("充值批次不存在", 404);
-        if (r.GetString(0) != "PURCHASE") throw new BusinessRuleException("历史余额缺少原单扣票来源，需先核对，不能自动退款");
+        if (!Priced(r.GetString(0), r.GetDecimal(3)))
+            throw new BusinessRuleException(r.GetString(0) == MemberOpening.Source
+                ? "上系统前的这笔余额套餐不清楚、没有原价，不能按原价退款"
+                : "历史余额缺少原单扣票来源，需先核对，不能自动退款");
         if (r.GetString(9) != "ACTIVE") throw new BusinessRuleException("该批次已退款", 409);
         if (r.GetInt32(7) + r.GetInt32(8) > 0) throw new BusinessRuleException("该批次有未完成水单，请先完成或取消订单", 409);
         int buy = r.GetInt32(5), gift = r.GetInt32(6);

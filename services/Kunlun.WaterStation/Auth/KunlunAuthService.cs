@@ -12,6 +12,8 @@ public static class KunlunPermissions
 {
     public const string MemberRead = "kunlun.waterstation:member:read";
     public const string MemberWrite = "kunlun.waterstation:member:write";
+    /// <summary>补录会员上系统前的套餐余量、押金和手里的桶袋；默认只给管理员，不随手机端功能开通。</summary>
+    public const string MemberOpening = "kunlun.waterstation:member:opening";
     public const string RechargeRefund = "kunlun.waterstation:recharge:refund";
     public const string RechargeCreate = "kunlun.waterstation:recharge:create";
     public const string DepositCollect = "kunlun.waterstation:deposit:collect";
@@ -30,7 +32,7 @@ public static class KunlunPermissions
 
     public static readonly string[] AdminAll =
     [
-        MemberRead, MemberWrite, RechargeCreate, RechargeRefund, DepositCollect,
+        MemberRead, MemberWrite, MemberOpening, RechargeCreate, RechargeRefund, DepositCollect,
         DepositRefundApply, DepositRefundApprove, OrderCreate, OrderAccept,
         OrderFulfill, PickupVerify, ContainerRegister, ContainerInventoryManage, PlanManage, ReportExport, StaffManage, ExpenseManage
     ];

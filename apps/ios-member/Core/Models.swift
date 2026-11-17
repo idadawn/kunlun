@@ -122,6 +122,26 @@ public struct TicketBatch: Decodable, Identifiable, Sendable {
     public let refundedAmount: Decimal
     public let pendingRequestNo: String?
     public let pendingGiftQty: Int?
+    /// Only on packages bought before the station used the system (`source == "OPENING"`); older servers do not send it.
+    public let opening: OpeningSnapshot?
+}
+
+/// How an administrator recorded a package the member bought before the station used the system (补录).
+/// The server stores it as a snapshot, so every field is optional: one it drops later must not break the whole recharge list.
+public struct OpeningSnapshot: Decodable, Sendable {
+    /// The opening entry (补录单) that recorded the package.
+    public let entryNo: String?
+    public let planId: String?
+    public let planName: String?
+    public let name: String?
+    public let waterLabel: String?
+    public let fulfillMode: String?
+    /// What the member paid for the package back then; 0 when the package is not known (套餐不清楚).
+    public let paidAmount: Decimal?
+    /// Nil when the package is not known.
+    public let packageQty: Int?
+    /// When the administrator recorded it, not when the member bought it.
+    public let enteredAt: String?
 }
 
 extension TicketBatch {
@@ -129,6 +149,22 @@ extension TicketBatch {
     public func waterName(in tickets: [MemberTicket]) -> String {
         if !waterLabel.isEmpty { return waterLabel }
         return tickets.first { $0.waterType == waterType }?.name ?? ""
+    }
+
+    /// A package bought before the station used the system and recorded later by an administrator. Its `createdAt` is when the
+    /// member was set up in the system, not when the package was bought.
+    public var isOpening: Bool { source == "OPENING" }
+
+    /// An opening package recorded without its price (套餐不清楚). Its tickets work as usual, but it has no original price to refund at,
+    /// and `fixedQty` is only what was left when it was recorded. A legacy balance's 0 is not this.
+    public var hasUnknownPackage: Bool { isOpening && paidAmount <= 0 }
+
+    /// Shown in place of the purchase date on an opening package, with the entry that recorded it when the server sends one;
+    /// nil for every other batch.
+    public var openingNote: String? {
+        guard isOpening else { return nil }
+        guard let entryNo = opening?.entryNo, !entryNo.isEmpty else { return "上系统前买的" }
+        return "上系统前买的 · 补录单 \(entryNo)"
     }
 }
 

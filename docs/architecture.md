@@ -70,7 +70,7 @@ kunlun/
 | `MEMBER` | 水站会员 | 无后台权限码；服务端强制按当前令牌中的 `member_id` 执行数据隔离 |
 | `COURIER` | 送水员 | `member:read`、`order:accept`、`order:fulfill`、`deposit:collect` |
 | `CLERK` | 驻店店员 | 含送水员全部权限 + `member:write`、`recharge:create`、`order:create`、`pickup:verify`、`container:register`、`deposit:refund_apply` |
-| `ADMIN` | 站长/管理员 | `kunlun.waterstation:*`（含 `deposit:refund_approve`、`order:correct`、`plan:manage`、`report:export`、`staff:manage`） |
+| `ADMIN` | 站长/管理员 | `kunlun.waterstation:*`（含 `deposit:refund_approve`、`order:correct`、`plan:manage`、`report:export`、`staff:manage`、`member:opening`） |
 
 店员、送水员的实际权限由「移动端配置」按角色开通的手机端功能决定（见第 7 节），上表为默认开通时的权限；送水员默认另含 `pickup:verify`、`container:register`（原本即可通过 `order:fulfill` 核销自提、登记领还）。
 
@@ -330,15 +330,54 @@ kunlun/
   - 公网对端带任意 `X-Forwarded-For`，都按它自己的地址计数。
   - TestServer 请求默认没有对端地址，这时中间件会无条件采用转发头，所以测试必须显式设置对端。
 
-## 18. 费用支出与交付按容器说明（2026-11-17）
+## 18. 补录会员上系统前的数据（2026-11-17）
+
+- 问题：很多会员在水站用这套系统之前就买了套餐、交了押金、拿着桶，系统里查不到。新增权限 `member:opening`（`KunlunPermissions.MemberOpening`，`metadata/permissions.json` 标为高风险），默认只给管理员：`AdminAll` 包含它，`MemberOpening.EnsureSchema` 启动时给已有的管理员账号补上。权限每次请求从数据库重新读，已登录的管理员不用重新登录。它不属于任何手机端功能，「移动端配置」开通不了，店员、送水员都没有。
+- 接口（`Operations/MemberOpening.cs`）：
+  - `GET /api/members/{id}/opening`（`member:read`）：这位会员上系统前的押金批次（个数、单价、金额、押金单号、未退个数；`locked` 表示已退过或报废扣过，不能再改）和最近 50 张补录单。
+  - `POST /api/members/{id}/opening`（`member:opening`）：一次提交 `tickets`（套餐余量）、`deposits`（押金）、`holdings`（手里的桶袋）和备注（200 字以内），带幂等键。先锁请求键、再锁会员行，在同一事务内依次处理套餐、押金、桶袋，写一张补录单 `QC{yyyyMMdd}{NNNN}`（`member_opening_entries`，回执里有每一处的改前、改后）。重放返回原回执，同一个键换了内容返回 409；填的和现在记的一样返回 400，不写单；任何一处出错，整张都不生效。
+- 套餐余量：每条新建一个 `source='OPENING'` 的 `ticket_batches`，水票加进 `member_tickets`，流水记 `OPENING`。
+  - 知道套餐：填当时实付和套餐张数（选现有套餐时带出，可改），照填 `paid_amount`、`fixed_qty`。剩余票按原实付单价折算没用完的水费，能按原价退清（`RemainingValue.Priced`：`PURCHASE`，或 `OPENING` 且实付大于 0）。
+  - 套餐不清楚：实付记 0。和历史余额一样只计张数、不计价，不能按原价退（退款返回 400）。
+  - 名称、水品和补录单号写进 `opening_snapshot`。批次列表、退款审核和退水费流水的套餐名先取充值快照，没有再取这里。会员也能读批次列表，所以返回时去掉快照里的备注和经办人，这两项只在补录单上。
+  - `created_at` 记为会员建档时间。分配和退款原来就按 `created_at, id` 排序，查询不用改，就会先用、先退上系统前的余额。
+  - 修改：只能改补录的批次，系统里充值的返回 400。还剩数量不能少于未完成水单占着的数（409），有价套餐不能多于套餐张数（400），流水记 `OPENING_ADJUST`。没下过单、没办过退款的可以删除，流水记 `OPENING_REMOVE`。已退款或有退款申请在审核的不能改（409）。
+- 押金：每位会员每种桶袋最多一笔上系统前的押金（`deposit_lots.source='OPENING'`，部分唯一索引）。`pay_method` 记 `OPENING`，`created_at` 记建档时间，退押金时按 FIFO 先退它；`members.deposit_amount` 同步加减。没退过、没报废扣过、没有待报废占用、也没有待审核的退押金时，可以改个数和单价，改成 0 就是删除；否则返回 409。
+- 手里的桶袋：把会员名下的个数直接改成填的数，并写一条 `container_ledgers`：`business_type='OPENING'`，满桶出、空桶回都是 0，单号是补录单号，备注取补录备注。
+  - 桶早就在会员手里，所以店里不动。
+  - 客户手里取原数和会员名下合计中较大的那个，已经数进客户手里的不会重复加。
+  - 改少时客户手里不自动减，需要时在袋桶库存直接改。
+- 报表口径（`ReportEndpoints.cs`）：
+  - 上系统前的押金在池里、能退，但不是这段时间收的钱。`depositCollectedTotal` 不含它，另列 `depositOpeningTotal`、`depositOpeningCount`；零误差对账改为 上系统前 + 收押 − 退押 − 扣押 = 在池。押金明细和导出里，这类流水记为 `OPENING`。
+  - 补录的套餐不写 `recharge_orders`，水费实收和趋势都不变。
+  - 有价的余量另列 `openingUnusedValue`、`openingPaidTicketQty`，计入 `potentialRefundTotal`。
+  - 退这部分的钱另列 `openingRefundedTotal`、`openingRefundCount`。`rechargeEarnedTotal` = 水费净收 −（退款 − 其中退上系统前的）− 没用完的水费，所以退上系统前的余额不会冲减系统里的收入。
+  - 套餐不清楚的计入 `legacyTicketQty`。
+- 管理端（`apps/admin-pc/src/opening.tsx`）：
+  - 会员整页档案页头「补录历史数据」（需 `member:opening`）打开「补录上系统前的数据」弹窗。套餐余量、押金和手里的桶袋一次填好；已经补录过的会带出来，只提交改了的部分。
+  - 档案新增「上系统前的数据」卡片，列出历次补录。
+  - 押金管理新增「上系统前」页签。押金管理、袋桶台账和会员最近记录都用「上系统前」标签。
+  - 经营总览「可能要退给会员的钱」注明其中上系统前买的部分。
+  - 共用的充值批次卡片（管理端、H5 会员端；Android 会员端用的也是 H5 页面）写明「上系统前买的」和当时实付。套餐不清楚的批次没有退款按钮。
+- 测试：新增 `MemberOpeningTests`（5 个）：
+  - 补录不算当天收入；
+  - 只有有权限的账号能补录，重放、并发和失败都不会重复入账；
+  - 先用先退，按原价退；
+  - 下单或退款之前都能改；
+  - 已有管理员启动后自动获得权限。
+
+  `MembershipTests` 的两个恒等式加上了上系统前的部分。全部 89 个测试通过。
+- iOS 会员端（原生页面，`apps/ios-member`）：充值记录里补录的批次写明「上系统前买的 · 补录单 QC…」，不显示日期（那是会员建档时间）；有价的金额旁注明「当时实付」；套餐不清楚的显示「套餐不清楚」而不是 ¥0.00，不显示购票数，脚注提示可以照常用水、不能按原价退。`opening` 字段可选，旧后端照常解码。见 PR #49。
+
+## 19. 费用支出与交付按容器说明（2026-11-17）
 
 - 表 `expenses`（`Operations/Expenses.cs`）：`expense_no`（`ZCyyyyMMddNNNN`，北京时间日期，计数器 `expense`）、`category`（`CONTAINER` 买桶袋 / `PARTS` 配件耗材 / `REPAIR` 维修 / `OTHER` 其他）、`item`、`quantity`、`amount`（NUMERIC(12,2) > 0）、`pay_method`、`spent_on`（购买日期，统计口径）、`remark`、随新购记的 `container_type` 与 `inventory_operation_no`、`status`（`ACTIVE` / `VOIDED`）、经办人、作废人 / 时间 / 原因；`(tenant_id, idempotency_key)` 唯一。启动时给已有管理员补上 `expense:manage`，不加 `token_version`：权限每次请求都从员工行重新读取。
 - 接口：
   - `POST /api/expenses`（`expense:manage`）：幂等键加请求哈希，重放返回原记录，改了内容返回 409。购买日期不能晚于今天（北京时间）。
   - `GET /api/expenses?q&category&status&from&to&page&pageSize`（`expense:manage` 或 `report:export`）：总是分页；`from`/`to` 是时刻，按 `(@from AT TIME ZONE 'Asia/Shanghai')::date` 与 `spent_on` 比较。
-  - `GET /api/expenses/summary?from&to`：同一窗口的支出合计、笔数、作废笔数、分类合计（不含作废），同期 `recharge_orders` 实收与 `recharge_refunds` 退款（按创建时刻），`rechargeNet`、`balance = rechargeNet − expenseTotal`。押金不在内。
+  - `GET /api/expenses/summary?from&to`：同一窗口的支出合计、笔数、作废笔数、分类合计（不含作废），同期 `recharge_orders` 实收与 `recharge_refunds` 退款（按创建时刻；退上系统前套餐的钱也是付出去的，照样算退款），`rechargeNet`、`balance = rechargeNet − expenseTotal`。押金不在内。
   - `POST /api/expenses/{id}/void`：原因必填，已作废的再作废返回原记录。
-  - `GET /api/reports/finance-summary` 增加 `expenseTotal`、`expenseCount`、`rechargeNetAfterExpenses`；`GET /api/exports/expenses` 导出 CSV。
+  - `GET /api/reports/finance-summary` 增加 `expenseTotal`、`expenseCount`、`rechargeNetAfterExpenses`（= `rechargeNetReceived − expenseTotal`）；`GET /api/exports/expenses` 导出 CSV。
 - 新购记花费：`POST /api/containers/inventory` 的 `InventoryRequest` 增加可选 `Cost`、`PayMethod`，只用于 `RECEIVE` 且需 `expense:manage`。同一事务里先写支出（幂等键 `inventory:{请求键}`），再写库存记录（收据带 `expense: { expenseNo, amount, payMethod }`），最后把库存单号写回支出。重放库存请求直接返回原收据，不会再记一笔。
 - 赠送审核：`CreateRecharge` 的待审核赠送 = `gift_review ? giftQty : 0`，不再看 `recharge:refund`。前端 `waitsForReview(settings, 'gift', …)` 同样只看开关。
 - 交付弹窗（`packages/ui/src/operations/orders.tsx`）的数量标签和押金说明取水单 `productSnapshot.containerId` 对应的桶 / 袋；押金位置未加载或加载失败时拒绝提交。后台 `DEPOSIT_COVERAGE_INSUFFICIENT`、`INVALID_CONTAINER_RETURN` 的提示语也按水品的桶 / 袋说。订单导出列名改为“领出满桶/袋N、收回空桶/袋M”。
