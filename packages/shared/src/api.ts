@@ -8,6 +8,7 @@ import type {
   ContainerLedgerRow,
   ContainerSummaryItem,
   ContainerType,
+  CreateExpenseRequest,
   CreateOrderRequest,
   ContainerLedgerQuery,
   CreateOrderResult,
@@ -15,6 +16,9 @@ import type {
   DepositLedgerQuery,
   DepositLedgerRow,
   DepositSummaryRow,
+  Expense,
+  ExpenseQuery,
+  ExpenseSummary,
   ExportDataset,
   FinanceSummaryReport,
   FulfillOrderRequest,
@@ -24,6 +28,7 @@ import type {
   MemberAddress,
   MemberOpeningRecord,
   MemberProfile,
+  MemberStatusResult,
   MemberQuery,
   OpeningEntry,
   SaveOpeningBody,
@@ -47,6 +52,7 @@ import type {
   SaveWaterProductRequest,
   StaffAccount,
   TicketBatch,
+  TimeRange,
   UpdateStockRequest,
   WaterOrder,
   WaterProduct,
@@ -166,6 +172,12 @@ export class KunlunApi {
   createMember(body: { name: string; phone: string; defaultAddress?: string; doorNo?: string; remark?: string }) {
     return this.post<{ id: string; memberNo: string; name: string; phone: string }>('/api/members', body);
   }
+  /** 停用（要写原因）或重新启用会员；停用后会员端登录失效，员工也办不了他的业务。 */
+  setMemberStatus(memberId: string, status: ActiveStatus, reason?: string) {
+    return this.request<MemberStatusResult>(`/api/members/${memberId}/status`, { method: 'PATCH', ...json({ status, reason }) });
+  }
+  /** 删除一条业务记录都没有的会员（建错、重复的档案）；有记录的服务端拒绝，只能停用。 */
+  deleteMember(memberId: string) { return this.request<{ id: string; memberNo: string; deleted: boolean }>(`/api/members/${memberId}`, { method: 'DELETE' }); }
   listAddresses(memberId: string) { return this.request<MemberAddress[]>(`/api/members/${memberId}/addresses`); }
   createAddress(memberId: string, body: SaveMemberAddressRequest) {
     return this.post<MemberAddress>(`/api/members/${memberId}/addresses`, body);
@@ -267,7 +279,8 @@ export class KunlunApi {
   containerDamages(q: string, containerType: ContainerType | '', status: string, page: number) {
     return this.request<Paged<ContainerDamageRow>>('/api/containers/damages' + queryString({ q, containerType, status, page }));
   }
-  reportDamage(body: { memberId: string; containerType: ContainerType; quantity: number; reason: string; idempotencyKey: string }) {
+  /** `acceptUncovered` 登记超出已交押金的破损，此时 `uncoveredNote` 必填。 */
+  reportDamage(body: { memberId: string; containerType: ContainerType; quantity: number; reason: string; idempotencyKey: string; acceptUncovered?: boolean; uncoveredNote?: string | null }) {
     return this.post<{ damageNo: string }>('/api/containers/damages', body);
   }
   scrapDamage(id: string, body: { reason: string; idempotencyKey: string; deductDeposit: boolean }) {
@@ -281,6 +294,13 @@ export class KunlunApi {
   rechargeRefundLedger(query: RechargeLedgerQuery = {}) { return this.request<Paged<RechargeRefundLedgerRow>>('/api/ledgers/recharge-refunds' + paged(query)); }
   depositLedger(query: DepositLedgerQuery = {}) { return this.request<Paged<DepositLedgerRow>>('/api/ledgers/deposits' + paged(query)); }
   containerLedger(query: ContainerLedgerQuery = {}) { return this.request<Paged<ContainerLedgerRow>>('/api/ledgers/containers' + paged(query)); }
+
+  // Expenses: purchases such as buckets, bags and parts; a mistake is voided, never deleted
+  createExpense(body: CreateExpenseRequest) { return this.post<Expense>('/api/expenses', body); }
+  voidExpense(id: string, reason: string) { return this.post<Expense>(`/api/expenses/${id}/void`, { reason }); }
+  expenses(query: ExpenseQuery = {}) { return this.request<Paged<Expense>>('/api/expenses' + paged(query)); }
+  expenseSummary(range: TimeRange = {}) { return this.request<ExpenseSummary>('/api/expenses/summary' + queryString(range)); }
+
   async exportCsv(dataset: ExportDataset): Promise<Blob> {
     return (await this.send(`/api/exports/${dataset}`)).blob();
   }

@@ -144,6 +144,8 @@ td b{color:var(--ink)}
 .member-cell small{display:block;color:var(--muted);font-size:12px;margin-top:1px}
 .ledger-table td small{color:var(--muted);font-size:12px}.ledger-reason{white-space:normal;min-width:140px;max-width:260px}
 .amount-in{color:var(--brand-600)!important}.amount-out{color:var(--orange-500)!important}
+/* 费用支出：作废的行变淡，金额划掉 */
+.row-voided td{color:var(--faint)}.row-voided td b{color:var(--faint)}
 .ledger-hint{display:flex;align-items:center;gap:8px;margin:-4px 0 18px;padding:10px 14px;border-radius:var(--r-md);background:var(--brand-50);color:var(--brand-700);font-size:12.5px}
 .detail-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}.detail-card-head h4{margin:0}
 .ledger-hint span{flex:1;min-width:0}.ledger-hint .text-btn{white-space:nowrap}
@@ -212,6 +214,8 @@ td b{color:var(--ink)}
 .profile-container .profile-nums>div:first-child b{color:var(--brand-600)}
 .profile-container.bag .profile-nums>div:first-child b{color:var(--aqua-600)}
 .profile-container p{margin:8px 0 0}
+.profile-disabled{display:flex;align-items:center;flex-wrap:wrap;gap:10px 16px;margin:0 0 18px}
+.profile-disabled>div{flex:1 1 320px;min-width:0}
 .profile-warn{padding:7px 10px;border:1px solid var(--gold-100);border-radius:8px;background:var(--gold-50);color:var(--gold-600);font-size:12px}
 .profile-tabs{min-width:210px}
 /* Narrower windows: the last tile (可能要退的钱) takes the rest of its row instead of sitting alone. */

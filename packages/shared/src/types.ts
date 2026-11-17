@@ -52,7 +52,14 @@ export interface MemberProfile {
   createdAt?: string;
   /** Staff note recorded when the member was created; null when none. */
   remark?: string | null;
+  /** When, by whom and why the member was disabled; null while the member is active. */
+  disabledAt?: string | null;
+  disabledBy?: string | null;
+  disableReason?: string | null;
 }
+
+/** A member's status after 停用 / 重新启用. */
+export type MemberStatusResult = Pick<MemberProfile, 'id' | 'status' | 'disabledAt' | 'disabledBy' | 'disableReason'>;
 
 /** Tickets of one water product for one fulfilment mode; tickets of one product never pay for another. */
 export interface MemberTicket {
@@ -167,6 +174,8 @@ export interface WaterOrder {
   createdAt: string;
   /** Delivery note from whoever placed the order, e.g. where to leave empty buckets. */
   remark?: string | null;
+  /** 交付时顾客没交够押金、记了欠押金写的备注（欠几个、报废了多少、报废费用给没给、为什么没交）；没欠为空。 */
+  overrideReason?: string | null;
 }
 
 export interface CreateOrderRequest {
@@ -203,6 +212,10 @@ export interface FulfillOrderRequest {
   emptyInM: number;
   pickupCode?: string | null;
   diffReason?: string | null;
+  /** 顾客没交够押金照样交付，差额记成欠押金；需要收押金权限，押金够时服务端不理会。 */
+  forceCreditOverride?: boolean;
+  /** 记欠押金必填的备注，存进水单和袋桶台账。 */
+  overrideReason?: string | null;
 }
 
 /**
@@ -275,6 +288,11 @@ export interface FinanceSummaryReport {
    * So 水费净收 = this + `unusedRechargeValue` − `openingRefundedTotal`.
    */
   rechargeEarnedTotal: number;
+  /** 费用支出（买桶袋、配件耗材、维修等），作废的不算。 */
+  expenseTotal: number;
+  expenseCount: number;
+  /** Net recharge receipts minus expenses: what the water fees leave after the station's spending. Deposits are neither. */
+  rechargeNetAfterExpenses: number;
   completedOrderCount: number;
   waterFulfilledTotalQty: number;
   generatedAt: string;
@@ -607,6 +625,9 @@ export interface InventoryRequest {
   reason: string;
   idempotencyKey: string;
   quantity: number;
+  /** 新购花了多少钱：填了就同时记一笔「买桶袋」费用支出（需要 expense:manage），须一并给付款方式。 */
+  cost?: number;
+  payMethod?: PayMethod;
 }
 
 /** 修改数量：直接填现在的数，没填的不动。 */
@@ -649,6 +670,8 @@ export interface InventoryOperation {
   after: InventoryBalance;
   /** Set when 修改数量 changed the reminder threshold. */
   warnThreshold?: { before: number; after: number } | null;
+  /** The 买桶袋 expense recorded with a 新购 that said what it cost. */
+  expense?: { expenseNo: string; amount: number; payMethod: PayMethod } | null;
   createdAt: string;
 }
 
@@ -713,13 +736,17 @@ export interface ContainerDamageRow {
   scrapReason: string;
   /** Scrapped without deducting the deposit; the reserved deposit went back to the member. */
   depositWaived: boolean;
+  /** 交过的押金不够扣的个数（如欠着押金），报废时这些没有押金可扣。 */
+  uncoveredQty: number;
+  /** 登记时为没押金的那几个写的备注：报废费用给没给、为什么没交。 */
+  uncoveredNote: string;
 }
 
-/** GIFT: tickets a clerk gave away by hand while gifts are reviewed. */
+/** GIFT: tickets given away by hand on a recharge while gifts are reviewed, whoever typed them in. */
 export type RefundKind = 'DEPOSIT' | 'RECHARGE' | 'GIFT';
 export type RefundRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
-/** 审核开关：店员的手动赠送、退押金和退水费要不要管理员审核；管理员自己办理总是直接生效。 */
+/** 审核开关：充值时手动赠送（管理员账号填的也算）、店员退押金和退水费要不要管理员审核；管理员自己办理的退款直接生效。 */
 export interface ReviewSettings {
   giftReview: boolean;
   refundReview: boolean;
@@ -772,7 +799,64 @@ export type ApplyRefundBody =
   | { kind: 'DEPOSIT'; memberId: string; containerType: ContainerType; quantity: number; payMethod: PayMethod; reason?: string; idempotencyKey: string }
   | { kind: 'RECHARGE'; memberId: string; batchId: string; payMethod: PayMethod; reason?: string; idempotencyKey: string };
 
+/** 费用支出类别：买桶袋、配件耗材、维修、其他。 */
+export type ExpenseCategory = 'CONTAINER' | 'PARTS' | 'REPAIR' | 'OTHER';
+export type ExpenseStatus = 'ACTIVE' | 'VOIDED';
+
+/** 一笔费用支出；登记错了作废（不删除），作废的不计入统计。 */
+export interface Expense {
+  id: string;
+  expenseNo: string;
+  category: ExpenseCategory;
+  item: string;
+  quantity: number;
+  amount: number;
+  payMethod: PayMethod;
+  /** The purchase date (YYYY-MM-DD, Beijing), which decides the period it counts in. */
+  spentOn: string;
+  remark: string;
+  /** Set when recorded with a 新购: which container account it bought, and that stock record's number. */
+  containerType: ContainerType | null;
+  inventoryOperationNo: string | null;
+  status: ExpenseStatus;
+  operatorName: string;
+  createdAt: string;
+  voidedBy: string | null;
+  voidedAt: string | null;
+  voidReason: string | null;
+}
+
+export interface ExpenseQuery extends LedgerQuery {
+  category?: ExpenseCategory;
+  status?: ExpenseStatus;
+}
+
+export interface CreateExpenseRequest {
+  category: ExpenseCategory;
+  item: string;
+  amount: number;
+  payMethod: PayMethod;
+  idempotencyKey: string;
+  quantity?: number;
+  /** YYYY-MM-DD; today when omitted. */
+  spentOn?: string;
+  remark?: string;
+}
+
+/** 一段时间的收支：费用支出与分类（不含作废的），同期水费实收、退款、净收，结余 = 水费净收 − 费用支出。押金不算在内。 */
+export interface ExpenseSummary {
+  expenseTotal: number;
+  expenseCount: number;
+  voidedCount: number;
+  categories: Array<{ category: ExpenseCategory; total: number; count: number }>;
+  rechargeRevenue: number;
+  rechargeRefunded: number;
+  rechargeNet: number;
+  balance: number;
+}
+
 export type ExportDataset =
+  | 'expenses'
   | 'members'
   | 'orders'
   | 'recharges'

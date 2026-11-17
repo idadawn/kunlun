@@ -32,10 +32,14 @@ export function useReviewSettings() {
   return settings;
 }
 
-/** Whether a clerk's gift or refund waits for an administrator; reviewers never wait, and unknown settings count as reviewed. */
+/**
+ * Whether a hand-given gift or a refund waits for an administrator; unknown settings count as reviewed. A reviewer's own
+ * refund never waits, but a gift always does while gifts are reviewed: the counter shares one admin login.
+ */
 export function waitsForReview(settings: ReviewSettings | null, what: 'gift' | 'refund', reviewer: boolean) {
+  if (what === 'gift') return settings ? settings.giftReview : true;
   if (reviewer) return false;
-  return settings ? (what === 'gift' ? settings.giftReview : settings.refundReview) : true;
+  return settings ? settings.refundReview : true;
 }
 
 /** Shown instead of a form when a precondition (permission, configuration, data) is not met. */
@@ -58,8 +62,9 @@ export function usePickedMember(memberId?: string) {
   const [member, setMember] = useState<MemberProfile | null>(null);
   useEffect(() => {
     let alive = true;
-    // A member the staff already picked meanwhile wins; if loading fails they can still search.
-    if (memberId) api.memberProfile(memberId).then(m => alive && setMember(current => current ?? m)).catch(() => undefined);
+    // A member the staff already picked meanwhile wins; if loading fails they can still search. A disabled member cannot be
+    // served, so the dialog then starts without one.
+    if (memberId) api.memberProfile(memberId).then(m => alive && m.status === 'ACTIVE' && setMember(current => current ?? m)).catch(() => undefined);
     return () => { alive = false; };
   }, [api, memberId]);
   return [member, setMember] as const;
@@ -79,7 +84,8 @@ export function MemberPicker({ id, value, onChange, disabled }: { id: string; va
     let alive = true;
     const q = query.trim();
     const timer = window.setTimeout(() => {
-      api.membersPage({ q, pageSize: PICKER_RESULTS })
+      // Disabled members cannot be served, so only active ones are offered.
+      api.membersPage({ q, status: 'ACTIVE', pageSize: PICKER_RESULTS })
         .then(page => {
           if (!alive) return;
           setResult({ q, rows: page.rows, total: page.total }); setError('');
@@ -95,7 +101,7 @@ export function MemberPicker({ id, value, onChange, disabled }: { id: string; va
   const rows = result?.rows ?? [];
   const options: PickerMember[] = value && !rows.some(m => m.id === value.id) ? [value, ...rows] : rows;
   const hint = error || (!result ? '正在加载会员…'
-    : result.total === 0 ? (result.q ? `没有找到「${result.q}」，请换个关键字` : '暂无会员，请先建立会员档案')
+    : result.total === 0 ? (result.q ? `没有找到「${result.q}」，请换个关键字（已停用的会员不列出）` : '暂无会员，请先建立会员档案')
     : result.total > rows.length ? `共 ${result.total} 位${result.q ? '匹配' : '会员'}，显示最近 ${rows.length} 位；输入姓名、手机号或会员编号缩小范围`
     : result.q ? `找到 ${result.total} 位会员` : '');
   return (

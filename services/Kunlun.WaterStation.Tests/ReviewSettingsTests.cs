@@ -8,7 +8,7 @@ using Xunit;
 
 namespace Kunlun.WaterStation.Tests;
 
-/// <summary>充值时可手动赠送；后台两个审核开关决定店员的赠送和退款要不要等管理员，管理员自己办理总是直接生效。</summary>
+/// <summary>充值时可手动赠送；后台两个审核开关决定赠送和店员的退款要不要等管理员。赠送不分谁填的都要批准，管理员自己办理的退款直接生效。</summary>
 [Collection("KunlunIntegration")]
 public sealed class ReviewSettingsTests(TestHost host)
 {
@@ -150,14 +150,24 @@ public sealed class ReviewSettingsTests(TestHost host)
     }
 
     [Fact]
-    public async Task Admins_Own_Gifts_And_Refunds_Never_Wait()
+    public async Task Admins_Own_Gift_Waits_For_Approval_But_Their_Refunds_Do_Not()
     {
         using var admin = await Login("YG0001");
         await Switches(admin, gift: true, refund: true);
         var (mid, memberNo) = await Member(admin);
+
+        // The counter shares one admin login, so a gift typed in with it is checked on the 审核 page like a clerk's.
         var recharge = await Ok(await Recharge(admin, mid, gift: 1));
-        Assert.Equal(1, recharge.GetProperty("giftQty").GetInt32());
-        Assert.Equal(0, recharge.GetProperty("pendingGiftQty").GetInt32());
+        var paid = recharge.GetProperty("buyQty").GetInt32();
+        Assert.Equal(0, recharge.GetProperty("giftQty").GetInt32());
+        Assert.Equal(1, recharge.GetProperty("pendingGiftQty").GetInt32());
+        Assert.Equal(paid, await Tickets(admin, mid));
+        var gift = Assert.Single((await Requests(admin, $"kind=GIFT&status=PENDING&q={memberNo}")).EnumerateArray());
+        Assert.Equal("林站长", gift.GetProperty("applicantName").GetString());
+        // The same administrator may approve it: a station may have only the one admin account.
+        await Ok(await admin.PostAsJsonAsync($"/api/refund-requests/{gift.GetProperty("id").GetGuid()}/approve", new ApproveRefundRequest(null, null)));
+        Assert.Equal(paid + 1, await Tickets(admin, mid));
+        Assert.Equal("APPROVED", (await RechargeRow(admin, memberNo)).GetProperty("giftReview").GetProperty("status").GetString());
 
         await Ok(await admin.PostAsJsonAsync("/api/deposits/collect", new CollectDepositRequest(mid, "BUCKET", 1, "CASH", Key())));
         var refund = await Ok(await admin.PostAsJsonAsync("/api/refund-requests", new ApplyRefundRequest("DEPOSIT", mid, "BUCKET", 1, null, "CASH", "搬家", Key())));

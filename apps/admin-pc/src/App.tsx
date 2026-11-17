@@ -10,6 +10,7 @@ import { Orders } from './pages/Orders';
 import { Recharges } from './pages/Recharges';
 import { Deposits } from './pages/Deposits';
 import { Refunds } from './pages/Refunds';
+import { Expenses } from './pages/Expenses';
 import { Inventory } from './pages/Inventory';
 import { Assets } from './pages/Assets';
 import { Products } from './pages/Products';
@@ -29,6 +30,7 @@ export function App() {
             <Route path="recharges" element={<Recharges />} />
             <Route path="deposits" element={<Deposits />} />
             <Route path="refunds" element={<Refunds />} />
+            <Route path="expenses" element={<Expenses />} />
             <Route path="inventory" element={<Inventory />} />
             <Route path="assets" element={<Assets />} />
             <Route path="products" element={<Products />} />
@@ -50,7 +52,7 @@ export function App() {
 const NAV: Array<{ label?: string; items: Array<[string, IconName]> }> = [
   { items: [['dashboard', 'grid']] },
   { label: '日常业务', items: [['orders', 'order'], ['members', 'users']] },
-  { label: '财务管理', items: [['recharges', 'wallet'], ['deposits', 'deposit'], ['refunds', 'check']] },
+  { label: '财务管理', items: [['recharges', 'wallet'], ['deposits', 'deposit'], ['refunds', 'check'], ['expenses', 'chart']] },
   { label: '袋桶管理', items: [['inventory', 'box'], ['assets', 'ledger']] },
   { label: '商品管理', items: [['products', 'drop'], ['plans', 'tag']] },
   { label: '系统设置', items: [['staff-accounts', 'shield'], ['mobile', 'mobile']] },

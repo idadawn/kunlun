@@ -18,8 +18,8 @@ const statusText = (r: Pick<RefundRequestRow, 'kind' | 'status'>): [string, stri
   r.status === 'PENDING' ? ['待审核', 'orange'] : r.status === 'REJECTED' ? ['已驳回', 'gray'] : [r.kind === 'GIFT' ? '已到账' : '已退款', 'green'];
 
 /**
- * 审核：店员充值时手动赠送的水票、店员办理的退押金和退水费，按顶部两个开关决定要不要在这里等管理员审核。
- * 通过即当场退款或让赠票到账，驳回不动任何账目；不要审核的和管理员自己办理的也在这里留有已通过的记录。
+ * 审核：充值时手动赠送的水票（管理员账号填的也算）、店员办理的退押金和退水费，按顶部两个开关决定要不要在这里等管理员审核。
+ * 通过即当场退款或让赠票到账，驳回不动任何账目；不要审核的和管理员自己办理的退款也在这里留有已通过的记录。
  */
 export function Refunds() {
   const { api } = useAuth();
@@ -36,7 +36,7 @@ export function Refunds() {
 
   return <>
     <div className="page-head">
-      <div><h2>审核</h2><p>店员的手动赠送和退款要不要等管理员，由下面两个开关决定；管理员自己办理直接生效，每笔都在这里留有记录</p></div>
+      <div><h2>审核</h2><p>手动赠送和店员的退款要不要等管理员，由下面两个开关决定；赠送不分谁填的都在这里批准，管理员自己办理的退款直接生效，每笔都留有记录</p></div>
     </div>
     <ReviewSwitches />
     <div className="tabs" role="tablist">
@@ -80,15 +80,15 @@ function ReviewSwitches() {
     const next = await api.saveReviewSettings({ giftReview: s.giftReview, refundReview: s.refundReview, [field]: !s[field] });
     settings.setData(next);
     toast(field === 'giftReview'
-      ? next.giftReview ? '已打开：店员手动赠送要审核' : '已关闭：店员手动赠送当场到账'
+      ? next.giftReview ? '已打开：手动赠送要审核' : '已关闭：手动赠送当场到账'
       : next.refundReview ? '已打开：店员退押金、退水费要审核' : '已关闭：店员可以当场退款');
   })();
   if (settings.error) return <p className="account-error" role="alert">审核设置读取失败：{settings.error}</p>;
   if (!s) return null;
   return (
     <div className="review-switches">
-      <SwitchCard label="店员手动赠送要审核" on={s.giftReview} disabled={!editable} onToggle={() => flip('giftReview')}
-        hint={s.giftReview ? '店员充值时填的赠送，管理员批准后才到账；付费水票当场到账' : '店员充值时填的赠送当场到账'} />
+      <SwitchCard label="手动赠送要审核" on={s.giftReview} disabled={!editable} onToggle={() => flip('giftReview')}
+        hint={s.giftReview ? '充值时填的赠送（管理员账号填的也一样）在这里批准后才到账；付费水票当场到账' : '充值时填的赠送当场到账'} />
       <SwitchCard label="店员退押金、退水费要审核" on={s.refundReview} disabled={!editable} onToggle={() => flip('refundReview')}
         hint={s.refundReview ? '店员只能提交申请，管理员通过后才退款' : '店员当场就能退款'} />
       <small className="review-switches-foot">{switchedText(s)}{editable ? '' : '；只有管理员能修改'}</small>
