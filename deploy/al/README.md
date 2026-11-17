@@ -45,9 +45,61 @@ ssh al 'systemctl is-active wg-quick@wg0 && ip route get 10.78.1.161'
 ssh al 'curl -fsS http://10.78.1.201/api/v2.0/ping'
 ```
 
-数据库备份在服务器受限目录执行 `docker compose exec -T database pg_dump -U postgres -d kunlun_prod -Fc > /root/kunlun-backup.dump`（先 `umask 077`）。不要使用 `down -v`，也不要将生产备份放进仓库。
+### 数据库备份
 
-应用回退：将 `.env` 的 `RELEASE_DIR` 改为原版本，恢复与其匹配的 `compose.yaml` 后重新 `up -d --wait`。涉及数据库迁移时先确认旧版本兼容，不能直接覆盖数据库。首次部署失败可停止新增的 kunlun 服务并恢复网关备份。WireGuard 回退仅停止 al 的 `wg-quick@wg0` 并在 hub 吊销 `al` 客户端。
+2026-11-17 确认的策略（PRD 第 16 章第 15 条）：每天 03:30（Asia/Shanghai）分别备份生产库 `kunlun_prod` 和测试库 `kunlun_test`，生产保留 14 天、测试保留 7 天，最多丢失约一天的数据。备份只存放在 al 上；服务器外副本尚未确定，目前防不了整机或云盘损坏。不要使用 `down -v`，也不要将生产备份放进仓库。
+
+- 本目录的 `kunlun-db-backup.sh` 安装为 `/usr/local/sbin/kunlun-db-backup`，`kunlun-db-backup@.service` 和 `kunlun-db-backup@.timer` 放在 `/etc/systemd/system/`，启用 `kunlun-db-backup@prod.timer` 与 `kunlun-db-backup@test.timer`。服务器关机错过的运行会在开机后补跑。
+- 每次运行先 `umask 077`；根分区剩余不足 1 GiB 时拒绝运行（磁盘与其他站点共用）。`docker compose exec -T database pg_dump -Fc` 写入临时文件，在容器内用 `pg_restore -f /dev/null` 完整读回后才改名为 `kunlun_prod-YYYYmmdd-HHMMSS.dump`。备份成功后才删除超过保留期的旧文件，连续失败也不会删掉最后的好备份。
+- 备份目录 `/var/backups/kunlun/{prod,test}` 为 700、文件为 600，仅 root 可读。备份只含业务库：角色由 `init-database.sh` 按 `.env` 创建，`.env` 不在备份内。
+- 每次结果在 `/var/log/kunlun-db-backup.log` 记一行（`OK`、`FAILED`、`pruned`、`RESTORE-CHECK`），详细输出在 journal，失败的单元会出现在 `systemctl --failed`。
+
+```sh
+ssh al 'systemctl list-timers "kunlun-db-backup@*"; tail -n 20 /var/log/kunlun-db-backup.log'
+ssh al 'ls -lh /var/backups/kunlun/prod; journalctl -u kunlun-db-backup@prod -n 50 --no-pager'
+```
+
+发布前（尤其含数据库迁移时）先手动备份，再复制到 `keep/`。`keep/` 不参与自动清理，需人工删除：
+
+```sh
+ssh al 'systemctl start kunlun-db-backup@prod && tail -n 1 /var/log/kunlun-db-backup.log'
+ssh al 'install -d -m 700 /var/backups/kunlun/prod/keep && cp -p /var/backups/kunlun/prod/kunlun_prod-<时间>.dump /var/backups/kunlun/prod/keep/'
+```
+
+更新脚本或单元时，把这四个文件传到 al 上仅 root 可读的临时目录，两个脚本去掉 `.sh` 后 `install -m 700` 到 `/usr/local/sbin/`，两个单元 `install -m 644` 到 `/etc/systemd/system/`，再 `systemctl daemon-reload`；首次安装还需 `systemctl enable --now kunlun-db-backup@prod.timer kunlun-db-backup@test.timer`。
+
+### 恢复演练
+
+每月至少一次，以及每次发布前，对最新备份执行（PRD 14.3）：
+
+```sh
+ssh al 'kunlun-db-restore-check prod'
+```
+
+本目录的 `kunlun-db-restore-check.sh` 安装为 `/usr/local/sbin/kunlun-db-restore-check`。它用与线上相同的 postgres 镜像启动无网络的临时容器，按 `init-database.sh` 的方式建应用角色和库，执行 `pg_restore --single-transaction --exit-on-error`，再逐表对比与线上库的行数，结束后连同数据卷删除临时容器，不写线上库。第二个参数可指定备份文件。恢复报错或缺表即判定失败；备份之后的新写入会让个别表行数不同（如 `auth_audit_logs`），需人工确认。结果同样记入 `/var/log/kunlun-db-backup.log`。
+
+2026-11-17 首次演练：`kunlun_prod-20261117-083602.dump`（80K，24 张表）和 `kunlun_test-20261117-083542.dump`（92K，25 张表）均恢复成功，行数与线上逐表一致。下面两种恢复方式也已在临时容器中照原样走通。
+
+### 恢复数据库
+
+覆盖生产数据需经技术评审和二次确认（PRD 12.4）。以下命令在 al 的 `/opt/kunlun` 中执行。
+
+库还在、需要回到某份备份时：先 `docker compose stop api` 停止写入，再 `systemctl start kunlun-db-backup@prod` 保留当前状态。然后恢复到新库并交换库名，原库保留到核对无误：
+
+```sh
+docker compose exec -T database createdb -U postgres -O kunlun_app kunlun_prod_restore
+docker compose exec -T database pg_restore -U postgres -d kunlun_prod_restore --single-transaction --exit-on-error < /var/backups/kunlun/prod/kunlun_prod-<时间>.dump
+docker compose exec -T database psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'ALTER DATABASE kunlun_prod RENAME TO kunlun_prod_before_restore' -c 'ALTER DATABASE kunlun_prod_restore RENAME TO kunlun_prod'
+docker compose start api
+```
+
+核对 `/healthz`、管理员登录和关键数据后，再执行 `docker compose exec -T database dropdb -U postgres kunlun_prod_before_restore`。
+
+数据卷丢失时：用原 `.env` 执行 `docker compose up -d --wait database`，`init-database.sh` 会重建 `kunlun_app` 和空的 `kunlun_prod`；用上面的 `pg_restore` 命令把备份恢复到 `kunlun_prod`（`-d kunlun_prod`），再 `up -d --wait`。`.env` 也丢失时按「发布」第 4 步重新生成；JWT 密钥变化后所有人需要重新登录。
+
+### 应用回退
+
+将 `.env` 的 `RELEASE_DIR` 改为原版本，恢复与其匹配的 `compose.yaml` 后重新 `up -d --wait`。涉及数据库迁移时先确认旧版本兼容；不兼容时按「恢复数据库」回到发布前的 `keep/` 备份（迁移后的新数据会丢失），不能直接覆盖数据库。首次部署失败可停止新增的 kunlun 服务并恢复网关备份。WireGuard 回退仅停止 al 的 `wg-quick@wg0` 并在 hub 吊销 `al` 客户端。
 
 自动 HTTPS 与信号热加载依据：[Caddy 自动 HTTPS](https://caddyserver.com/docs/automatic-https)、[Caddy 信号说明](https://caddyserver.com/docs/command-line#signals)。
 

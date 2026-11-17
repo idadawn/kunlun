@@ -1,0 +1,9 @@
+# Installed as /etc/systemd/system/kunlun-db-backup@.service; instances: prod, test. See deploy/al/README.md.
+[Unit]
+Description=Back up the Kunlun %i PostgreSQL database
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/kunlun-db-backup %i
+TimeoutStartSec=1h

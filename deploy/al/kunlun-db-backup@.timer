@@ -1,0 +1,12 @@
+# Installed as /etc/systemd/system/kunlun-db-backup@.timer and enabled as kunlun-db-backup@prod.timer and
+# kunlun-db-backup@test.timer. Persistent= runs a missed backup after the server comes back up.
+[Unit]
+Description=Daily backup of the Kunlun %i PostgreSQL database
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
