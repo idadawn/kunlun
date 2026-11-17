@@ -89,7 +89,7 @@ public static class RefundRequests
             await using var conn = await db.OpenConnectionAsync(ct);
             return await Paging.From(page, pageSize, legacyLimit: 50).Query(conn, """
                 rr.id, rr.request_no, rr.kind, rr.status, m.name, m.member_no, m.phone, rr.container_type, rr.quantity, rr.batch_id,
-                ro.recharge_no, ro.plan_snapshot->>'name', b.water_type, b.fulfill_mode, b.remaining_buy, b.remaining_gift,
+                ro.recharge_no, COALESCE(ro.plan_snapshot->>'name', b.opening_snapshot->>'name'), b.water_type, b.fulfill_mode, b.remaining_buy, b.remaining_gift,
                 rr.estimated_amount, rr.pay_method, rr.reason, rr.applicant_name, rr.created_at,
                 rr.reviewer_name, rr.reviewed_at, rr.review_note, rr.refund_no, rr.refund_amount, rr.member_id,
                 ro.paid_amount, ro.buy_qty

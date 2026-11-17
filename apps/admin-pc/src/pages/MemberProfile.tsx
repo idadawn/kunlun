@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
-  KUNLUN_PERMISSIONS as P, containerLabel, containerUnit, modeLabel, money, orderStatusLabel, payMethodLabel, shortDateTime,
+  KUNLUN_PERMISSIONS as P, containerLabel, containerUnit, isPricedBatch, modeLabel, money, orderStatusLabel, payMethodLabel, shortDateTime,
   ticketGroups, unitOf, waterFallbackLabel,
   type DepositFlowType, type DepositLedgerRow, type DepositSummaryRow, type MemberProfile, type Paged, type RechargeLedgerRow,
   type TicketBatch, type WaterOrder,
@@ -8,6 +8,7 @@ import {
 import { AddressBook, BatchCards, CredentialsDialog, Icon, RefundBatchDialog, useAuth, useDialogs, useLoader, useRun } from '@kunlun/ui';
 import { StatCard, useOperations } from '../common';
 import { useAdminData } from '../data';
+import { OpeningCard, OpeningDialog } from '../opening';
 
 /** Rows shown in each tab of 最近记录. */
 const RECENT = 8;
@@ -54,9 +55,10 @@ function Profile({ member: m }: { member: MemberProfile }) {
   const depositPaid = rows?.reduce((sum, r) => sum + Number(r.paidAmount), 0);
   const depositRefundable = rows?.reduce((sum, r) => sum + Number(r.refundableAmount), 0);
   const list = batches.data;
+  // Packages recorded from before the system count at the price recorded with them; without one they stay unpriced.
   const unused = list?.reduce((sum, b) => sum + Number(b.remainingValue), 0);
-  const unusedQty = list?.reduce((sum, b) => sum + (b.source === 'PURCHASE' && b.status === 'ACTIVE' ? b.remainingBuy : 0), 0);
-  const unpriced = list?.reduce((sum, b) => sum + (b.source !== 'PURCHASE' && b.status === 'ACTIVE' ? b.remainingBuy + b.remainingGift : 0), 0) ?? 0;
+  const unusedQty = list?.reduce((sum, b) => sum + (isPricedBatch(b) && b.status === 'ACTIVE' ? b.remainingBuy : 0), 0);
+  const unpriced = list?.reduce((sum, b) => sum + (!isPricedBatch(b) && b.status === 'ACTIVE' ? b.remainingBuy + b.remainingGift : 0), 0) ?? 0;
   const owed = depositPaid !== undefined && unused !== undefined ? depositPaid + unused : undefined;
   const live = list?.filter(inUse) ?? [];
   const hidden = (list?.length ?? 0) - live.length;
@@ -78,6 +80,10 @@ function Profile({ member: m }: { member: MemberProfile }) {
         <button type="button" className="btn" onClick={() => ops.deposit('collect', m.id)}><Icon name="deposit" />收押金</button>
         <button type="button" className="btn" onClick={() => ops.deposit('refund', m.id)}><Icon name="refund" />退押金</button>
         <button type="button" className="btn" onClick={() => ops.movement(m.id)}><Icon name="swap" />登记领还</button>
+        {can(P.MemberOpening) && (
+          <button type="button" className="btn" title="补录这位会员用系统之前买的套餐、交的押金和手里的桶"
+            onClick={run(() => dialogs.open(close => <OpeningDialog member={m} onClose={close} onDone={refresh} />))}><Icon name="ledger" />补录历史数据</button>
+        )}
       </div>
     </section>
 
@@ -157,6 +163,7 @@ function Profile({ member: m }: { member: MemberProfile }) {
         <section className="card">
           <div className="profile-card-body"><AddressBook key={m.id} owner={m} onChanged={refresh} compact /></div>
         </section>
+        <OpeningCard member={m} />
       </div>
     </div>
   </>;
@@ -184,7 +191,7 @@ function ContainerDeposit({ row: r }: { row: DepositSummaryRow }) {
 type RecordTab = 'orders' | 'recharges' | 'deposits';
 const RECORD_TABS: Array<[RecordTab, string]> = [['orders', '水单'], ['recharges', '充值'], ['deposits', '押金']];
 type Records = ({ tab: 'orders' } & Paged<WaterOrder>) | ({ tab: 'recharges' } & Paged<RechargeLedgerRow>) | ({ tab: 'deposits' } & Paged<DepositLedgerRow>);
-const FLOW_TAGS: Record<DepositFlowType, [string, string]> = { COLLECT: ['收押金', 'green'], REFUND: ['退押金', 'blue'], DEDUCT: ['报废扣押', 'orange'] };
+const FLOW_TAGS: Record<DepositFlowType, [string, string]> = { COLLECT: ['收押金', 'green'], REFUND: ['退押金', 'blue'], DEDUCT: ['报废扣押', 'orange'], OPENING: ['上系统前', 'gold'] };
 const ORDER_TONES: Record<WaterOrder['status'], string> = { PENDING: 'orange', DISPATCHED: 'aqua', COMPLETED: 'gray', CANCELLED: 'red' };
 
 /** The member's newest orders, recharges and deposit flows, one tab at a time. */
@@ -243,7 +250,7 @@ function RecentRecords({ member: m }: { member: MemberProfile }) {
               <td><span className="order-no">{r.docNo}</span><small>{shortDateTime(r.createdAt)}</small></td>
               <td><span className={`tag ${tone}`}>{label}</span></td>
               <td>{containerLabel(r.containerType)} × {r.qty}</td>
-              <td><b>{r.flowType === 'COLLECT' ? '' : '−'}¥{money(r.amount)}</b></td>
+              <td><b>{r.flowType === 'COLLECT' || r.flowType === 'OPENING' ? '' : '−'}¥{money(r.amount)}</b></td>
             </tr>
           );
         })}</tbody>

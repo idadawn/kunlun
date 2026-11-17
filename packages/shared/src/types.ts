@@ -239,15 +239,20 @@ export interface FinanceSummaryReport {
   rechargeOrderCount: number;
   ticketsSoldBuyQty: number;
   ticketsGiftedQty: number;
+  /** Deposits collected in the system; deposits recorded from before it are `depositOpeningTotal`. */
   depositCollectedTotal: number;
   depositCollectCount: number;
   depositRefundedTotal: number;
   depositDeductedTotal: number;
   depositDeductCount: number;
   depositRefundCount: number;
+  /** Deposits members paid before the station used the system, recorded later (上系统前已收). */
+  depositOpeningTotal: number;
+  depositOpeningCount: number;
   unrefundedDepositPoolTotal: number;
   /** Containers the unrefunded deposit pays for, those awaiting a scrap decision included. */
   unrefundedDepositQty: number;
+  /** 上系统前 + 累计收押 − 累计退押 − 累计扣押; equals the pool when the books agree. */
   netDepositFromFlows: number;
   reconciledZeroDiff: boolean;
   /** Unused paid tickets of active recharge batches at their original paid price: what refunding them all would pay back. */
@@ -255,11 +260,20 @@ export interface FinanceSummaryReport {
   unusedPaidTicketQty: number;
   /** Gift tickets still on active recharge batches; a refund takes them back without paying for them. */
   unusedGiftTicketQty: number;
-  /** Opening-balance tickets with no recorded price, left out of `unusedRechargeValue`. */
+  /** Tickets with no recorded price (old opening balances, packages recorded as 套餐不清楚), left out of every value. */
   legacyTicketQty: number;
-  /** Money members could still ask back: the unrefunded deposit plus `unusedRechargeValue`. Not income. */
+  /** What is left of packages bought before the system, at the price recorded with them. Not in the recharge receipts. */
+  openingUnusedValue: number;
+  openingPaidTicketQty: number;
+  /** Refunds of packages bought before the system; included in `rechargeRefundedTotal`. */
+  openingRefundedTotal: number;
+  openingRefundCount: number;
+  /** Money members could still ask back: the unrefunded deposit, `unusedRechargeValue` and `openingUnusedValue`. Not income. */
   potentialRefundTotal: number;
-  /** Net recharge receipts minus `unusedRechargeValue`: the water fees members have already used up. */
+  /**
+   * Water fees members have used up of recharges made in the system: receipts minus their refunds minus `unusedRechargeValue`.
+   * So 水费净收 = this + `unusedRechargeValue` − `openingRefundedTotal`.
+   */
   rechargeEarnedTotal: number;
   completedOrderCount: number;
   waterFulfilledTotalQty: number;
@@ -338,7 +352,8 @@ export interface RechargeRefundLedgerRow {
   applicantName: string | null;
 }
 
-export type DepositFlowType = 'COLLECT' | 'REFUND' | 'DEDUCT';
+/** OPENING: a deposit paid before the station used the system, recorded afterwards; not collected that day. */
+export type DepositFlowType = 'COLLECT' | 'REFUND' | 'DEDUCT' | 'OPENING';
 
 export interface DepositLedgerRow {
   docNo: string;
@@ -419,9 +434,27 @@ export interface ContainerLedgerQuery extends PageQuery {
   containerType?: ContainerType;
 }
 
+/**
+ * How a package bought before the station used the system was recorded; carried by OPENING batches.
+ * Members read batches too, so the staff note and who entered it are only on the opening entry (`OpeningEntry`).
+ */
+export interface OpeningSnapshot {
+  entryNo: string;
+  planId: string | null;
+  planName: string | null;
+  name: string;
+  waterLabel: string;
+  fulfillMode: FulfillMode;
+  /** What the member paid for the package back then; 0 when the package is not known (套餐不清楚). */
+  paidAmount: number;
+  packageQty: number | null;
+  enteredAt: string;
+}
+
 export interface TicketBatch {
   id: string;
-  source: 'PURCHASE' | 'LEGACY' | string;
+  /** PURCHASE: a recharge; LEGACY: a balance moved from the old member columns; OPENING: a package recorded from before the system. */
+  source: 'PURCHASE' | 'LEGACY' | 'OPENING' | string;
   waterType: WaterType;
   fulfillMode: FulfillMode;
   paidAmount: number;
@@ -446,6 +479,72 @@ export interface TicketBatch {
   pendingRequestNo: string | null;
   /** Tickets a clerk gave away by hand that wait for an administrator's approval. */
   pendingGiftQty: number;
+  /** OPENING batches only; null for every other batch (and absent from older servers). */
+  opening?: OpeningSnapshot | null;
+  /** An OPENING batch no order or refund has used yet, which can still be removed as a mistake. */
+  removable?: boolean;
+}
+
+/** 补录（期初）：会员上系统前买的一个套餐。带 batchId 时改一笔已补录的余额：remaining 改成现在还剩的数，remove 删掉没用过的。 */
+export interface OpeningTicketInput {
+  batchId?: string;
+  waterType?: WaterType;
+  fulfillMode?: FulfillMode;
+  planId?: string;
+  /** What was paid for the package back then; 0 when it is not known, which leaves the tickets without a refund price. */
+  paidAmount?: number;
+  packageQty?: number;
+  remaining: number;
+  remove?: boolean;
+}
+
+/** The deposit a member paid before the system for one container: how many and at what price each; 0 removes an untouched entry. */
+export interface OpeningDepositInput { containerType: ContainerType; quantity: number; unitPrice: number }
+/** How many of one container the member holds now. */
+export interface OpeningHoldingInput { containerType: ContainerType; quantity: number }
+
+export interface SaveOpeningBody {
+  idempotencyKey: string;
+  tickets?: OpeningTicketInput[];
+  deposits?: OpeningDepositInput[];
+  holdings?: OpeningHoldingInput[];
+  note?: string;
+}
+
+export interface OpeningDepositAmount { quantity: number; unitPrice: number; amount: number }
+
+/** One change an opening entry made, with the figure before and after. */
+export type OpeningItem =
+  | { kind: 'TICKETS'; action: 'CREATE' | 'ADJUST' | 'REMOVE'; batchId: string; waterType: WaterType; name: string; fulfillMode: FulfillMode; unit: string; paidAmount?: number; packageQty?: number | null; before: number; after: number }
+  | { kind: 'DEPOSIT'; action: 'CREATE' | 'ADJUST' | 'REMOVE'; containerType: ContainerType; depositNo: string; before: OpeningDepositAmount | null; after: OpeningDepositAmount | null }
+  | { kind: 'HOLDING'; action: 'SET'; containerType: ContainerType; before: number; after: number; coveredQty: number };
+
+/** One opening entry (补录记录): what was recorded or corrected in one go, by whom and when. */
+export interface OpeningEntry {
+  id: string;
+  entryNo: string;
+  memberId: string;
+  note: string | null;
+  operatorName: string;
+  createdAt: string;
+  items: OpeningItem[];
+}
+
+/** A member's opening deposit of one container; `locked` once part of it was refunded, deducted or held for a damage. */
+export interface OpeningDeposit {
+  containerType: ContainerType;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+  depositNo: string;
+  remainingQty: number;
+  locked: boolean;
+}
+
+export interface MemberOpeningRecord {
+  deposits: OpeningDeposit[];
+  /** Newest first. */
+  entries: OpeningEntry[];
 }
 
 export interface DepositSummaryRow {
@@ -574,7 +673,8 @@ export interface ContainerHoldingRow {
   pendingDamageAmount: number;
 }
 
-export type CirculationBusinessType = 'TURNOVER' | 'DAMAGE_RETURN' | 'SCRAP' | 'SCRAP_WAIVED';
+/** OPENING: containers a member already had before the system, written down (or corrected) by an opening entry. */
+export type CirculationBusinessType = 'TURNOVER' | 'DAMAGE_RETURN' | 'SCRAP' | 'SCRAP_WAIVED' | 'OPENING';
 
 export interface CirculationRow {
   ledgerNo: string;

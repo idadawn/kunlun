@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  KUNLUN_PERMISSIONS as P, modeLabel, money, unitOf, waterFallbackLabel,
+  KUNLUN_PERMISSIONS as P, isPricedBatch, modeLabel, money, unitOf, waterFallbackLabel,
   type PayMethod, type RechargePlan, type TicketBatch, type WaterProduct,
 } from '@kunlun/shared';
 import { useAuth } from '../auth';
@@ -99,8 +99,12 @@ export function BatchCards({ batches, onRefund }: { batches: TicketBatch[]; onRe
   if (!batches.length) return <p className="membership-note">暂无充值水票</p>;
   return <>{batches.map(b => {
     const legacy = b.source === 'LEGACY';
+    // A package bought before the station used the system, recorded later; with its price it refunds like a recharge.
+    const opening = b.source === 'OPENING';
+    const unit = unitOf(b.waterType);
     const reserved = b.reservedBuy + b.reservedGift;
     const reviewing = b.status === 'ACTIVE' && !!b.pendingRequestNo;
+    const refunded = b.status === 'REFUNDED' ? ` · 已退 ¥${money(b.refundedAmount)}` : '';
     return (
       <article key={b.id} className="membership-card">
         <div className="membership-card-head">
@@ -109,13 +113,16 @@ export function BatchCards({ batches, onRefund }: { batches: TicketBatch[]; onRe
             ? <span className="tag orange" title={`申请单 ${b.pendingRequestNo}`}>退款审核中</span>
             : <span className={`tag ${b.status === 'REFUNDED' ? 'gray' : 'green'}`}>{b.status === 'REFUNDED' ? '已退款' : modeLabel(b.fulfillMode)}</span>}
         </div>
-        <small>{b.rechargeNo || '历史余额'} · {b.waterLabel || waterFallbackLabel(b.waterType)}</small>
-        <p>剩余付费 {legacy ? '待核对' : b.remainingBuy} · 剩余赠票 {legacy ? '待核对' : b.remainingGift} · 预占 {reserved}</p>
-        {legacy
-          ? <p className="membership-note">历史余量 {b.remainingBuy + b.remainingGift} 张；可继续使用，原价及购赠来源待核对。</p>
-          : <p>原实付 ¥{money(b.paidAmount)} / 固定 {b.fixedQty}{unitOf(b.waterType)}{b.status === 'REFUNDED' ? ` · 已退 ¥${money(b.refundedAmount)}` : ''}</p>}
-        {b.pendingGiftQty > 0 && <p className="membership-note">另有赠送 {b.pendingGiftQty}{unitOf(b.waterType)}，等管理员批准后到账</p>}
-        {onRefund && b.source === 'PURCHASE' && b.status === 'ACTIVE' && b.remainingBuy + b.remainingGift > 0 && (
+        <small>{opening ? `上系统前买的${b.opening?.entryNo ? ` · 补录单 ${b.opening.entryNo}` : ''}` : b.rechargeNo || '历史余额'} · {b.waterLabel || waterFallbackLabel(b.waterType)}</small>
+        {opening
+          ? <p>还剩 {b.remainingBuy}{unit} · 预占 {reserved}</p>
+          : <p>剩余付费 {legacy ? '待核对' : b.remainingBuy} · 剩余赠票 {legacy ? '待核对' : b.remainingGift} · 预占 {reserved}</p>}
+        {legacy ? <p className="membership-note">历史余量 {b.remainingBuy + b.remainingGift} 张；可继续使用，原价及购赠来源待核对。</p>
+          : opening && !isPricedBatch(b) ? <p className="membership-note">套餐不清楚，没有原价：可以照常用水，不能按原价退款。</p>
+          : opening ? <p>当时实付 ¥{money(b.paidAmount)} / 套餐 {b.fixedQty}{unit}{refunded}</p>
+          : <p>原实付 ¥{money(b.paidAmount)} / 固定 {b.fixedQty}{unit}{refunded}</p>}
+        {b.pendingGiftQty > 0 && <p className="membership-note">另有赠送 {b.pendingGiftQty}{unit}，等管理员批准后到账</p>}
+        {onRefund && isPricedBatch(b) && b.status === 'ACTIVE' && b.remainingBuy + b.remainingGift > 0 && (
           <button type="button" className="btn sm" disabled={reserved > 0 || reviewing} onClick={() => onRefund(b)}>
             {reviewing ? `退款审核中 · ${b.pendingRequestNo}` : reserved > 0 ? '订单占用中' : `退清剩余水票 · 约 ¥${money(b.refundableAmount)}`}
           </button>
