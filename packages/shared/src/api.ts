@@ -272,7 +272,8 @@ export class KunlunApi {
   containerDamages(q: string, containerType: ContainerType | '', status: string, page: number) {
     return this.request<Paged<ContainerDamageRow>>('/api/containers/damages' + queryString({ q, containerType, status, page }));
   }
-  reportDamage(body: { memberId: string; containerType: ContainerType; quantity: number; reason: string; idempotencyKey: string }) {
+  /** `acceptUncovered` 登记超出已交押金的破损，此时 `uncoveredNote` 必填。 */
+  reportDamage(body: { memberId: string; containerType: ContainerType; quantity: number; reason: string; idempotencyKey: string; acceptUncovered?: boolean; uncoveredNote?: string | null }) {
     return this.post<{ damageNo: string }>('/api/containers/damages', body);
   }
   scrapDamage(id: string, body: { reason: string; idempotencyKey: string; deductDeposit: boolean }) {

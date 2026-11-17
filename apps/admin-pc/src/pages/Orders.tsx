@@ -96,6 +96,7 @@ export function Orders() {
                     <span className={`tag ${pickup ? 'aqua' : 'green'}`}>{pickup ? '自提' : '配送'}</span>{' '}
                     {pickup ? <>绿麒麟水站到店{o.pickupCode && <> (取水码: <b>{o.pickupCode}</b>)</>}</> : o.addressSnapshot?.address || '未设置配送地址'}
                     {o.remark && <><br /><small style={{ color: 'var(--orange-500)' }}>备注：{o.remark}</small></>}
+                    {o.overrideReason && <><br /><small style={{ color: 'var(--red-600)' }}>{o.overrideReason}</small></>}
                   </td>
                   <td>{waterLabel(o)} × <b>{o.orderQty}</b></td>
                   <td>{o.status === 'COMPLETED' ? `已核销 ${o.actualQty ?? o.orderQty}` : o.status === 'CANCELLED' ? '已释放预占' : `预占 ${o.reservedQty} ${unitOf(o.waterType)}`}</td>
@@ -129,6 +130,7 @@ function OrderDetailDialog({ order: o, onClose }: { order: WaterOrder; onClose: 
         {o.remark && <p>备注：{o.remark}</p>}
         <p>实际交付 {o.actualQty ?? '—'} · 满{unitOf(o.waterType)}领出 {o.fullOutQty ?? '—'} · 空{unitOf(o.waterType)}收回 {o.emptyInQty ?? '—'}</p>
         {(o.diffReason || o.cancelReason) && <p>{o.diffReason || o.cancelReason}</p>}
+        {o.overrideReason && <p style={{ color: 'var(--red-600)' }}>{o.overrideReason}</p>}
         <small>{new Date(o.createdAt).toLocaleString('zh-CN')}</small>
       </div>
     </Dialog>
