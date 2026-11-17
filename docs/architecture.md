@@ -309,7 +309,7 @@ kunlun/
     - 改成强制更新后，弹窗没有「以后再说」，返回键关不掉。点「立即更新」打开 Chrome 访问 `https://www.pgyer.com/…`，回到 App 再次弹出。
     - 已是最新版、后端停掉时都不弹窗，App 照常使用。
     - 会员端用会员端 App Key 查询，弹窗相同，返回键等同「以后再说」。
-  - 从 al 上桥接网络的容器访问蒲公英接口正常：不带 Key 时返回 `{"code":1001,...}`。真实蒲公英的完整答复要等服务器配好 Key 后在测试环境核对。
+  - 从 al 上桥接网络的容器访问蒲公英接口正常（不带 Key 时返回 `{"code":1001,...}`）。服务器配好 Key 后在 al 上直接查蒲公英：同一个 API Key 两个 App 都能查；两个 App 当时都是 1.0.0（`buildVersionNo` 1），传 `buildVersion=1` 答没有新版，传 0 答有新版；`appURl` 和短链接 `buildShortcutUrl` 都是完整的 `https://www.pgyer.com/…` 地址，打开是对应 App 的下载页。
 - 没做：App 内下载安装（要 `REQUEST_INSTALL_PACKAGES` 和 FileProvider，蒲公英的直接下载地址又带着 Key），改由浏览器打开安装页。
 - 顺带发现（本次未改）：两个限流都按 `RemoteIpAddress` 分组，但请求都经 nginx 转来，后端看到的是同一个地址，所以登录的「每分钟 15 次」实际是所有人共用。改为按真实客户端 IP 计数见 PR #46。
 

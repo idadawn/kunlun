@@ -115,13 +115,11 @@ public static class AppUpdates
             string.IsNullOrEmpty(notes) ? null : notes, Flag(data, "needForceUpdate"), url);
     }
 
-    /// <summary>pgyer's install page for the app, over HTTPS on pgyer.com and without a query; otherwise null.</summary>
-    internal static string? PageUrl(string? appUrl, string? shortcut)
-    {
-        if (Page(appUrl) is { } page) return page;
-        if (string.IsNullOrEmpty(shortcut)) return null;
-        return shortcut.All(char.IsAsciiLetterOrDigit) ? "https://www.pgyer.com/" + shortcut : Page(shortcut);
-    }
+    /// <summary>
+    /// pgyer's install page for the app, over HTTPS on pgyer.com and without a query; otherwise null. pgyer gives both
+    /// addresses in full (e.g. <c>https://www.pgyer.com/&lt;page id&gt;</c>, which redirects to the short link).
+    /// </summary>
+    internal static string? PageUrl(string? appUrl, string? shortcut) => Page(appUrl) ?? Page(shortcut);
 
     private static string? Page(string? url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps && uri.IsDefaultPort

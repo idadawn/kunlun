@@ -38,10 +38,15 @@ public sealed class AppUpdateTests(TestHost host)
     private static HttpResponseMessage Json(object body) =>
         new(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json") };
 
-    /// <summary>pgyer's answer when build 2 (1.1.0) is the newest, shaped like its documented app/check reply.</summary>
+    private const string PageId = "https://www.pgyer.com/0123456789abcdef0123456789abcdef", ShortLink = "https://www.pgyer.com/lvqilin-staff";
+
+    /// <summary>
+    /// pgyer's answer when build 2 (1.1.0) is the newest, shaped like its real app/check replies (checked on 2026-11-17):
+    /// build numbers are strings, and appURl and buildShortcutUrl are full addresses.
+    /// </summary>
     private static Dictionary<string, object?> Build2() => new()
     {
-        ["buildBuildVersion"] = 3,
+        ["buildBuildVersion"] = "3",
         ["forceUpdateVersion"] = "",
         ["forceUpdateVersionNo"] = "",
         ["needForceUpdate"] = false,
@@ -49,9 +54,12 @@ public sealed class AppUpdateTests(TestHost host)
         ["buildHaveNewVersion"] = true,
         ["buildVersionNo"] = "2",
         ["buildVersion"] = "1.1.0",
-        ["buildShortcutUrl"] = "Lvq1",
+        ["buildShortcutUrl"] = ShortLink,
         ["buildUpdateDescription"] = "新增自动更新\r\n修正若干问题",
-        ["appURl"] = "https://www.pgyer.com/Lvq1",
+        ["appURl"] = PageId,
+        ["appKey"] = StaffAppKey,
+        ["buildKey"] = "fedcba9876543210fedcba9876543210",
+        ["buildName"] = "绿麒麟员工端",
     };
 
     private static Func<HttpResponseMessage> Answer(Dictionary<string, object?> data) => () => Json(new { code = 0, message = "", data });
@@ -102,7 +110,7 @@ public sealed class AppUpdateTests(TestHost host)
         Assert.Equal(2, update.GetProperty("versionCode").GetInt32());
         Assert.Equal("新增自动更新\n修正若干问题", update.GetProperty("notes").GetString());
         Assert.False(update.GetProperty("force").GetBoolean());
-        Assert.Equal("https://www.pgyer.com/Lvq1", update.GetProperty("url").GetString());
+        Assert.Equal(PageId, update.GetProperty("url").GetString());
         var (uri, form) = Assert.Single(pgyer.Checks);
         Assert.Equal("https://www.pgyer.com/apiv2/app/check", uri.ToString());
         Assert.Equal(new Dictionary<string, string> { ["_api_key"] = ApiKey, ["appKey"] = StaffAppKey, ["buildVersion"] = "1" }, form);
@@ -123,29 +131,30 @@ public sealed class AppUpdateTests(TestHost host)
 
         // A forced update; an install page on another host falls back to the short link; empty notes and version name are left out.
         var forced = Build2();
-        forced["needForceUpdate"] = true; forced["appURl"] = "https://pgyer.example.com/Lvq1"; forced["buildVersionNo"] = 7;
+        forced["needForceUpdate"] = true; forced["appURl"] = "https://pgyer.example.com/0123456789abcdef0123456789abcdef"; forced["buildVersionNo"] = 7;
         forced["buildUpdateDescription"] = " "; forced["buildVersion"] = "";
         pgyer.Reply = Answer(forced);
         var force = await Check(phone, "staff", 3);
         Assert.True(force.GetProperty("force").GetBoolean());
         Assert.Equal(7, force.GetProperty("versionCode").GetInt32());
-        Assert.Equal("https://www.pgyer.com/Lvq1", force.GetProperty("url").GetString());
+        Assert.Equal(ShortLink, force.GetProperty("url").GetString());
         Assert.Equal(JsonValueKind.Null, force.GetProperty("notes").ValueKind);
         Assert.Equal(JsonValueKind.Null, force.GetProperty("versionName").ValueKind);
 
         // Without a pgyer page to open there is nothing to offer: only HTTPS pages on pgyer.com, and never with a query.
         foreach (var (appUrl, shortcut, versionCode) in new (string?, string?, int)[]
         {
-            (null, null, 4), ("http://www.pgyer.com/Lvq1", null, 5), ("https://www.pgyer.com@evil.example/Lvq1", "../x", 6),
+            (null, null, 4), ("http://www.pgyer.com/lvqilin-staff", null, 5),
+            ("https://www.pgyer.com@evil.example/lvqilin-staff", "https://evil.example/lvqilin-staff", 6), (null, "lvqilin-staff", 7),
         })
         {
             var noPage = Build2(); noPage["buildVersionNo"] = "9"; noPage["appURl"] = appUrl; noPage["buildShortcutUrl"] = shortcut;
             pgyer.Reply = Answer(noPage);
             Assert.False((await Check(phone, "member", versionCode)).GetProperty("hasUpdate").GetBoolean());
         }
-        var withQuery = Build2(); withQuery["buildVersionNo"] = "9"; withQuery["appURl"] = "https://www.pgyer.com/Lvq1?_api_key=leak";
+        var withQuery = Build2(); withQuery["buildVersionNo"] = "9"; withQuery["appURl"] = PageId + "?_api_key=leak";
         pgyer.Reply = Answer(withQuery);
-        Assert.Equal("https://www.pgyer.com/Lvq1", (await Check(phone, "member", 8)).GetProperty("url").GetString());
+        Assert.Equal(PageId, (await Check(phone, "member", 8)).GetProperty("url").GetString());
     }
 
     [Fact]
