@@ -45,6 +45,7 @@ public static class RefundRequests
     private const string KindsCheck = "kind IN ('DEPOSIT','RECHARGE','GIFT','COLLECT','DAMAGE')";
     private const string ShapeCheck = """
         (kind IN ('DEPOSIT','COLLECT','DAMAGE') AND container_type IS NOT NULL AND quantity IS NOT NULL AND batch_id IS NULL)
+         OR (kind IN ('DEPOSIT','COLLECT') AND container_type IS NULL AND quantity IS NULL AND batch_id IS NULL)
          OR (kind='RECHARGE' AND batch_id IS NOT NULL AND container_type IS NULL AND quantity IS NULL)
          OR (kind='GIFT' AND batch_id IS NOT NULL AND container_type IS NULL AND quantity IS NOT NULL)
         """;
@@ -79,6 +80,13 @@ public static class RefundRequests
                 ALTER TABLE plugin_kunlun_waterstation.refund_requests ADD CONSTRAINT refund_requests_kind_check CHECK({KindsCheck});
                 ALTER TABLE plugin_kunlun_waterstation.refund_requests DROP CONSTRAINT IF EXISTS refund_requests_check;
                 ALTER TABLE plugin_kunlun_waterstation.refund_requests ADD CONSTRAINT refund_requests_check CHECK({ShapeCheck});
+              END IF;
+            END $$;
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='plugin_kunlun_waterstation.refund_requests'::regclass
+                             AND conname='refund_requests_pool_shape') THEN
+                ALTER TABLE plugin_kunlun_waterstation.refund_requests DROP CONSTRAINT IF EXISTS refund_requests_check;
+                ALTER TABLE plugin_kunlun_waterstation.refund_requests ADD CONSTRAINT refund_requests_pool_shape CHECK({ShapeCheck});
               END IF;
             END $$;
             -- A recharge batch may wait for a refund review and a gift review at once, but for one of each.
@@ -188,7 +196,8 @@ public static class RefundRequests
         if (kind == "DEPOSIT")
         {
             ctype = req.ContainerType?.ToUpperInvariant();
-            if (!ProductContainers.ValidId(ctype) || req.Quantity is not (> 0 and <= 10000)) throw new BusinessRuleException("请选择容器并填写有效的退押数量");
+            if (ctype is null && req.Quantity is null) DepositPool.Positive(req.Amount);
+            else if (!ProductContainers.ValidId(ctype) || req.Quantity is not (> 0 and <= 10000)) throw new BusinessRuleException("请选择容器并填写有效的退押数量");
             qty = req.Quantity;
         }
         else
@@ -219,10 +228,16 @@ public static class RefundRequests
         await LockMember(conn, tx, tid, req.MemberId, ct);
 
         decimal estimate;
-        if (kind == "DEPOSIT")
+        if (kind == "DEPOSIT" && ctype is null)
+        {
+            estimate = DepositPool.Positive(req.Amount);
+            DepositPool.Check(estimate, await DepositPool.Read(conn, tx, tid, req.MemberId, ct));
+        }
+        else if (kind == "DEPOSIT")
         {
             estimate = await DepositEstimate(conn, tx, tid, req.MemberId, ctype!, qty!.Value, ct);
             FinanceEndpoints.DepositRefundAmount(req.Amount, estimate);
+            DepositPool.Check(estimate, await DepositPool.Read(conn, tx, tid, req.MemberId, ct));
         }
         else
         {
@@ -234,7 +249,7 @@ public static class RefundRequests
             MembershipEndpoints.RefundAmount(req.Amount, estimate, batch.Paid);
         }
         // Kept only when it differs from the books, so an untouched request still pays what the books say at approval.
-        decimal? requested = req.Amount is { } asked && asked != estimate ? asked : null;
+        decimal? requested = req.Amount is { } asked && (asked != estimate || kind == "DEPOSIT" && ctype is null) ? asked : null;
 
         var id = Guid.NewGuid();
         var no = await BusinessNumbers.RefundRequestNo(conn, tx, ct);
@@ -350,14 +365,16 @@ public static class RefundRequests
         switch (p.Kind)
         {
             case "DEPOSIT":
-                var deposit = await FinanceEndpoints.ExecuteDepositRefund(conn, tx, tid, p.MemberId, p.ContainerType!, p.Quantity!.Value, p.Pay, key, actor, ct, amount);
+                var deposit = p.ContainerType is null
+                    ? await DepositPool.Debit(conn, tx, tid, p.MemberId, DepositPool.Positive(amount), amount!.Value, p.Pay, key, actor, ct, id)
+                    : await FinanceEndpoints.ExecuteDepositRefund(conn, tx, tid, p.MemberId, p.ContainerType!, p.Quantity!.Value, p.Pay, key, actor, ct, amount, id);
                 return (deposit.RefundNo, deposit.Amount);
             case "RECHARGE":
                 var recharge = await MembershipEndpoints.ExecuteRechargeRefund(conn, tx, tid, p.BatchId!.Value, p.Pay!, p.Reason, key, actor, ct, amount);
                 return (recharge.RefundNo, recharge.Amount);
             case "COLLECT":
                 // The lot carries the collect request's key, so a replay of that collect finds the booked deposit.
-                var lot = await FinanceEndpoints.InsertDepositLot(conn, tx, tid, p.MemberId, p.ContainerType!, p.Quantity!.Value, p.UnitPrice!.Value, p.Pay!,
+                var lot = await FinanceEndpoints.InsertDepositLot(conn, tx, tid, p.MemberId, p.ContainerType, p.Quantity ?? 0, p.UnitPrice!.Value, p.Pay!,
                     p.IdempotencyKey, p.Applicant, p.CreatedAt, ct);
                 return (lot.DepositNo, lot.Amount);
             case "DAMAGE":
@@ -417,7 +434,7 @@ public static class RefundRequests
     /// A deposit staff took while deposits are reviewed: no lot yet, only this request, which counts toward the member's
     /// cover until an admin approves it (the lot is booked then) or rejects it (the member owes it again).
     /// </summary>
-    public static async Task<(Guid Id, string RequestNo)> RequestCollect(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, string ctype, int qty,
+    public static async Task<(Guid Id, string RequestNo)> RequestCollect(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, string? ctype, int qty,
         decimal unitPrice, string pay, string key, string actor, CancellationToken ct)
     {
         var id = Guid.NewGuid();
@@ -425,14 +442,14 @@ public static class RefundRequests
         await Exec(conn, tx, """
             INSERT INTO plugin_kunlun_waterstation.refund_requests
               (id,tenant_id,request_no,idempotency_key,request_hash,kind,member_id,container_type,quantity,estimated_amount,unit_price,pay_method,applicant_name)
-            VALUES(@id,@tid,@no,@key,'','COLLECT',@mid,@ctype,@qty,@amount,@price,@pay,@actor)
-            """, ct, ("id", id), ("tid", tid), ("no", no), ("key", key), ("mid", mid), ("ctype", ctype), ("qty", qty),
-            ("amount", unitPrice * qty), ("price", unitPrice), ("pay", pay), ("actor", actor));
+            VALUES(@id,@tid,@no,@key,'','COLLECT',@mid,@ctype,NULLIF(@qty,0),@amount,@price,@pay,@actor)
+            """, ct, ("id", id), ("tid", tid), ("no", no), ("key", key), ("mid", mid), ("ctype", (object?)ctype ?? DBNull.Value), ("qty", qty),
+            ("amount", unitPrice * Math.Max(1,qty)), ("price", unitPrice), ("pay", pay), ("actor", actor));
         return (id, no);
     }
 
     /// <summary>A collect request sent before under this key: replaying the same collect answers with it instead of taking the deposit twice.</summary>
-    public static async Task<object?> CollectReplay(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, string key, Guid mid, string ctype, int qty, string pay, CancellationToken ct,
+    public static async Task<object?> CollectReplay(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, string key, Guid mid, string? ctype, int qty, string pay, CancellationToken ct,
         decimal? amount = null)
     {
         await using var cmd = Command(conn, tx, """
@@ -441,7 +458,7 @@ public static class RefundRequests
             """, ("tid", tid), ("key", key));
         await using var r = await cmd.ExecuteReaderAsync(ct);
         if (!await r.ReadAsync(ct)) return null;
-        if (r.GetGuid(3) != mid || r.GetString(4) != ctype || r.GetInt32(5) != qty || r.GetString(6) != pay || (amount is { } typed && r.GetDecimal(7) != typed))
+        if (r.GetGuid(3) != mid || (r.IsDBNull(4) ? null : r.GetString(4)) != ctype || (r.IsDBNull(5) ? 0 : r.GetInt32(5)) != qty || r.GetString(6) != pay || (amount is { } typed && r.GetDecimal(7) != typed))
             throw new BusinessRuleException("请求标识已用于其他收押操作", 409);
         return new
         {

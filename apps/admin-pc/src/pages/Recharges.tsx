@@ -109,7 +109,7 @@ function RefundTable({ filter, filtered }: { filter: RechargeLedgerQuery; filter
                 <td><span className="order-no">{r.refundNo}</span><br /><small>{shortDateTime(r.createdAt)}</small></td>
                 <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>
                 <td>{r.planName}<br /><small>{r.rechargeNo || '历史余额'}</small></td>
-                <td><b className="amount-out">−¥ {money(r.amount)}</b></td>
+                <td><b className="amount-out">−¥ {money(r.amount)}</b>{r.transferredAmount > 0 && <small>另转押金 ¥{money(r.transferredAmount)}</small>}</td>
                 <td>退付费 {r.refundBuyQty} · 收回赠 {r.revokedGiftQty} {unitOf(r.waterType)}</td>
                 <td>{payMethodLabel(r.payMethod)}</td>
                 <td className="ledger-reason">{r.reason || '—'}</td>

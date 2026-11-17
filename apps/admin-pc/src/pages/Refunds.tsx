@@ -80,7 +80,7 @@ export function Refunds() {
           </tbody>
         </table>
       </div>
-      <div className="table-footer"><span>共 {table.total} 条 · 收的押金批准后按收款时的单价入账；退款按账：押金按原收款批次单价先进先出，水费按剩余付费票（赠票收回）；实退金额以办理或审核的人确认的为准</span><Pager page={table.page} total={table.total} onChange={table.setPage} /></div>
+      <div className="table-footer"><span>共 {table.total} 条 · 押金按金额收退，水费按剩余付费票核算。</span><Pager page={table.page} total={table.total} onChange={table.setPage} /></div>
     </div>
   </>;
 }
@@ -176,6 +176,7 @@ function RequestRow({ row: r }: { row: RefundRequestRow }) {
 
 function RequestContent({ row: r }: { row: RefundRequestRow }) {
   const container = r.containerType ? containerLabel(r.containerType) : '容器';
+  if (!r.containerType && (r.kind === 'DEPOSIT' || r.kind === 'COLLECT')) return <>会员押金池</>;
   if (r.kind === 'DEPOSIT') return <>{container} × {r.quantity}</>;
   if (r.kind === 'COLLECT') return <>{container} × {r.quantity}{r.unitPrice != null && <><br /><small>押金 ¥{money(r.unitPrice)}/个</small></>}</>;
   if (r.kind === 'DAMAGE') return <>损坏 {container} × {r.quantity}{r.orderNo && <><br /><small className="container-reference" title={r.orderNo}>水单 {r.orderNo}</small></>}</>;
@@ -260,6 +261,7 @@ function ReviewDialog({ row: r, onClose, onDone }: { row: RefundRequestRow; onCl
         <b>{r.memberName} · {r.memberNo}</b>
         {kind === 'GIFT'
           ? <p>{r.planName}（{r.rechargeNo}）{r.rechargePaid != null ? `收 ¥${money(r.rechargePaid)}，` : ''}{r.applicantName} 另送 {r.quantity}{unit}</p>
+          : !r.containerType && (kind === 'COLLECT' || kind === 'DEPOSIT') ? <p>会员押金池 · ¥{money(r.requestedAmount ?? r.estimatedAmount)}</p>
           : kind === 'COLLECT'
             ? <p>{container}：{r.applicantName} 收了 {r.quantity} 个{piece}的押金{r.unitPrice != null ? `，每个 ¥${money(r.unitPrice)}` : ''}{r.payMethod ? `，${payMethodLabel(r.payMethod)}` : ''}</p>
             : kind === 'DAMAGE'
@@ -293,11 +295,11 @@ function ReviewDialog({ row: r, onClose, onDone }: { row: RefundRequestRow; onCl
         {kind === 'GIFT'
           ? '批准后赠送的水票马上到账；驳回就不送，充值本身不受影响。'
           : kind === 'COLLECT'
-            ? '先核对微信、支付宝或钱箱里这笔钱到没到。批准后押金按收款时的单价入账，会员以后退桶袋就按这笔退；钱没到就驳回，这笔作废，会员手里多出的桶袋算欠押金。'
+            ? '先核对微信、支付宝或钱箱里这笔钱到没到。核对到账后批准，按收款金额增加会员押金余额。'
             : kind === 'DAMAGE'
               ? '批准就是水站自己承担这次损坏，账目不变；不同意就驳回，并提醒员工去找顾客赔。'
               : <>{kind === 'DEPOSIT'
-                ? '通过时重新核对会员手里的桶袋，按原收款批次单价算押金；实退比这少，差额记为扣押金。若期间又领用了桶袋导致可退不足，请驳回后重新申请。'
+                ? !r.containerType ? '通过后按实退金额减少会员押金余额，余款继续留在押金池。' : '通过时重新核对会员手里的桶袋，按原收款批次单价算押金；实退比这少，差额记为扣押金。若期间又领用了桶袋导致可退不足，请驳回后重新申请。'
                 : '按账是剩余付费票按原实付单价折算，赠票一并收回；实退以这里填的为准，最多退原实付。有订单占用水票时须先处理订单。'}
                 请确认已线下把钱退给会员，系统不发起支付平台转账。</>}
       </p>

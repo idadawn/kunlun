@@ -7,6 +7,7 @@ import { useAuth } from '../auth';
 import { Dialog, Field, FormDialog, useDialogs, useRun, useToast } from '../feedback';
 import { useIdempotencyKey } from '../hooks';
 import { Stepper } from '../ordering';
+import { canSettle, SettlementDialog } from './settlement';
 import { PlanChooser } from '../plan-picker';
 import { MemberPicker, PayButtons, ReasonChips, UnavailableDialog, errorText, parseYuan, sameYuan, usePickedMember, useReviewSettings, waitsForReview, type Done } from './common';
 
@@ -79,6 +80,7 @@ export function RefundBatchDialog({ memberId, batch, onClose, onDone }: { member
   const review = useReviewSettings();
   const [pay, setPay] = useState<PayMethod>('CASH');
   const [reason, setReason] = useState('');
+  const [settling, setSettling] = useState(false);
   const books = Number(batch.refundableAmount);
   const paid = Number(batch.paidAmount);
   const [amount, setAmount] = useState(() => money(books));
@@ -86,6 +88,7 @@ export function RefundBatchDialog({ memberId, batch, onClose, onDone }: { member
   const unit = unitOf(batch.waterType);
   const value = parseYuan(amount);
   const changed = value !== null && !sameYuan(value, books);
+  if (settling) return <SettlementDialog memberId={memberId} memberName="会员" onClose={onClose} onDone={onDone} />;
   const submit = async () => {
     if (value === null) throw new Error('请填写退了多少钱，最多两位小数');
     if (value > paid) throw new Error(`最多只能退这笔充值的原实付 ¥${money(paid)}`);
@@ -101,6 +104,7 @@ export function RefundBatchDialog({ memberId, batch, onClose, onDone }: { member
         <p>原实付 ¥{money(batch.paidAmount)} ÷ {batch.fixedQty}{unit}；退剩余付费 {batch.remainingBuy}{unit}，收回赠送 {batch.remainingGift}{unit}</p>
         <strong>{waits ? '按账预计退' : '按账应退'} ¥{money(books)}</strong>
       </div>
+      {canSettle(can) && <button type="button" className="btn" onClick={() => setSettling(true)}>全部结算（水票、押金和破损费用）</button>}
       <Field label={waits ? '申请退多少钱（元）' : '实退金额（元）'} htmlFor="refundAmount">
         <div className="refund-amount">
           <input id="refundAmount" className="input" type="number" inputMode="decimal" required min={0} max={paid} step={0.01} value={amount} onChange={e => setAmount(e.target.value)} />

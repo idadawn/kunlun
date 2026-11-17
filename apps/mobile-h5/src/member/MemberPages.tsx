@@ -75,25 +75,15 @@ export function MemberAssets({ profile }: MemberPageProps) {
       <div className="h5-body">
         <div className="h5-card" style={{ background: 'var(--grad-card)', color: '#fff' }}>
           <small style={{ opacity: 0.8 }}>我的在池押金总额</small>
-          <div className="num" style={{ fontSize: 30, fontWeight: 700, margin: '4px 0' }}>¥ {money(rows.reduce((sum, r) => sum + r.paidAmount, 0))}</div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, opacity: 0.88 }}>
-            {rows.map(r => <span key={r.containerType}>{r.name}配套桶袋押金 ¥{money(r.paidAmount)}（{r.paidQty}个）</span>)}
-          </div>
+          <div className="num" style={{ fontSize: 30, fontWeight: 700, margin: '4px 0' }}>¥ {money(rows[0]?.pool.total ?? profile.depositAmount)}</div>
+          {rows[0] && <p>持有桶袋需 ¥{money(rows[0].pool.required)} · {rows[0].pool.shortfall > 0 ? `欠押金 ¥${money(rows[0].pool.shortfall)}` : '押金已覆盖'}</p>}
+          {!!rows[0]?.pool.pendingCollect && <small>收款待核对 ¥{money(rows[0].pool.pendingCollect)}</small>}
         </div>
-        {rows.map(r => { const covered = r.heldQty <= r.paidQty - r.pendingDamageQty + (r.pendingCollectQty ?? 0); return (
-          <div key={r.containerType}>
-            <div className="h5-section-head"><h3>{r.name} · 配套{r.containerKind === 'BAG' ? '水袋' : '桶'}</h3><span className={`tag ${covered ? 'green' : 'orange'}`}>{covered ? '押金已覆盖' : '需补交押金'}</span></div>
-            <div className="h5-card">
-              <div className="detail-row"><span>剩余押金（按原收款批次）</span><b>{r.paidQty} 个 / ¥{money(r.paidAmount)}</b></div>
-              <div className="detail-row"><span>当前手里有</span><b>{r.heldQty} 个</b></div>
-              <div className="detail-row"><span>当前可退押金（已交 − 手里有）</span><b style={{ color: 'var(--brand-600)' }}>{r.refundableQty} 个 / ¥{money(r.refundableAmount)}</b></div>
-              {r.pendingRefundQty > 0 && <p className="membership-note">退押申请审核中 {r.pendingRefundQty} 个，管理员审核通过后退款。</p>}
-              {r.pendingCollectQty > 0 && <p className="membership-note">刚交的押金 ¥{money(r.pendingCollectAmount)}（{r.pendingCollectQty} 个）门店正在核对，核对后计入上面的押金。</p>}
-              {r.pendingDamageQty > 0 && <p className="membership-note">待报废 {r.pendingDamageQty} 个，占用押金 ¥{money(r.pendingDamageAmount)}，确认报废后扣除。</p>}
-            </div>
-          </div>
-        ); })}
-        <p className="membership-note">退押金：把空桶还到店里或交给送水员登记收回，店里核对后按原收款价退还。</p>
+        {rows.map(r => <div className="h5-card" key={r.containerType}>
+          <b>{r.name} · 手里 {r.heldQty} 个</b>
+          <div className="detail-row"><span>持有价值</span><b>¥{money(r.heldQty * r.unitDeposit)}</b></div>
+          <div className="detail-row"><span>累计登记破损</span><b>{r.damageQty} 个</b></div>
+        </div>)}
       </div>
     )}
   </>;

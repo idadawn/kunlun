@@ -42,7 +42,7 @@ export function useOperations() {
   const run = useRun();
   return {
     recharge: (id = memberId) => run(() => dialogs.open(close => <RechargeDialog memberId={id} onClose={close} onDone={refresh} />))(),
-    deposit: (action?: DepositAction, id = memberId) => run(() => dialogs.open(close => <DepositDialog containers={data.containers} memberId={id} action={action} onClose={close} onDone={refresh} />))(),
+    deposit: (action?: DepositAction, id = memberId) => run(() => dialogs.open(close => <DepositDialog memberId={id} action={action} onClose={close} onDone={refresh} />))(),
     // Opened from a member row it starts with that customer; elsewhere it starts by finding the customer at the counter.
     order: (id?: string) => run(() => dialogs.open(close => <CounterOrderDialog products={data.products} memberId={id} onClose={close} onDone={refresh} />))(),
     movement: (id = memberId) => run(() => dialogs.open(close => <MovementDialog memberId={id} onClose={close} onDone={refresh} />))(),

@@ -62,8 +62,8 @@ function Profile({ member: m }: { member: MemberProfile }) {
   const held = (kind: 'BUCKET' | 'BAG') => rows
     ? rows.filter(r => r.containerKind === kind).reduce((sum, r) => sum + r.heldQty, 0)
     : kind === 'BUCKET' ? m.heldBuckets : m.heldBags;
-  const depositPaid = rows?.reduce((sum, r) => sum + Number(r.paidAmount), 0);
-  const depositRefundable = rows?.reduce((sum, r) => sum + Number(r.refundableAmount), 0);
+  const depositPaid = rows?.[0]?.pool.total;
+  const pool = rows?.[0]?.pool;
   const list = batches.data;
   // Packages recorded from before the system count at the price recorded with them; without one they stay unpriced.
   const unused = list?.reduce((sum, b) => sum + Number(b.remainingValue), 0);
@@ -107,9 +107,9 @@ function Profile({ member: m }: { member: MemberProfile }) {
       <StatCard label="可用水票" icon="ticket" value={<>{available}<small>张</small></>}
         foot={reserved ? `另有 ${reserved} 张被未完成的水单占用` : tickets.length ? `${tickets.length} 种水品，按自提 / 配送分开` : '还没有水票'} />
       <StatCard label="手里的桶袋" icon="box" tone="blue" value={<>{held('BUCKET')}<small>桶</small> {held('BAG')}<small>袋</small></>}
-        foot="还回空桶空袋后，才能退对应的押金" />
+        foot={pool ? `按现行标准需押金 ¥${money(pool.required)}` : "正在核对…"} />
       <StatCard label="已交押金" icon="deposit" tone="gold" value={depositPaid === undefined ? '—' : `¥ ${money(depositPaid)}`}
-        foot={deposits.error || (depositRefundable === undefined ? '正在核对…' : `现在就能退 ¥${money(depositRefundable)}`)} />
+        foot={deposits.error || (!pool ? '正在核对…' : pool.shortfall > 0 ? `欠押金 ¥${money(pool.shortfall)}` : `押金已覆盖 · 可退 ¥${money(pool.available)}`)} />
       <StatCard label="没用完的水费" icon="wallet" value={unused === undefined ? '—' : `¥ ${money(unused)}`}
         foot={batches.error || (unusedQty === undefined ? '正在核对…' : `剩余付费水票 ${unusedQty} 张，按原实付单价折算`)} />
       <StatCard label="可能要退的钱" icon="refund" tone="orange" value={owed === undefined ? '—' : `¥ ${money(owed)}`}
@@ -151,7 +151,7 @@ function Profile({ member: m }: { member: MemberProfile }) {
       <div className="profile-col">
         <section className="card">
           <div className="card-head">
-            <div className="card-title">押金与桶袋 <small>退押金按原收款单价</small></div>
+            <div className="card-title">押金与桶袋 <small>按会员余额收退</small></div>
             {!disabled && <div className="profile-head-actions">
               <button type="button" className="text-btn" onClick={() => ops.deposit('collect', m.id)}>收押金</button>
               <button type="button" className="text-btn" onClick={() => ops.deposit('refund', m.id)}>退押金</button>
@@ -160,7 +160,9 @@ function Profile({ member: m }: { member: MemberProfile }) {
           <div className="profile-card-body profile-containers">
             {deposits.error ? <p className="account-error" role="alert">{deposits.error}</p>
               : !rows ? <p className="membership-note">正在核对押金…</p>
-              : rows.map(r => <ContainerDeposit key={r.containerType} row={r} />)}
+              : <>{pool && <p className={pool.shortfall ? 'profile-warn' : 'membership-note'}>现有押金 ¥{money(pool.total)} · 持有桶袋需 ¥{money(pool.required)} · {pool.shortfall > 0 ? `欠押金 ¥${money(pool.shortfall)}` : '已覆盖'}
+                {pool.pendingCollect > 0 && ` · 收款待审核 ¥${money(pool.pendingCollect)}`}{pool.pending > 0 && ` · 退款待审核 ¥${money(pool.pending)}`}</p>}
+                {rows.map(r => <ContainerDeposit key={r.containerType} row={r} />)}</>}
           </div>
         </section>
         {settlements.data && settlements.data.length > 0 && (
@@ -210,19 +212,14 @@ function DisabledBanner({ member: m, onEnable }: { member: MemberProfile; onEnab
 /** One container's deposit: what the member holds, what they paid and what they could take back now. */
 function ContainerDeposit({ row: r }: { row: DepositSummaryRow }) {
   const unit = containerUnit(r.containerType);
-  // Deposit taken but still waiting for an admin covers containers already, as at the hand-over.
-  const owing = Math.max(0, r.heldQty - Math.max(0, r.paidQty - r.pendingDamageQty + r.pendingCollectQty));
   return (
     <div className={`profile-container${r.containerKind === 'BAG' ? ' bag' : ''}`}>
       <div className="profile-container-head"><b>{containerLabel(r.containerType)}</b><small>现行押金 ¥{money(r.unitDeposit)}/个</small></div>
       <div className="profile-nums">
         <div><small>手里</small><b>{r.heldQty}</b><small>个{unit}</small></div>
-        <div><small>已交押金</small><b>¥{money(r.paidAmount)}</b><small>{r.paidQty} 个</small></div>
-        <div><small>现在可退</small><b>¥{money(r.refundableAmount)}</b><small>{r.refundableQty} 个</small></div>
+        <div><small>持有价值</small><b>¥{money(r.heldQty * r.unitDeposit)}</b></div>
+        <div><small>累计登记破损</small><b>{r.damageQty} 个</b></div>
       </div>
-      {owing > 0 && <p className="profile-warn">手里的{unit}比押金多 {owing} 个，下次交付时会提示补交押金。</p>}
-      {r.pendingCollectQty > 0 && <p className="membership-note">另收了押金 ¥{money(r.pendingCollectAmount)}（{r.pendingCollectQty} 个），等管理员在「审核」里核对到账，批准后计入已交押金。</p>}
-      {r.pendingRefundQty > 0 && <p className="membership-note">退押金审核中 {r.pendingRefundQty} 个，批准后退款。</p>}
       {r.pendingDamageQty > 0 && <p className="membership-note">{r.pendingDamageQty} 个{unit}待确认报废，占用押金 ¥{money(r.pendingDamageAmount)}，确认报废后按原批次扣除。</p>}
     </div>
   );
@@ -231,7 +228,7 @@ function ContainerDeposit({ row: r }: { row: DepositSummaryRow }) {
 type RecordTab = 'orders' | 'recharges' | 'deposits';
 const RECORD_TABS: Array<[RecordTab, string]> = [['orders', '水单'], ['recharges', '充值'], ['deposits', '押金']];
 type Records = ({ tab: 'orders' } & Paged<WaterOrder>) | ({ tab: 'recharges' } & Paged<RechargeLedgerRow>) | ({ tab: 'deposits' } & Paged<DepositLedgerRow>);
-const FLOW_TAGS: Record<DepositFlowType, [string, string]> = { COLLECT: ['收押金', 'green'], REFUND: ['退押金', 'blue'], DEDUCT: ['扣押金', 'orange'], OPENING: ['上系统前', 'gold'] };
+const FLOW_TAGS: Record<DepositFlowType, [string, string]> = { TRANSFER: ['水费转押金', 'blue'], COLLECT: ['收押金', 'green'], REFUND: ['退押金', 'blue'], DEDUCT: ['扣押金', 'orange'], OPENING: ['上系统前', 'gold'] };
 const ORDER_TONES: Record<WaterOrder['status'], string> = { PENDING: 'orange', DISPATCHED: 'aqua', COMPLETED: 'gray', CANCELLED: 'red' };
 
 /** The member's newest orders, recharges and deposit flows, one tab at a time. */
@@ -289,8 +286,8 @@ function RecentRecords({ member: m }: { member: MemberProfile }) {
             <tr key={`${r.flowType}:${r.docNo}`}>
               <td><span className="order-no">{r.docNo}</span><small>{shortDateTime(r.createdAt)}</small></td>
               <td><span className={`tag ${tone}`}>{label}</span></td>
-              <td>{containerLabel(r.containerType)} × {r.qty}</td>
-              <td><b>{r.flowType === 'COLLECT' || r.flowType === 'OPENING' ? '' : '−'}¥{money(r.amount)}</b></td>
+              <td>{r.containerType ? `${containerLabel(r.containerType)} × ${r.qty}` : '会员押金池'}</td>
+              <td><b>{r.flowType === 'COLLECT' || r.flowType === 'OPENING' || r.flowType === 'TRANSFER' ? '' : '−'}¥{money(r.amount)}</b></td>
             </tr>
           );
         })}</tbody>

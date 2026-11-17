@@ -147,7 +147,7 @@ function MonthCashflow() {
             <div className="liability-item">
               <span><Icon name="wallet" size="sm" />本月水费净收</span>
               <b>{s ? `¥ ${money(s.rechargeNet)}` : '—'}</b>
-              <small>{s ? `实收 ¥${money(s.rechargeRevenue)} − 退款 ¥${money(s.rechargeRefunded)}` : '正在统计…'}</small>
+              <small>{s ? `实收 ¥${money(s.rechargeRevenue)} − 退款 ¥${money(s.rechargeRefunded)} − 转押金 ¥${money(s.transferred)}` : '正在统计…'}</small>
             </div>
             <i className="liability-op" aria-hidden="true">−</i>
             <div className="liability-item">
@@ -179,7 +179,7 @@ function Liabilities({ finance: f, overview }: { finance: FinanceSummaryReport; 
   const used = net > 0 ? Math.min(100, Math.max(0, earned / net * 100)) : 0;
   // Packages members bought before the system: owed back like recharges, but that money never came in as 水费实收.
   const openingUnused = Number(f.openingUnusedValue ?? 0);
-  const openingRefunded = Number(f.openingRefundedTotal ?? 0);
+  const openingRefunded = Number(f.openingRefundedTotal ?? 0) + Number(f.openingTransferred ?? 0);
   const unused = Number(f.unusedRechargeValue) + openingUnused;
   return (
     <div className="card liability-card">
@@ -195,7 +195,7 @@ function Liabilities({ finance: f, overview }: { finance: FinanceSummaryReport; 
           <div className="liability-item">
             <span><Icon name="deposit" size="sm" />押金在池</span>
             <b>¥ {money(f.unrefundedDepositPoolTotal)}</b>
-            <small>{f.unrefundedDepositQty} 个桶袋的押金，会员还桶就要退{overview ? `；已还桶、现在就能退 ¥${money(overview.refundableDeposit)}` : ''}</small>
+            <small>会员在池押金总额{overview ? ` · 当前可退 ¥${money(overview.refundableDeposit)}` : ''}</small>
           </div>
           <i className="liability-op" aria-hidden="true">+</i>
           <div className="liability-item">
@@ -219,7 +219,7 @@ function Liabilities({ finance: f, overview }: { finance: FinanceSummaryReport; 
             <span>水费净收<b>¥{money(net)}</b></span>
             <span>= 会员已经用掉的（真正的收入）<b className="earned">¥{money(earned)}</b></span>
             <span>+ 还没用完的（可能要退）<b className="unused">¥{money(f.unusedRechargeValue)}</b></span>
-            {openingRefunded > 0 && <span>− 退给上系统前买的套餐<b className="unused">¥{money(openingRefunded)}</b></span>}
+            {openingRefunded > 0 && <span>− 上系统前套餐退款及转押金<b className="unused">¥{money(openingRefunded)}</b></span>}
           </div>
           {net > 0 && <div className="liability-bar" role="img" aria-label={`水费净收中会员已用掉 ${Math.round(used)}%`}><i style={{ width: `${used}%` }} /></div>}
           {openingUnused > 0 && <small className="liability-note">上系统前买的套餐还没用完 ¥{money(openingUnused)}：当时收的钱没进系统，不在水费净收里，会员要退时一样得退。</small>}

@@ -116,9 +116,8 @@ public sealed class DepositReviewTests(TestHost host)
             await Ok(await admin.PostAsJsonAsync($"/api/refund-requests/{counterId}/reject", new RejectRefundRequest("钱没到账")));
             await Error(await admin.PostAsJsonAsync($"/api/refund-requests/{counterId}/approve", new ApproveRefundRequest(null, null)), HttpStatusCode.Conflict);
             Assert.Equal(0, (await Buckets(admin, mid)).GetProperty("pendingCollectQty").GetInt32());
-            var blocked = await Error(await clerk.PostAsJsonAsync($"/api/orders/{nextOrder}/fulfill", new FulfillWaterOrderRequest(1, 1, 0)), HttpStatusCode.BadRequest);
-            Assert.Equal("DEPOSIT_COVERAGE_INSUFFICIENT", blocked.GetProperty("error").GetString());
-            Assert.Equal(1, blocked.GetProperty("uncoveredGap").GetInt32());
+            var completed = await Ok(await clerk.PostAsJsonAsync($"/api/orders/{nextOrder}/fulfill", new FulfillWaterOrderRequest(1, 1, 0)));
+            Assert.Equal(50m, completed.GetProperty("owedDepositAmount").GetDecimal());
             Assert.Equal(100m, await DepositBalance(admin, mid));
         }
         finally
@@ -165,6 +164,11 @@ public sealed class DepositReviewTests(TestHost host)
             var waived = await Ok(await courier.PostAsJsonAsync($"/api/orders/{await Order(admin, mid, 1)}/fulfill",
                 new FulfillWaterOrderRequest(1, 1, 0, DamagedQty: 2, DamageCompensated: false, DamageReason: "送水时碰坏的")));
             Assert.Equal("APPROVED", waived.GetProperty("damageReviewStatus").GetString());
+            var preview = await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement/preview", new SettlementPreviewRequest()));
+            var historical = preview.GetProperty("slip").GetProperty("damages").EnumerateArray().ToArray();
+            Assert.Equal(3, historical.Sum(d => d.GetProperty("quantity").GetInt32()));
+            Assert.Equal(4, (await Buckets(admin,mid)).GetProperty("damageQty").GetInt32());
+
             var rows = (await Requests(admin, "DAMAGE", memberNo)).EnumerateArray().ToList();
             Assert.Equal(2, rows.Count);
             Assert.Equal("无需审核", rows.Single(r => r.GetProperty("status").GetString() == "APPROVED").GetProperty("reviewNote").GetString());

@@ -441,7 +441,7 @@ public static class OrderEndpoints
                 return Results.Json(new { error = "FORBIDDEN_PERMISSION", message = "缺少订单核销/签收权限 order.fulfill（AC-16）" }, statusCode: 403);
 
             var operatorName = user.FindFirstValue("display_name") ?? "配送员/店员";
-            return await ExecuteFulfillOrderAsync(orderId, null, req, operatorName, perms.Contains(KunlunPermissions.DepositCollect), db, orderRepo, ct);
+            return await ExecuteFulfillOrderAsync(orderId, null, req, operatorName, db, orderRepo, ct);
         }).RequireAuthorization();
 
         // 5. 门店 6 位自提码一键核销快捷端点
@@ -458,7 +458,7 @@ public static class OrderEndpoints
 
             var operatorName = user.FindFirstValue(ClaimTypes.Name) ?? "店员";
             var fulfillReq = new FulfillWaterOrderRequest(req.ActualQty, req.FullOutN, req.EmptyInM, req.PickupCode, req.DiffReason);
-            return await ExecuteFulfillOrderAsync(null, req.PickupCode, fulfillReq, operatorName, false, db, orderRepo, ct);
+            return await ExecuteFulfillOrderAsync(null, req.PickupCode, fulfillReq, operatorName, db, orderRepo, ct);
         }).RequireAuthorization();
 
         // 6. 容器库存与低库存预警查询 (AC-19, AC-20)：每种桶袋三个数——店里、客户手里、累计报废；现存总量 = 店里 + 客户手里 + 待确认报废
@@ -512,7 +512,6 @@ public static class OrderEndpoints
         string? lookupPickupCode,
         FulfillWaterOrderRequest req,
         string operatorName,
-        bool canOweDeposit,
         NpgsqlDataSource db,
         KunlunOrderRepository orderRepo,
         CancellationToken ct)
@@ -630,56 +629,22 @@ public static class OrderEndpoints
             });
         }
 
-        int coveredDepositQty;
-        await using (var depCmd = new NpgsqlCommand("""
-            SELECT COALESCE(SUM(remaining_qty-reserved_damage_qty), 0)::INT
-            FROM plugin_kunlun_waterstation.deposit_lots
-            WHERE tenant_id = @tid AND member_id = @mid AND container_type = @ctype
-            """, conn, tx))
+        var pool = await DepositPool.Read(conn, tx, orderRepo.TenantId, memberId, ct);
+        var required = pool.Required + deltaHeld * product.UnitDeposit;
+        var shortfall = Math.Max(0, required - pool.Available - pool.PendingCollect);
+        // Older clients show an approximate count. Account-wide amounts are authoritative.
+        var missingUnits = (int)Math.Min(newHeld, decimal.Ceiling(shortfall / product.UnitDeposit));
+        var coveredDepositQty = newHeld - missingUnits;
+        var handoverNote = req.OverrideReason?.Trim();
+        if (handoverNote is { Length: > 500 }) return Results.BadRequest(new { error = "HANDOVER_NOTE_TOO_LONG", message = "交付备注请写在 500 字以内" });
+        if (req.DamagedQty > (long)currentHeld + req.FullOutN) throw new BusinessRuleException("破损数量超过本次交接的桶袋数");
+        if (string.IsNullOrEmpty(handoverNote))
         {
-            depCmd.Parameters.AddWithValue("tid", orderRepo.TenantId);
-            depCmd.Parameters.AddWithValue("mid", memberId);
-            depCmd.Parameters.AddWithValue("ctype", containerType);
-            coveredDepositQty = (int)(await depCmd.ExecuteScalarAsync(ct))!;
+            var notes = new List<string>();
+            if (shortfall > 0) notes.Add($"交付后押金还差 ¥{Money.Text(shortfall)}");
+            if (req.DamagedQty > 0) notes.Add($"损坏 {req.DamagedQty} 个{unit}，{(req.DamageCompensated == true ? "已赔付" : $"未赔付（{damageReason}）")}");
+            handoverNote = string.Join("；", notes);
         }
-        // 收了还没批准的押金也算：顾客已经交了，管理员驳回后才变回欠押金。
-        coveredDepositQty += await RefundRequests.PendingCollectQty(conn, tx, orderRepo.TenantId, memberId, containerType, ct);
-
-        // AC-09: 若本次履约后会员持有桶数 newHeld > 已缴押金覆盖桶数 coveredDepositQty，默认拦截要求先补押金。
-        // 顾客没交或没交够时，有收押金权限的员工可以记欠押金照样交付，但要带上备注（交没交、交了几个、欠几个）；
-        // 会员手里比押金多的个数就是欠的押金，下次交付时并进应付押金。
-        // 交付备注还写损坏的桶袋赔没赔、不赔的原因，所以不欠押金时带来的备注也存进水单 override_reason 和袋桶台账。
-        var handoverNote = string.IsNullOrWhiteSpace(req.OverrideReason) ? null : req.OverrideReason.Trim();
-        if (newHeld > coveredDepositQty && req.ForceCreditOverride)
-        {
-            var uncoveredGap = newHeld - coveredDepositQty;
-            if (!canOweDeposit)
-                return Results.Json(new { error = "FORBIDDEN_PERMISSION", message = "记欠押金需要收押金权限 deposit.collect" }, statusCode: StatusCodes.Status403Forbidden);
-            if (handoverNote is null || handoverNote.Length > 500)
-                return Results.BadRequest(new
-                {
-                    error = "DEPOSIT_OWED_NOTE_REQUIRED",
-                    message = $"押金还差 {uncoveredGap} 个没交，记欠押金要带上备注：顾客交没交押金、交了几个、欠几个（500 字以内）",
-                    uncoveredGap
-                });
-        }
-        else if (newHeld > coveredDepositQty)
-        {
-            var uncoveredGap = newHeld - coveredDepositQty;
-            return Results.BadRequest(new
-            {
-                error = "DEPOSIT_COVERAGE_INSUFFICIENT",
-                message = $"{product.Name}本次发出 {req.FullOutN} {unit}、收回 {req.EmptyInM} {unit}后，会员手里将有 {newHeld} 个{unit}，超出已交押金覆盖的 {coveredDepositQty} 个，需补交 {uncoveredGap} 个{unit}的押金（AC-09）",
-                currentHeld,
-                fullOutN = req.FullOutN,
-                emptyInM = req.EmptyInM,
-                newHeld,
-                coveredDepositQty,
-                uncoveredGap
-            });
-        }
-        if (handoverNote is { Length: > 500 })
-            return Results.BadRequest(new { error = "HANDOVER_NOTE_TOO_LONG", message = "交付备注请写在 500 字以内" });
 
         if (extraNeeded > 0) await TicketBatches.Reserve(conn, tx, orderRepo.TenantId, memberId, waterType, fulfillMode, resolvedOrderId, extraNeeded, ct);
         await TicketBatches.Settle(conn, tx, resolvedOrderId, req.ActualQty, ct);
@@ -702,12 +667,15 @@ public static class OrderEndpoints
                 full_out_qty = @outN,
                 empty_in_qty = @inM,
                 diff_reason = @diff,
-                override_reason = @ovr,
+                override_reason = @ovr, handover_damage_qty=@damaged, damage_compensated=@compensated, damage_reason=@damageReason,
                 fulfilled_by_name = @op,
                 completed_at = NOW()
             WHERE tenant_id = @tid AND id = @oid
             """, conn, tx))
         {
+            uOrdCmd.Parameters.AddWithValue("damaged", req.DamagedQty);
+            uOrdCmd.Parameters.AddWithValue("compensated", (object?)req.DamageCompensated ?? DBNull.Value);
+            uOrdCmd.Parameters.AddWithValue("damageReason", (object?)damageReason ?? DBNull.Value);
             uOrdCmd.Parameters.AddWithValue("actual", req.ActualQty);
             uOrdCmd.Parameters.AddWithValue("outN", req.FullOutN);
             uOrdCmd.Parameters.AddWithValue("inM", req.EmptyInM);
@@ -809,7 +777,7 @@ public static class OrderEndpoints
             deltaHeld,
             heldAfter = newHeld,
             coveredDepositQty,
-            owedDepositQty = Math.Max(0, newHeld - coveredDepositQty),
+            owedDepositQty = missingUnits, owedDepositAmount = shortfall,
             depositAmountUnchanged = depositAmount,
             availableTicketsAfter = newAvail,
             reservedTicketsAfter = newReserved,

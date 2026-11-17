@@ -258,6 +258,7 @@ export interface FinanceSummaryReport {
   ticketsGiftedQty: number;
   /** Deposits collected in the system; deposits recorded from before it are `depositOpeningTotal`. */
   depositCollectedTotal: number;
+  depositTransferTotal: number;
   depositCollectCount: number;
   depositRefundedTotal: number;
   depositDeductedTotal: number;
@@ -284,6 +285,7 @@ export interface FinanceSummaryReport {
   openingPaidTicketQty: number;
   /** Refunds of packages bought before the system; included in `rechargeRefundedTotal`. */
   openingRefundedTotal: number;
+  openingTransferred: number;
   openingRefundCount: number;
   /** Money members could still ask back: the unrefunded deposit, `unusedRechargeValue` and `openingUnusedValue`. Not income. */
   potentialRefundTotal: number;
@@ -355,6 +357,7 @@ export interface GiftReview {
 
 /** 水费退款：退清某次充值剩余权益，与押金退款分开记账。 */
 export interface RechargeRefundLedgerRow {
+  transferredAmount: number;
   refundNo: string;
   rechargeNo: string;
   memberName: string;
@@ -375,7 +378,7 @@ export interface RechargeRefundLedgerRow {
 }
 
 /** OPENING: a deposit paid before the station used the system, recorded afterwards; not collected that day. */
-export type DepositFlowType = 'COLLECT' | 'REFUND' | 'DEDUCT' | 'OPENING';
+export type DepositFlowType = 'TRANSFER' | 'COLLECT' | 'REFUND' | 'DEDUCT' | 'OPENING';
 
 export interface DepositLedgerRow {
   docNo: string;
@@ -573,6 +576,8 @@ export interface MemberOpeningRecord {
 }
 
 export interface DepositSummaryRow {
+  pool: { total: number; available: number; required: number; shortfall: number; reserved: number; pending: number; pendingCollect: number };
+  damageQty: number;
   waterType: WaterType;
   name: string;
   containerKind: ContainerKind;
@@ -742,6 +747,7 @@ export interface CirculationRow {
 export type DamageStatus = 'PENDING' | 'SCRAPPED';
 
 export interface ContainerDamageRow {
+  feePaid?: boolean | null;
   id: string;
   damageNo: string;
   memberName: string;
@@ -835,7 +841,7 @@ export interface RefundRequestQuery extends PageQuery {
 
 /** `amount`: what is actually paid back; without it the books decide (remaining paid tickets or the deposit at the original price). */
 export type ApplyRefundBody =
-  | { kind: 'DEPOSIT'; memberId: string; containerType: ContainerType; quantity: number; payMethod: PayMethod; reason?: string; idempotencyKey: string; amount?: number }
+  | { kind: 'DEPOSIT'; memberId: string; containerType?: ContainerType; quantity?: number; payMethod: PayMethod; reason?: string; idempotencyKey: string; amount?: number }
   | { kind: 'RECHARGE'; memberId: string; batchId: string; payMethod: PayMethod; reason?: string; idempotencyKey: string; amount?: number };
 
 /**
@@ -852,6 +858,7 @@ export interface SettlementContainerInput {
 }
 
 export interface SettlementTicketLine {
+  transferred?: number;
   batchId: string;
   name: string;
   waterType: WaterType;
@@ -903,7 +910,11 @@ export interface SettlementContainerLine {
 }
 
 /** 退款结算单: before it is done (preview) the numbers and who/when are null. */
+export interface DamageDecision { reference: string; charge: boolean }
 export interface SettlementSlip {
+  revision?: string;
+  pool?: { before: number; kept: number; charges: number; transfer: number; supplement: number; refund: number; transferNo?: string; collectionNo?: string; refundNo?: string };
+  damages?: Array<{ reference: string; name: string; quantity: number; value: number; reason: string; charge: boolean | null }>;
   id: string | null;
   settlementNo: string | null;
   memberId: string;
@@ -933,6 +944,8 @@ export interface SettlementPreview {
 }
 
 export interface SettlementRequest {
+  damageDecisions?: DamageDecision[];
+  expectedRevision?: string;
   idempotencyKey: string;
   payMethod: PayMethod;
   containers: SettlementContainerInput[];
@@ -990,6 +1003,7 @@ export interface CreateExpenseRequest {
 
 /** 一段时间的收支：费用支出与分类（不含作废的），同期水费实收、退款、净收，结余 = 水费净收 − 费用支出。押金不算在内。 */
 export interface ExpenseSummary {
+  transferred: number;
   expenseTotal: number;
   expenseCount: number;
   voidedCount: number;

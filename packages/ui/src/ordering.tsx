@@ -1,147 +1,79 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  KUNLUN_BRAND, KUNLUN_PERMISSIONS as P, PAY_METHODS, calcDepositGap, containerKind, containerUnit, depositBreakdown, modeLabel, money, payMethodLabel, ticketSummary, ticketsFor, unitOf,
-  type ContainerType, type CreateOrderResult, type FulfillMode, type MemberProfile, type PayMethod, type WaterProduct, type WaterType,
+  KUNLUN_BRAND, KUNLUN_PERMISSIONS as P, PAY_METHODS, containerKind, containerUnit, modeLabel, money, payMethodLabel, ticketSummary, ticketsFor, unitOf,
+  type DepositSummaryRow, type ContainerType, type CreateOrderResult, type FulfillMode, type MemberProfile, type PayMethod, type WaterProduct, type WaterType,
 } from '@kunlun/shared';
 import { AddressPicker } from './addresses';
 import { useApi, useAuth } from './auth';
 import { FormDialog, NumberInput, useDialogs, useRun } from './feedback';
 import { useLoader } from './hooks';
 import { Icon } from './icons';
-import { useReviewSettings, waitsForReview } from './operations/common';
+import { parseYuan, useReviewSettings, waitsForReview } from './operations/common';
 
 export const DELIVERY_SLOTS = ['尽快送达（约 45 分钟内）', '今天 14:00–16:00', '今天 16:00–18:00'];
 
 export interface DepositPosition {
   held: number;
-  /** Containers the paid deposit covers: paid and not refunded, minus those awaiting a scrap decision. */
-  covered: number;
   unitDeposit: number;
-  /** Deposit paid and not yet refunded, containers awaiting a scrap decision included. */
-  paidQty: number;
-  paidAmount: number;
-  pendingDamageQty: number;
-  /** Paid deposit the member could take back now: containers not held and not awaiting a scrap decision. */
-  refundableQty: number;
-  refundableAmount: number;
-  /** Deposit staff took that waits for an admin: it covers containers already, but is not booked or refundable until approved. */
-  pendingCollectQty: number;
-  pendingCollectAmount: number;
+  damageQty: number;
+  pool: DepositSummaryRow['pool'];
 }
 
-/**
- * A member's held containers, deposit coverage (paid minus pending damage, plus deposit taken and awaiting approval) and the
- * current unit deposit, per container type.
- */
 export function useDepositPositions(memberId: string | undefined) {
   const api = useApi();
   return useLoader(async () => {
     if (!memberId) return null;
-    const [rows, configs] = await Promise.all([api.depositSummary(memberId), api.containerSummary()]);
-    return Object.fromEntries(rows.map(row => [row.containerType, {
-      held: row.heldQty, covered: row.paidQty - row.pendingDamageQty + (row.pendingCollectQty ?? 0),
-      unitDeposit: configs.find(c => c.containerType === row.containerType)?.unitDeposit ?? 0,
-      paidQty: row.paidQty, paidAmount: Number(row.paidAmount), pendingDamageQty: row.pendingDamageQty,
-      refundableQty: row.refundableQty, refundableAmount: Number(row.refundableAmount),
-      pendingCollectQty: row.pendingCollectQty ?? 0, pendingCollectAmount: Number(row.pendingCollectAmount ?? 0),
-    } satisfies DepositPosition])) as Record<ContainerType, DepositPosition>;
+    const rows = await api.depositSummary(memberId);
+    return Object.fromEntries(rows.map(r => [r.containerType, {
+      held: r.heldQty, unitDeposit: r.unitDeposit, damageQty: r.damageQty, pool: r.pool,
+    } satisfies DepositPosition]));
   }, [api, memberId]);
 }
 
-/**
- * What the member holds and has paid as deposit, one tile per container: the first thing the counter checks before a
- * full-for-empty swap, and what a deposit refund would start from.
- */
+export function depositGap(p: DepositPosition, fullOut: number, emptyIn: number) {
+  return Math.max(0, Math.round((p.pool.required + (fullOut - emptyIn) * p.unitDeposit - p.pool.available - p.pool.pendingCollect) * 100) / 100);
+}
+
 function Holdings({ products, positions, error }: { products: WaterProduct[]; positions: Record<ContainerType, DepositPosition> | null; error: string }) {
-  const containers = [...new Map(products.map(p => [p.containerId, p])).values()];
-  if (!containers.length) return null;
-  return (
-    <section className="holdings" aria-label="手里的桶袋和已交押金">
-      {error ? <p className="account-error" role="alert">{error}</p>
-        : !positions ? <p className="membership-note">正在核对手里的桶袋和押金…</p>
-        : containers.map(p => {
-          const position = positions[p.containerId];
-          if (!position) return null;
-          const unit = containerUnit(p.containerId);
-          const owing = Math.max(0, position.held - Math.max(0, position.covered));
-          const [tone, status] = owing > 0 ? ['gold', `欠押金 ${owing} 个 ¥${money(owing * position.unitDeposit)}`]
-            : position.refundableQty > 0 ? ['blue', `可退 ${position.refundableQty} 个 ¥${money(position.refundableAmount)}`]
-            : position.held > 0 ? ['green', '押金够'] : ['', ''];
-          return (
-            <div key={p.containerId} className={`holding${containerKind(p.containerId) === 'BAG' ? ' bag' : ''}${owing ? ' owing' : ''}`}>
-              <div className="holding-head"><span>{p.name}</span>{status && <span className={`tag ${tone}`}>{status}</span>}</div>
-              <div className="holding-held">手里 <b>{position.held}</b> 个{unit}</div>
-              <div className="holding-deposit">已交押金 <b>¥{money(position.paidAmount)}</b>{position.paidQty > 0 && <small> · {position.paidQty} 个</small>}</div>
-              {position.pendingDamageQty > 0 && <small>其中 {position.pendingDamageQty} 个{unit}待报废审核</small>}
-              {position.pendingCollectQty > 0 && <small>另收了 ¥{money(position.pendingCollectAmount)}（{position.pendingCollectQty} 个），等管理员核对到账</small>}
-            </div>
-          );
-        })}
-    </section>
-  );
+  const pool = positions && Object.values(positions)[0]?.pool;
+  return <section className="holdings" aria-label="手里的桶袋和已交押金">
+    {error ? <p role="alert">{error}</p> : pool ? <>
+      <div className="holding"><b>押金余额 ¥{money(pool.total)}</b><p>持有桶袋需 ¥{money(pool.required)} · {pool.shortfall ? `欠押金 ¥${money(pool.shortfall)}` : '押金已覆盖'}</p>
+        {pool.pendingCollect > 0 && <small>另有 ¥{money(pool.pendingCollect)} 收款待审核，已计入覆盖金额</small>}</div>
+      {products.map(p => { const pos = positions?.[p.containerId]; return pos && <div key={p.containerId} className="holding"><b>{p.name}</b>
+        <p>手里 {pos.held} 个{containerUnit(p.containerId)}{pos.damageQty > 0 && ` · 累计登记破损 ${pos.damageQty} 个`}</p></div>; })}
+    </> : <p>正在核对桶袋和押金…</p>}
+  </section>;
 }
 
-/** The sum under 应付押金, e.g. 欠的 1 个 + 本次多拿的 4 个 = 5 个 × ¥5.00; `estimate` when the returned empties are not known yet. */
-function dueFormula(before: number, thisTime: number, due: number, price: number, estimate: boolean) {
-  const plus = [before > 0 && `欠的 ${before} 个`, thisTime > 0 && `本次${estimate ? '' : '多拿的'} ${thisTime} 个`].filter(Boolean);
-  const minus = [before < 0 && `多交的 ${-before} 个`, thisTime < 0 && `本次多还的 ${-thisTime} 个`].filter(Boolean);
-  if (!due) return plus.length ? `${plus.join(' + ')}，${minus.join('、')}抵掉了，押金够` : '押金够，不用交';
-  return `${[plus.join(' + '), ...minus].join(' − ')}${plus.length + minus.length > 1 ? ` = ${due} 个` : ''} × ¥${money(price)}`;
-}
-
-/**
- * 手里、本次领、应付押金 for one water product: what the member holds and how much of it has a deposit, what this
- * hand-over takes away, and the deposit due = what was owed before + what this time adds. `emptyIn` is null while
- * nobody knows how many empties will come back (an order placed at the store); this time then counts every one taken.
- */
 function DepositRows({ unit, position, fullOut, emptyIn, dueLabel }: {
   unit: string; position: DepositPosition; fullOut: number; emptyIn: number | null; dueLabel: string;
 }) {
-  const covered = Math.max(0, position.covered);
-  const { before, thisTime, due } = depositBreakdown(covered, position.held, fullOut, emptyIn ?? 0);
-  const held = before > 0 ? `${covered ? `其中 ${covered} 个交过押金` : '都没交过押金'}，欠 ${before} 个的押金`
-    : before < 0 ? `交过 ${covered} 个的押金，多交了 ${-before} 个`
-    : position.held ? '都交过押金' : '没有欠押金';
-  const waiting = position.pendingCollectQty ? `（其中 ${position.pendingCollectQty} 个的押金待管理员核对）` : '';
-  const taken = emptyIn === null ? `收回几个空${unit}，就少交几个的押金`
-    : `满${unit}领出 ${fullOut} 个，空${unit}收回 ${emptyIn} 个，${thisTime > 0 ? `多拿 ${thisTime} 个` : thisTime < 0 ? `多还 ${-thisTime} 个` : '一换一'}`;
   return <>
-    <div className="deposit-row"><span><b>手里</b><small>{held}{waiting}</small></span><strong>{position.held} 个{unit}</strong></div>
-    <div className="deposit-row"><span><b>本次领</b><small>{taken}</small></span><strong>{fullOut} 个{unit}</strong></div>
-    <div className="deposit-row due">
-      <span><b>{dueLabel}</b><small>{dueFormula(before, thisTime, due, position.unitDeposit, emptyIn === null)}</small></span>
-      <strong>¥{money(due * position.unitDeposit)}</strong>
-    </div>
+    <div className="deposit-row"><span>当前持有</span><b>{position.held} 个{unit}</b></div>
+    <div className="deposit-row"><span>本次领出{emptyIn !== null && ` · 归还 ${emptyIn} 个`}</span><b>{fullOut} 个{unit}</b></div>
+    <div className="deposit-row due"><span>{dueLabel}</span><strong>¥{money(depositGap(position, fullOut, emptyIn ?? 0))}</strong></div>
   </>;
 }
 
-/**
- * The deposit of an order placed at the store, before anyone knows how many empties come back: 需补押金 = 欠的 + 本次
- * every one taken, and each empty returned at hand-over takes one deposit off.
- */
-export function DepositEstimate({ type, position, qty, delivery, title }: {
-  type: ContainerType; position: DepositPosition; qty: number; delivery: boolean; title?: string;
+export function DepositEstimate({ type, position, qty, title }: {
+  type: ContainerType; position: DepositPosition; qty: number; title?: string;
 }) {
-  const unit = containerUnit(type);
-  const due = depositBreakdown(Math.max(0, position.covered), position.held, qty, 0).due;
-  return (
-    <div className={`deposit-handover${due ? ' owing' : ''}`}>
-      {title && <h5>{title}</h5>}
-      <DepositRows unit={unit} position={position} fullOut={qty} emptyIn={null} dueLabel="需补押金" />
-      {due > 0 && <small className="deposit-hint">押金{delivery ? '送达时交给送水员' : '取水时在门店交'}，每收回 1 个空{unit}少交 ¥{money(position.unitDeposit)}。</small>}
-    </div>
-  );
+  return <div className="deposit-handover">{title && <h5>{title}</h5>}
+    <DepositRows unit={containerUnit(type)} position={position} fullOut={qty} emptyIn={null} dueLabel="预计交付后押金缺口" />
+    <small>按本次暂未归还空桶袋估算，实际归还后重新计算，可继续下单。</small>
+  </div>;
 }
 
 /**
- * What staff answer at a hand-over: whether the customer paid the deposit (asked only when some is due) and how many,
+ * What staff record at hand-over: the amount received when a deposit is due,
  * and whether any container came back damaged, whether the customer pays for it, and why not.
  */
 export interface HandoverChoice {
   /** 客户是否支付押金, null until staff answer. */
   pays: boolean | null;
-  /** Containers below 应付 that the customer did not pay for; 实付 follows 应付 until staff lower it. */
-  short: number;
+  /** Actual yuan received, defaulting to the estimated shortfall. */
+  amount?: string;
   damaged: boolean;
   damagedQty: number;
   /** 是否赔付, null until staff answer. */
@@ -149,16 +81,16 @@ export interface HandoverChoice {
   /** Why a damaged container is not paid for. */
   reason: string;
 }
-export const EMPTY_HANDOVER: HandoverChoice = { pays: null, short: 0, damaged: false, damagedQty: 1, compensated: null, reason: '' };
+export const EMPTY_HANDOVER: HandoverChoice = { pays: null, damaged: false, damagedQty: 1, compensated: null, reason: '' };
 
-/** 实付押金 in containers: 应付 minus what staff took off when the customer paid, 0 when they did not. */
+/** A shortfall is advisory. Only an explicitly recorded payment is collected. */
 export function paidOf(choice: HandoverChoice, due: number) {
-  return choice.pays ? due - Math.min(choice.short, due) : 0;
+  return choice.pays && due > 0 ? parseYuan(choice.amount ?? money(due)) ?? 0 : 0;
 }
 
 /** What the hand-over answers still lack, or '' when they are complete. */
 export function handoverProblem(choice: HandoverChoice, due: number, unit: string) {
-  if (due > 0 && choice.pays === null) return '先选客户是否支付押金';
+  if (due > 0 && choice.pays && paidOf(choice, due) <= 0) return '请输入实际收到的押金，最多两位小数';
   if (choice.damaged && choice.compensated === null) return `先选损坏的${unit}是否赔付`;
   if (choice.damaged && choice.compensated === false && !choice.reason.trim()) return `损坏的${unit}不赔付，要写上原因`;
   return '';
@@ -168,9 +100,10 @@ export function handoverProblem(choice: HandoverChoice, due: number, unit: strin
  * The sentence saved with the order and the container ledger, e.g. 顾客没交押金，交付后欠 5 个袋的押金 ¥25.00；损坏 1 个袋，
  * 不赔付：自然老化. `paid` is the deposit taken for this order, `owed` what the member still owes after it. '' when nothing to say.
  */
-export function composeHandoverNote(choice: HandoverChoice, { unit, price, paid, owed }: { unit: string; price: number; paid: number; owed: number }) {
+export function composeHandoverNote(choice: HandoverChoice, { unit, paid, owed }: { unit: string; paid: number; owed: number }) {
   const parts: string[] = [];
-  if (owed > 0) parts.push(`${paid > 0 ? `实付押金 ${paid} 个${unit} ¥${money(paid * price)}` : '顾客没交押金'}，交付后欠 ${owed} 个${unit}的押金 ¥${money(owed * price)}`);
+  if (paid > 0) parts.push(`本次实收押金 ¥${money(paid)}`);
+  if (owed > 0) parts.push(`交付后欠押金 ¥${money(owed)}`);
   if (choice.damaged) parts.push(`损坏 ${choice.damagedQty} 个${unit}，${choice.compensated ? '顾客赔付' : `不赔付：${choice.reason.trim()}`}`);
   return parts.join('；');
 }
@@ -222,10 +155,10 @@ export function HandoverDeposit({ id, type, position, fullOut, emptyIn, value, o
   damageReviewed?: boolean;
 }) {
   const unit = containerUnit(type);
-  const price = position.unitDeposit;
-  const due = calcDepositGap(position.covered, position.held, fullOut, emptyIn);
+  const { can } = useAuth();
+  const due = depositGap(position, fullOut, emptyIn);
   const paid = collected ? 0 : paidOf(value, due);
-  const owed = collected || value.pays !== null ? due - paid : 0;
+  const owed = Math.max(0, due - paid);
   const set = (patch: Partial<HandoverChoice>) => onChange({ ...value, ...patch });
   return (
     <div className="handover">
@@ -233,22 +166,22 @@ export function HandoverDeposit({ id, type, position, fullOut, emptyIn, value, o
         {title && <h5>{title}</h5>}
         <DepositRows unit={unit} position={position} fullOut={fullOut} emptyIn={emptyIn} dueLabel="应付押金" />
         {due > 0 && (collected
-          ? <small className="deposit-hint">这次已经收了 {collected} 个{unit}的押金，还差的记欠押金。</small>
-          : <Question label="客户是否支付押金？" value={value.pays} yes="是" no="否" onChange={pays => set({ pays, short: 0 })} />)}
+          ? <small className="deposit-hint">本次已收押金 ¥{money(collected)}，还差的记欠押金。</small>
+          : can(P.DepositCollect) && <Question label="客户是否支付押金？" value={value.pays} yes="是" no="否" onChange={pays => set({ pays, amount: undefined })} />)}
         {value.pays && !collected && due > 0 && (
           <div className="deposit-row">
             <span>
               <b>实付押金</b><small>默认收齐应付的，顾客给得少就往下调{depositReviewed ? '；收的押金要管理员核对到账后才入账' : ''}</small>
-              <Stepper value={paid} max={due} showZero label={`${title ?? ''}实付押金个数`} onChange={v => set({ short: due - v })} />
+              <input className="input" type="number" aria-label="实收押金金额" min="0.01" step="0.01" inputMode="decimal"
+                value={value.amount ?? money(due)} onChange={e => set({ amount: e.target.value })} />
             </span>
-            <strong>¥{money(paid * price)}</strong>
           </div>
         )}
         {paid > 0 && payMethod}
         {owed > 0 && (
           <div className="deposit-row owed">
-            <span><b>欠押金</b><small>{owed} 个{unit}没交，记在会员名下，下次交付时一起算</small></span>
-            <strong>¥{money(owed * price)}</strong>
+            <span><b>欠押金</b><small>可继续交付，会员档案会显示差额</small></span>
+            <strong>¥{money(owed)}</strong>
           </div>
         )}
       </div>
@@ -275,10 +208,10 @@ export function HandoverDeposit({ id, type, position, fullOut, emptyIn, value, o
 }
 
 /** Deposit a hand-over collects now for one water product. */
-export interface DepositCollectItem { name: string; type: ContainerType; qty: number; unitDeposit: number }
+export interface DepositCollectItem { name: string; amount: number }
 
 /** Shown after staff answer 还没收到: nothing was recorded, and how to go ahead when the customer paid less or nothing. */
-export const DEPOSIT_NOT_RECEIVED = '押金没收到，没有交付，也没记押金。顾客实际给了几个的押金，就把「实付押金」改成几个；一点没给就在「客户是否支付押金」选「否」，记成欠押金再交付。';
+export const DEPOSIT_NOT_RECEIVED = '押金没收到，没有交付，也没记押金。请把「实付押金」改为收到的金额；一点没给就在「客户是否支付押金」选「否」，记成欠押金再交付。';
 
 /**
  * Asks whether the deposit is really in hand before a hand-over records it. A deposit recorded but never paid is still
@@ -297,8 +230,7 @@ function DepositReceivedDialog({ payMethod, items, unpaid, onClose }: {
   unpaid?: { amount: number; text: string };
   onClose: (received?: boolean) => void;
 }) {
-  const total = items.reduce((sum, o) => sum + o.qty * o.unitDeposit, 0);
-  const units = [...new Set(items.map(o => containerUnit(o.type)))].join('');
+  const total = items.reduce((sum, o) => sum + o.amount, 0);
   const reviewed = waitsForReview(useReviewSettings(), 'deposit');
   // The first close wins: 已收到 resolves true before the form closes itself.
   return (
@@ -309,12 +241,12 @@ function DepositReceivedDialog({ payMethod, items, unpaid, onClose }: {
         <span>要收押金</span>
         <strong>¥{money(total)}</strong>
         <em>{payMethodLabel(payMethod)}</em>
-        {items.map(o => <small key={`${o.name}-${o.type}`}>{o.name}：收 {o.qty} 个{containerUnit(o.type)} × ¥{money(o.unitDeposit)}</small>)}
+        {items.map(o => <small key={o.name}>{o.name} · 收押金 ¥{money(o.amount)}</small>)}
         {unpaid && <small className="deposit-received-unpaid">另有 ¥{money(unpaid.amount)}（{unpaid.text}）没收，记欠押金</small>}
       </div>
       <p className="deposit-received-note">
         <b>钱到手了再点「已收到」。</b>{payMethod === 'CASH' ? '现金请当面点清。' : `${payMethodLabel(payMethod)}请看到钱到账再确认。`}
-        {reviewed ? '确认后先记为待审核，管理员核对到账、批准后才入账，' : '确认后系统记为已收押金，'}顾客以后退{units}时要按这笔退钱。
+        {reviewed ? '确认后先记为待审核，管理员核对到账、批准后才入账，' : '确认后系统记为已收押金，'}计入会员押金池。
       </p>
       <p className="membership-note">收到的和填的不一样就点「还没收到」，回去改「实付押金」，这次什么都不记。</p>
     </FormDialog>
@@ -375,14 +307,12 @@ type Line = {
   /** Empties returned: counted by the counter at a hand-over, unknown (0) for an order handed over later. */
   emptyIn: number;
   /** 应付 (hand-over) or 需补 (order) for this line in containers and money, as if the lines before it were paid in full. */
-  gap: number; deposit: number;
+  gap: number;
   choice: HandoverChoice;
   /** Containers whose deposit an earlier try of this checkout already took for this line. */
   collected: number;
   /** Containers whose deposit the customer pays now (实付) and leaves unpaid (欠押金, once staff answered), at a hand-over. */
   paid: number; owed: number;
-  /** Containers the member holds without a deposit once this line is handed over, debts earlier in the checkout included. */
-  uncoveredAfter: number;
 };
 /** An order placed in this checkout, with what of its hand-over still waits for an admin: the deposit taken, an unpaid damage. */
 type Placed = CreateOrderResult & { name: string; handedOver: boolean; depositPending?: number; damagePending?: boolean };
@@ -427,45 +357,32 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
   const delivery = mode === 'DELIVERY';
   const handOver = counter && !delivery && can(P.OrderFulfill);
   const positions = deposits.data;
-  // Each water has its own container balance. Empty returns and deposit coverage never cross water products.
-  // `covered` counts only deposits actually collected, so a line's uncovered count includes debts left by earlier lines.
-  const running = new Map<ContainerType, { position: DepositPosition; empties: number; covered: number }>();
+  let addedValue = 0;
+  let paidSoFar = 0;
   const lines: Line[] = products.flatMap(product => {
     const water = product.waterType;
     const qty = cart[water] ?? 0;
     if (!qty) return [];
     const container = product.containerId;
     const start = positions?.[container];
-    const { position, empties, covered } = running.get(container) ?? { position: start, empties: start?.held ?? 0, covered: start?.covered ?? 0 };
-    // At the counter the customer is here with the empties: assume each one held comes back unless staff record otherwise.
-    // An order handed over later cannot know, so its 需补押金 counts every container taken (欠的 + 这次领的).
+    const position = start && { ...start, pool: { ...start.pool, required: start.pool.required + addedValue, available: start.pool.available + paidSoFar } };
+    const empties = position?.held ?? 0;
     const emptyIn = handOver ? Math.min(empties, returns[water] ?? qty) : 0;
-    const gap = position ? calcDepositGap(position.covered, position.held, qty, emptyIn) : 0;
+    const gap = position ? depositGap(position, qty, emptyIn) : 0;
     const choice = choices[water] ?? EMPTY_HANDOVER;
-    // A deposit already taken in this checkout is in the reloaded coverage; nothing more is collected for that line.
     const collected = progress.current.get(water)?.deposit ?? 0;
     const paid = handOver && !collected ? paidOf(choice, gap) : 0;
-    const heldAfter = (position?.held ?? 0) + qty - emptyIn;
-    if (position) running.set(container, { position: { ...position, held: heldAfter, covered: position.covered + gap }, empties: empties - emptyIn, covered: covered + paid });
-    return [{
-      product, water, qty, tickets: ticketsFor(member, water, mode), container, unit: containerUnit(container), position, empties, emptyIn,
-      gap, deposit: gap * (position?.unitDeposit ?? 0), choice, collected, paid,
-      owed: handOver && (collected || choice.pays !== null) ? gap - paid : 0,
-      uncoveredAfter: handOver && position ? Math.max(0, heldAfter - covered - paid) : 0,
-    }];
+    const owed = Math.max(0, gap - paid);
+    addedValue += (qty - emptyIn) * (position?.unitDeposit ?? 0);
+    paidSoFar += paid;
+    return [{ product, water, qty, tickets: ticketsFor(member, water, mode), container, unit: containerUnit(container),
+      position, empties, emptyIn, gap, choice, collected, paid, owed }];
   });
   const count = lines.reduce((sum, l) => sum + l.qty, 0);
-  // 桶, 袋 or 桶/袋: the containers this cart actually hands over, so deposit notes name the right one.
-  const units = [...new Set(lines.map(l => l.unit))].join('/') || '桶';
-  const depositTotal = lines.reduce((sum, l) => sum + l.deposit, 0);
-  const priceOf = (l: Line) => l.position?.unitDeposit ?? 0;
-  const paidTotal = lines.reduce((sum, l) => sum + l.paid * priceOf(l), 0);
-  const owedLines = lines.filter(l => l.owed > 0);
-  const owedTotal = owedLines.reduce((sum, l) => sum + l.owed * priceOf(l), 0);
-  // Earlier debt with nothing new owed still leaves the member short; the hand-over then records it again as owed.
-  const owing = lines.some(l => l.uncoveredAfter > 0);
-  // Staff have not yet said whether the customer paid; until then the button does not claim the deposit is owed.
-  const unanswered = handOver && lines.some(l => l.gap > 0 && !l.collected && l.choice.pays === null);
+  const depositTotal = lines.at(-1)?.gap ?? 0;
+  const paidTotal = paidSoFar;
+  const owedTotal = lines.at(-1)?.owed ?? 0;
+  const owing = owedTotal > 0;
   const minimumOf = (p: WaterProduct) => (delivery ? Math.max(1, p.deliveryMinimum) : 1);
   const short = lines.find(l => l.qty > l.tickets);
   const below = lines.find(l => l.qty < minimumOf(l.product));
@@ -485,7 +402,6 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
   else if (short) blocker = `${short.product.name}${modeLabel(mode)}票不足，剩 ${short.tickets} 张`;
   else if (below) blocker = `${below.product.name}${minimumOf(below.product)}${below.unit}起送，还差 ${minimumOf(below.product) - below.qty} ${below.unit}`;
   else if (step === 'checkout' && delivery && !addressId) blocker = '请选择收货地址';
-  else if (step === 'checkout' && handOver && depositTotal > 0 && !can(P.DepositCollect)) blocker = '需补押金，当前账号没有收押金权限';
   else if (!positions && !deposits.error) blocker = '正在核对押金…';
   else if (step === 'checkout' && handOver) blocker = lines.map(l => handoverProblem(l.choice, l.collected ? 0 : l.gap, l.unit)).find(Boolean) ?? '';
 
@@ -494,10 +410,10 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
     setBusy(true); setError('');
     // Ask before anything is created; a retry asks only about deposits this checkout has not taken yet.
     const collecting = lines.filter(l => l.paid > 0);
-    const unpaidText = owedLines.map(l => `${l.owed} 个${l.unit}`).join('、');
+
     if (collecting.length && !await confirmDeposit(payMethod,
-      collecting.map(l => ({ name: l.product.name, type: l.container, qty: l.paid, unitDeposit: priceOf(l) })),
-      owedTotal > 0 ? { amount: owedTotal, text: unpaidText } : undefined)) {
+      collecting.map(l => ({ name: l.product.name, amount: l.paid })),
+      owedTotal > 0 ? { amount: owedTotal, text: "交付后差额" } : undefined)) {
       setBusy(false);
       setError(DEPOSIT_NOT_RECEIVED);
       return;
@@ -514,15 +430,15 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
         let damagePending = false;
         if (handOver) {
           if (line.paid > 0 && !p.deposit) {
-            const taken = await api.collectDeposit({ memberId: member.id, containerType: line.container, quantity: line.paid, payMethod, idempotencyKey: `${p.key}:deposit:${line.paid}:${payMethod}` });
+            const taken = await api.collectDeposit({ memberId: member.id, amount: line.paid, payMethod, idempotencyKey: `${p.key}:deposit` });
             p.deposit = line.paid;
             if (taken.status === 'PENDING') p.depositPending = taken.totalAmount;
           }
-          const owe = line.uncoveredAfter;
-          const note = composeHandoverNote(line.choice, { unit: line.unit, price: priceOf(line), paid: p.deposit ?? 0, owed: owe });
+          const owe = line.owed;
+          const note = composeHandoverNote(line.choice, { unit: line.unit, paid: p.deposit ?? 0, owed: owe });
           const result = await api.fulfillOrder(p.order.id, {
             actualQty: line.qty, fullOutN: line.qty, emptyInM: line.emptyIn, pickupCode: p.order.pickupCode ?? null,
-            ...(owe > 0 && { forceCreditOverride: true }), ...(note && { overrideReason: note }), ...damageFields(line.choice),
+            ...(note && { overrideReason: note }), ...damageFields(line.choice),
           });
           damagePending = result.damageReviewStatus === 'PENDING';
         }
@@ -581,7 +497,7 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
       {step === 'menu'
         ? <button type="button" className="btn primary" disabled={!!blocker} onClick={() => setStep('checkout')}>选好了</button>
         : <button type="button" className="btn primary" disabled={!!blocker || busy} onClick={submit}>
-          {busy ? '正在提交…' : handOver ? paidTotal > 0 ? '收押金并交付' : owing && !unanswered ? '记欠押金并交付' : '确认交付' : '提交订单'}
+          {busy ? '正在提交…' : handOver ? paidTotal > 0 ? '收押金并交付' : owing ? '记欠押金并交付' : '确认交付' : '提交订单'}
         </button>}
     </div>
   );
@@ -633,9 +549,9 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
                       {PAY_METHODS.map(p => <button key={p.value} type="button" role="radio" aria-checked={payMethod === p.value} className={payMethod === p.value ? 'active' : ''} onClick={() => setPayMethod(p.value)}>{p.label}</button>)}
                     </div>
                   )} />
-              : <DepositEstimate key={l.water} type={l.container} position={l.position} qty={l.qty} delivery={delivery} title={title} />;
+              : <DepositEstimate key={l.water} type={l.container} position={l.position} qty={l.qty} title={title} />;
           })}
-        {!handOver && depositTotal > 0 && <p className="membership-note">还回{units}后可以退押金。</p>}
+        {!handOver && depositTotal > 0 && <p className="membership-note">按实际交接数量核对押金，欠押金也可以下单。</p>}
       </section>
       <section className="checkout-card">
         <label htmlFor="orderRemark"><h4><Icon name="edit" />备注</h4></label>

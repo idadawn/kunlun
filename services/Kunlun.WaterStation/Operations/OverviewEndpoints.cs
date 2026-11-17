@@ -24,13 +24,6 @@ public static class OverviewEndpoints
                 ), usage AS (
                   SELECT (completed_at AT TIME ZONE 'Asia/Shanghai')::date AS day,sum(actual_qty) AS qty
                   FROM plugin_kunlun_waterstation.water_orders WHERE tenant_id=@tid AND status='COMPLETED' GROUP BY 1
-                ), deposit_rows AS (
-                  SELECT l.remaining_qty-l.reserved_damage_qty AS remaining_qty,l.unit_price,
-                    COALESCE((SELECT h.quantity FROM plugin_kunlun_waterstation.member_container_holdings h WHERE h.tenant_id=l.tenant_id AND h.member_id=l.member_id AND h.container_type=l.container_type),0) AS held,
-                    sum(l.remaining_qty-l.reserved_damage_qty) OVER (PARTITION BY l.member_id,l.container_type) AS total,
-                    COALESCE(sum(l.remaining_qty-l.reserved_damage_qty) OVER (PARTITION BY l.member_id,l.container_type ORDER BY l.created_at,l.id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) AS prior
-                  FROM plugin_kunlun_waterstation.deposit_lots l JOIN plugin_kunlun_waterstation.members m ON m.id=l.member_id
-                  WHERE l.tenant_id=@tid AND m.tenant_id=@tid
                 )
                 SELECT json_build_object(
                   'pendingDelivery',(SELECT count(*) FROM plugin_kunlun_waterstation.water_orders WHERE tenant_id=@tid AND status='PENDING' AND fulfill_mode='DELIVERY'),
@@ -43,7 +36,8 @@ public static class OverviewEndpoints
                   'newMembersMonth',(SELECT count(*) FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND created_at AT TIME ZONE 'Asia/Shanghai'>=date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai')),
                   'membersWithTickets',(SELECT count(DISTINCT member_id) FROM plugin_kunlun_waterstation.member_tickets WHERE tenant_id=@tid AND available+reserved>0),
                   'membersWithContainers',(SELECT count(*) FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND held_buckets+held_bags>0),
-                  'refundableDeposit',(SELECT COALESCE(sum(unit_price*greatest(0,least(remaining_qty,total-held-prior))),0) FROM deposit_rows),
+                  'refundableDeposit',(SELECT COALESCE(sum((remaining_qty-reserved_damage_qty)*COALESCE(unit_price,0)+free_amount),0) FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid)
+                    -(SELECT COALESCE(sum(estimated_amount),0) FROM plugin_kunlun_waterstation.refund_requests WHERE tenant_id=@tid AND kind='DEPOSIT' AND status='PENDING'),
                   'trend',(SELECT json_agg(json_build_object('date',to_char(d.day,'YYYY-MM-DD'),'rechargeAmount',COALESCE(c.amount,0),'waterQty',COALESCE(u.qty,0)) ORDER BY d.day) FROM days d LEFT JOIN charges c USING(day) LEFT JOIN usage u USING(day))
                 )::text
                 """, ("tid", repo.DefaultTenantId));

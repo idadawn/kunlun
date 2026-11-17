@@ -53,7 +53,7 @@ export function Expenses() {
       <StatCard label={`买桶袋 · ${period}`} icon="box" tone="gold" value={s ? `¥ ${money(byCategory('CONTAINER'))}` : '—'}
         foot={s ? EXPENSE_CATEGORIES.filter(c => c.value !== 'CONTAINER').map(c => `${c.label} ¥${money(byCategory(c.value))}`).join(' · ') : '按类别合计'} />
       <StatCard label={`水费净收 · ${period}`} icon="wallet" tone="blue" value={s ? `¥ ${money(s.rechargeNet)}` : '—'}
-        foot={s ? `实收 ¥${money(s.rechargeRevenue)} − 退款 ¥${money(s.rechargeRefunded)}，不含押金` : '同期水费实收 − 退款'} />
+        foot={s ? `实收 ¥${money(s.rechargeRevenue)} − 退款 ¥${money(s.rechargeRefunded)} − 转押金 ¥${money(s.transferred)}` : '同期水费实收 − 退款'} />
       <StatCard label={`结余 · ${period}`} icon="refund" value={s ? <span className={s.balance < 0 ? 'amount-out' : undefined}>¥ {money(s.balance)}</span> : '—'}
         foot="水费净收 − 费用支出；其中还有会员没用完的水费，可能要退" />
     </div>

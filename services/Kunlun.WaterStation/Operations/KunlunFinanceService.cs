@@ -24,7 +24,7 @@ public sealed record CreateRechargeOrderRequest(
 
 public sealed record CollectDepositRequest(
     Guid MemberId,
-    string ContainerType, // BUCKET | BAG
+    string? ContainerType, // BUCKET | BAG
     int Quantity,
     string PayMethod,
     string IdempotencyKey,
@@ -32,7 +32,7 @@ public sealed record CollectDepositRequest(
 
 public sealed record RefundDepositRequest(
     Guid MemberId,
-    string ContainerType, // BUCKET | BAG
+    string? ContainerType, // BUCKET | BAG
     int Quantity,
     string IdempotencyKey,
     string? PayMethod = null, // 实际退款方式；旧客户端不传时记为未登记
@@ -157,6 +157,9 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 UNIQUE (tenant_id, idempotency_key)
             );
+            ALTER TABLE deposit_lots ADD COLUMN IF NOT EXISTS free_amount NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK(free_amount>=0);
+            ALTER TABLE deposit_lots ALTER COLUMN container_type DROP NOT NULL, ALTER COLUMN paid_qty DROP NOT NULL, ALTER COLUMN unit_price DROP NOT NULL;
+            ALTER TABLE deposit_refunds ALTER COLUMN container_type DROP NOT NULL, ALTER COLUMN refund_qty DROP NOT NULL;
             ALTER TABLE deposit_refunds ADD COLUMN IF NOT EXISTS pay_method VARCHAR(24);
             -- Staff may pay back less than the deposit was worth: the rest is kept as a deduction, and the whole deposit may be kept.
             ALTER TABLE deposit_refunds ADD COLUMN IF NOT EXISTS deducted_amount NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (deducted_amount >= 0);

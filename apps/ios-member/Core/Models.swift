@@ -168,10 +168,18 @@ extension TicketBatch {
     }
 }
 
+public struct DepositPoolBalance: Decodable, Sendable {
+    public let total: Decimal
+    public let required: Decimal
+    public let shortfall: Decimal
+}
+
 public struct DepositSummary: Decodable, Identifiable, Sendable {
     public let name: String?
     public let containerKind: String?
     public let containerType: String
+    public let pool: DepositPoolBalance?
+    public let damageQty: Int?
     public let paidQty: Int
     public let paidAmount: Decimal
     public let heldQty: Int

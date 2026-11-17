@@ -291,6 +291,8 @@ public static class Expenses
                        WHERE e.tenant_id=@tid AND e.status='ACTIVE' AND {{Window}} GROUP BY category) c), '[]'::json),
               'rechargeRevenue', (SELECT COALESCE(sum(paid_amount),0) FROM plugin_kunlun_waterstation.recharge_orders
                  WHERE tenant_id=@tid AND (@from IS NULL OR created_at >= @from) AND (@to IS NULL OR created_at < @to)),
+              'transferred', (SELECT COALESCE(sum(transferred_amount),0) FROM plugin_kunlun_waterstation.recharge_refunds
+                 WHERE tenant_id=@tid AND (@from IS NULL OR created_at >= @from) AND (@to IS NULL OR created_at < @to)),
               'rechargeRefunded', (SELECT COALESCE(sum(amount),0) FROM plugin_kunlun_waterstation.recharge_refunds
                  WHERE tenant_id=@tid AND (@from IS NULL OR created_at >= @from) AND (@to IS NULL OR created_at < @to))
             )::text
@@ -302,6 +304,7 @@ public static class Expenses
         var root = doc.RootElement;
         var expense = root.GetProperty("expenseTotal").GetDecimal();
         var revenue = root.GetProperty("rechargeRevenue").GetDecimal();
+        var transferred = root.GetProperty("transferred").GetDecimal();
         var refunded = root.GetProperty("rechargeRefunded").GetDecimal();
         return Results.Ok(new
         {
@@ -316,8 +319,9 @@ public static class Expenses
             }).ToArray(),
             rechargeRevenue = revenue,
             rechargeRefunded = refunded,
-            rechargeNet = revenue - refunded,
-            balance = revenue - refunded - expense
+            transferred,
+            rechargeNet = revenue - refunded - transferred,
+            balance = revenue - refunded - transferred - expense
         });
     }
 }

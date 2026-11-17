@@ -7,8 +7,8 @@ import { Icon, useAuth } from '@kunlun/ui';
 import { DateFilterSelect, EmptyRow, Pager, StatCard, handledBy, ledgerEmptyText, useDebounced, useExport, useGo, useLedger, useOperations } from '../common';
 import { useAdminData } from '../data';
 
-const FLOWS: Array<[DepositFlowType | '', string]> = [['', '全部流水'], ['COLLECT', '收押金'], ['REFUND', '退押金'], ['DEDUCT', '扣押金'], ['OPENING', '上系统前']];
-const FLOW_TAGS: Record<DepositFlowType, [string, string]> = { COLLECT: ['收押金', 'green'], REFUND: ['退押金', 'blue'], DEDUCT: ['扣押金', 'orange'], OPENING: ['上系统前', 'gold'] };
+const FLOWS: Array<[DepositFlowType | '', string]> = [['', '全部流水'], ['COLLECT', '收押金'], ['TRANSFER', '水费转押金'], ['REFUND', '退押金'], ['DEDUCT', '扣押金'], ['OPENING', '上系统前']];
+const FLOW_TAGS: Record<DepositFlowType, [string, string]> = { TRANSFER: ['水费转押金','blue'], COLLECT: ['收押金', 'green'], REFUND: ['退押金', 'blue'], DEDUCT: ['扣押金', 'orange'], OPENING: ['上系统前', 'gold'] };
 const NO_REPORTS = '需要报表权限';
 
 /** 押金管理：桶、袋押金单独收退和对账，与水费充值分开。 */
@@ -29,7 +29,7 @@ export function Deposits() {
 
   return <>
     <div className="page-head">
-      <div><h2>押金管理</h2><p>桶、袋押金单独收退，退款按原收款批次单价计算；押金不计入水费实收，也不触发赠水</p></div>
+      <div><h2>押金管理</h2><p>按会员查询押金余额、收退流水和结算转入金额。</p></div>
       <div className="head-actions">
         <button type="button" className="btn" onClick={() => ops.deposit('refund')}>退押金</button>
         <button type="button" className="btn primary" onClick={() => ops.deposit('collect')}><Icon name="plus" />收押金</button>
@@ -38,17 +38,17 @@ export function Deposits() {
     <div className="stats-grid">
       <StatCard label="在池押金" icon="deposit" value={f ? `¥ ${money(f.unrefundedDepositPoolTotal)}` : '—'}
         foot={f ? (f.reconciledZeroDiff ? '与收退流水零误差对齐' : '与收退流水不一致，请核对') : NO_REPORTS} />
-      <StatCard label="当前可退押金" icon="wallet" tone="blue" value={overview ? `¥ ${money(overview.refundableDeposit)}` : '—'} foot="已扣除会员持有容器的占用" />
+      <StatCard label="当前可退押金" icon="wallet" tone="blue" value={overview ? `¥ ${money(overview.refundableDeposit)}` : '—'} foot="已扣除待报废占用和退款审核金额" />
       {/* Deposits recorded from before the system were not taken in here: shown beside the collections, never added to them. */}
       <StatCard label="累计收押" icon="plus" tone="gold" value={f ? `¥ ${money(f.depositCollectedTotal)}` : '—'}
-        foot={f ? `共 ${f.depositCollectCount} 笔${Number(f.depositOpeningTotal) ? `；另有上系统前已收 ${f.depositOpeningCount} 笔 ¥${money(f.depositOpeningTotal)}，在池里、不算收押` : ''}` : NO_REPORTS} />
+        foot={f ? `共 ${f.depositCollectCount} 笔 · 另有水费转入 ¥${money(f.depositTransferTotal)}${Number(f.depositOpeningTotal) ? `；另有上系统前已收 ${f.depositOpeningCount} 笔 ¥${money(f.depositOpeningTotal)}，在池里、不算收押` : ''}` : NO_REPORTS} />
       <StatCard label="累计退押与扣押" icon="refresh" tone="orange" value={f ? `¥ ${money(Number(f.depositRefundedTotal) + Number(f.depositDeductedTotal))}` : '—'}
         foot={f ? `退押 ${f.depositRefundCount} 笔 ¥${money(f.depositRefundedTotal)} · 扣押金 ${f.depositDeductCount} 笔 ¥${money(f.depositDeductedTotal)}` : NO_REPORTS} />
     </div>
     {standards && (
       <div className="ledger-hint">
         <Icon name="info" size="sm" />
-        <span>现行押金标准：{standards}。可在「水品与押金标准」调整，只影响之后的收款，历史押金仍按原单价退还。</span>
+        <span>现行押金标准：{standards}。可在「水品与押金标准」调整，用于计算持有桶袋和未收费破损的价值。</span>
         <button type="button" className="text-btn" onClick={() => go('products')}>调整标准 ›</button>
       </div>
     )}
@@ -83,17 +83,17 @@ function DepositTable({ filter, filtered }: { filter: DepositLedgerQuery; filter
             {rows.length === 0 ? <EmptyRow colSpan={9}>{ledgerEmptyText(table, filtered, '暂无押金流水，请点击右上角「收押金」办理', '押金流水')}</EmptyRow> : rows.map(d => {
               const [label, tone] = FLOW_TAGS[d.flowType] ?? [d.flowType, 'gray'];
               // A deposit from before the system is a lot like a collection, only not taken in on that day.
-              const collect = d.flowType === 'COLLECT' || d.flowType === 'OPENING';
+              const collect = d.flowType === 'COLLECT' || d.flowType === 'OPENING' || d.flowType === 'TRANSFER';
               return (
                 <tr key={`${d.flowType}:${d.docNo}`}>
                   <td><span className="order-no">{d.docNo}</span><br /><small>{shortDateTime(d.createdAt)}</small></td>
                   <td><b>{d.memberName}</b><br /><small>{d.memberNo}</small></td>
                   <td><span className={`tag ${tone}`}>{label}</span>{d.reason && <><br /><small className="ledger-reason">{d.reason}</small></>}</td>
-                  <td>{containerLabel(d.containerType)} × {d.qty}</td>
-                  <td>¥ {money(d.unitPrice)}</td>
+                  <td>{d.containerType ? `${containerLabel(d.containerType)} × ${d.qty}` : '会员押金池'}</td>
+                  <td>{d.containerType ? `¥ ${money(d.unitPrice)}` : '—'}</td>
                   <td><b className={collect ? 'amount-in' : 'amount-out'}>{d.flowType === 'OPENING' ? '' : collect ? '+' : '−'}¥ {money(d.amount)}</b></td>
                   <td>{d.payMethod ? payMethodLabel(d.payMethod) : <small>{d.flowType === 'DEDUCT' ? '从押金扣抵' : '未登记'}</small>}</td>
-                  <td>{collect ? `${d.remainingQty} 个` : <small>—</small>}</td>
+                  <td>{collect && d.containerType ? `${d.remainingQty} 个` : <small>—</small>}</td>
                   <td>{handledBy(d.applicantName, d.operatorName, '退款')}</td>
                 </tr>
               );
@@ -101,7 +101,7 @@ function DepositTable({ filter, filtered }: { filter: DepositLedgerQuery; filter
           </tbody>
         </table>
       </div>
-      <div className="table-footer"><span>共 {table.total} 条 · 退押金严格按原收取批次单价计算，报废按原实收批次扣押金</span><Pager page={table.page} total={table.total} onChange={table.setPage} /></div>
+      <div className="table-footer"><span>共 {table.total} 条</span><Pager page={table.page} total={table.total} onChange={table.setPage} /></div>
     </div>
   );
 }

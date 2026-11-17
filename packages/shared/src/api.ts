@@ -271,12 +271,12 @@ export class KunlunApi {
    * `amount`: the money taken, split evenly over the containers; the current standard × quantity when omitted. While deposits are
    * reviewed the deposit waits as a request (status PENDING, no deposit number) until an admin approves it.
    */
-  collectDeposit(body: { memberId: string; containerType: ContainerType; quantity: number; payMethod: PayMethod; idempotencyKey: string; amount?: number }) {
+  collectDeposit(body: { memberId: string; containerType?: ContainerType; quantity?: number; payMethod: PayMethod; idempotencyKey: string; amount?: number }) {
     return this.post<{ status: 'PENDING' | 'APPROVED'; depositNo?: string | null; requestNo?: string; totalAmount: number }>('/api/deposits/collect', body);
   }
 
   // 退款结算：一张单子结清会员的水票、押金和桶袋
-  settlementPreview(memberId: string, body: { containers?: SettlementContainerInput[]; amount?: number }) {
+  settlementPreview(memberId: string, body: { containers?: SettlementContainerInput[]; amount?: number; damageDecisions?: SettlementRequest["damageDecisions"] }) {
     return this.post<SettlementPreview>(`/api/members/${memberId}/settlement/preview`, body);
   }
   settle(memberId: string, body: SettlementRequest) { return this.post<SettlementSlip>(`/api/members/${memberId}/settlement`, body); }
@@ -296,7 +296,7 @@ export class KunlunApi {
     return this.request<Paged<ContainerDamageRow>>('/api/containers/damages' + queryString({ q, containerType, status, page }));
   }
   /** `acceptUncovered` 登记超出已交押金的破损，此时 `uncoveredNote` 必填。 */
-  reportDamage(body: { memberId: string; containerType: ContainerType; quantity: number; reason: string; idempotencyKey: string; acceptUncovered?: boolean; uncoveredNote?: string | null }) {
+  reportDamage(body: { memberId: string; containerType: ContainerType; quantity: number; reason: string; idempotencyKey: string; feePaid?: boolean; acceptUncovered?: boolean; uncoveredNote?: string | null }) {
     return this.post<{ damageNo: string }>('/api/containers/damages', body);
   }
   scrapDamage(id: string, body: { reason: string; idempotencyKey: string; deductDeposit: boolean }) {

@@ -22,7 +22,7 @@ public sealed class OrderIntegrationTests(TestHost factory)
     }
 
     [Fact]
-    public async Task Order_Reserve_CancelRelease_EqualExchange_And_UncoveredDepositBlock_Should_Pass()
+    public async Task Order_Reserve_CancelRelease_EqualExchange_And_UncoveredDepositWarning_Should_Pass()
     {
         var token = await GetAdminTokenAsync();
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -95,10 +95,10 @@ public sealed class OrderIntegrationTests(TestHost factory)
 
         var ful3BlockResp = await _client.PostAsJsonAsync($"/api/orders/{ord3Id}/fulfill",
             new FulfillWaterOrderRequest(ActualQty: 2, FullOutN: 2, EmptyInM: 1));
-        Assert.Equal(HttpStatusCode.BadRequest, ful3BlockResp.StatusCode);
-        var ful3BlockJson = await ful3BlockResp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("DEPOSIT_COVERAGE_INSUFFICIENT", ful3BlockJson.GetProperty("error").GetString());
-        Assert.Equal(1, ful3BlockJson.GetProperty("uncoveredGap").GetInt32());
+        Assert.Equal(HttpStatusCode.OK, ful3BlockResp.StatusCode);
+        var completed = await ful3BlockResp.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(completed.GetProperty("owedDepositAmount").GetDecimal() > 0);
+
     }
 
     [Fact]
@@ -119,17 +119,6 @@ public sealed class OrderIntegrationTests(TestHost factory)
             new CreateWaterOrderRequest(memberId, "BUCKET_18_9L", "DELIVERY", 3, $"idem-owe-ord-{Guid.NewGuid()}"));
         var orderJson = await ordResp.Content.ReadFromJsonAsync<JsonElement>();
         var orderId = orderJson.GetProperty("id").GetGuid();
-
-        // 记欠押金不写备注（或只写空格）被拦下，水单不变。
-        foreach (var blank in new string?[] { null, "   " })
-        {
-            var refused = await _client.PostAsJsonAsync($"/api/orders/{orderId}/fulfill",
-                new FulfillWaterOrderRequest(ActualQty: 3, FullOutN: 3, EmptyInM: 0, ForceCreditOverride: true, OverrideReason: blank));
-            Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
-            var refusedJson = await refused.Content.ReadFromJsonAsync<JsonElement>();
-            Assert.Equal("DEPOSIT_OWED_NOTE_REQUIRED", refusedJson.GetProperty("error").GetString());
-            Assert.Equal(2, refusedJson.GetProperty("uncoveredGap").GetInt32());
-        }
 
         // 写了备注照样交付：会员手里 3 个，押金只够 1 个，欠 2 个；备注记进水单和袋桶台账。
         const string note = "这单后欠押金 2 个桶 ¥100.00；报废 1 个桶，报废费用没给；说明：顾客说下次带钱来";
@@ -153,8 +142,8 @@ public sealed class OrderIntegrationTests(TestHost factory)
             new CreateWaterOrderRequest(memberId, "BUCKET_18_9L", "DELIVERY", 1, $"idem-owe-ord2-{Guid.NewGuid()}"))).Content.ReadFromJsonAsync<JsonElement>();
         var swap = await _client.PostAsJsonAsync($"/api/orders/{nextOrder.GetProperty("id").GetGuid()}/fulfill",
             new FulfillWaterOrderRequest(ActualQty: 1, FullOutN: 1, EmptyInM: 1));
-        Assert.Equal(HttpStatusCode.BadRequest, swap.StatusCode);
-        Assert.Equal(2, (await swap.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("uncoveredGap").GetInt32());
+        Assert.Equal(HttpStatusCode.OK, swap.StatusCode);
+        Assert.Equal(2, (await swap.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("owedDepositQty").GetInt32());
 
         // 破损 2 个：交过的 1 个押金先扣，剩下 1 个没押金。不勾选就拦下，勾了不写备注也拦下。
         var damage = new ReportContainerDamageRequest(memberId, "BUCKET", 2, "桶身开裂", $"idem-owe-dmg-{Guid.NewGuid()}");
