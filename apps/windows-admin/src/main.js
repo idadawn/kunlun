@@ -6,7 +6,9 @@ import { app, BrowserWindow, Menu, dialog, ipcMain, safeStorage, screen, session
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { clampZoom, externalUrl, isAppUrl, nextZoom, normalizeLogin, resolveOrigin, savedLoginFor, startUrl } from './rules.js';
+import {
+  authPause, clampZoom, externalUrl, isAppUrl, loginOffer, nextZoom, normalizeLogin, resolveOrigin, savedLoginFor, startUrl,
+} from './rules.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8'));
@@ -37,24 +39,46 @@ async function readSavedLogin(origin) {
   }
 }
 
-/** The 记住密码 box on the login page talks to these; only the admin pages of the configured server get answers. */
+const forgetSavedLogin = () => rmSync(loginPath(), { force: true });
+
+// Whether 自动登录 is ticked: on unless the user unticked it. Not secret, so kept in plain JSON.
+const loginSettingsPath = () => join(app.getPath('userData'), 'login-settings.json');
+function readRemember() {
+  try { return JSON.parse(readFileSync(loginSettingsPath(), 'utf8')).remember !== false; } catch { return true; }
+}
+function writeRemember(remember) {
+  try { writeFileSync(loginSettingsPath(), JSON.stringify({ remember })); } catch { /* The box falls back to ticked. */ }
+}
+
+/** The 自动登录 box on the login page talks to these; only the admin pages of the configured server get answers. */
 function setupSavedLogin(win, origin) {
+  // A logout or password change stops the next automatic login until a login works again (or the app restarts).
+  let pause = null;
+  win.webContents.session.webRequest.onSendHeaders({ urls: ['*://*/api/auth/*'] }, details => {
+    pause = authPause(origin, details.method, details.url) ?? pause;
+  });
   const fromAdminPage = event => event.sender === win.webContents && event.senderFrame?.parent === null
     && isAppUrl(origin, event.senderFrame.url);
+
   ipcMain.handle('kunlun:login:get', async event => {
     if (!fromAdminPage(event)) return null;
     const available = await encryptionAvailable();
-    return { available, saved: available ? await readSavedLogin(origin) : null };
+    return loginOffer({ available, saved: available ? await readSavedLogin(origin) : null, remember: readRemember(), pause });
   });
-  ipcMain.handle('kunlun:login:save', async (event, value) => {
+  ipcMain.handle('kunlun:login:succeeded', async (event, value) => {
+    if (!fromAdminPage(event)) return false;
+    pause = null;
+    const remember = value?.remember === true;
     const login = normalizeLogin(value);
-    if (!fromAdminPage(event) || !login || !await encryptionAvailable()) return false;
+    writeRemember(remember);
+    if (!remember || !login || !await encryptionAvailable()) { forgetSavedLogin(); return false; }
     await writeSavedLogin(origin, login);
     return true;
   });
   ipcMain.handle('kunlun:login:forget', event => {
     if (!fromAdminPage(event)) return false;
-    rmSync(loginPath(), { force: true });
+    writeRemember(false);
+    forgetSavedLogin();
     return true;
   });
 }

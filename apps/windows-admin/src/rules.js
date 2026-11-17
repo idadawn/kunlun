@@ -59,6 +59,28 @@ export function savedLoginFor(origin, value) {
   return normalizeLogin(value);
 }
 
+/**
+ * A request that should stop the next automatic login: 'logout' (the user logged out on purpose: fill the
+ * form but wait for 登录) or 'password' (the saved password is now stale: fill only the username).
+ */
+export function authPause(origin, method, value) {
+  if (method !== 'POST') return null;
+  let url;
+  try { url = new URL(value); } catch { return null; }
+  if (url.origin !== origin) return null;
+  if (url.pathname === '/api/auth/logout') return 'logout';
+  if (url.pathname === '/api/auth/change-password') return 'password';
+  return null;
+}
+
+/** What the login page gets: whether 自动登录 is ticked, what to fill in and whether to log in by itself. */
+export function loginOffer({ available, saved, remember, pause }) {
+  if (!available) return { available: false, remember: false, saved: null, autoLogin: false };
+  const ticked = remember !== false;
+  const fill = saved && pause === 'password' ? { username: saved.username, password: '' } : saved ?? null;
+  return { available: true, remember: ticked, saved: fill, autoLogin: Boolean(saved && ticked && !pause) };
+}
+
 export const ZOOM_LEVELS = { min: -3, max: 5, step: 0.5 };
 
 /** A saved zoom level, kept within bounds; anything unreadable is the normal size. */
