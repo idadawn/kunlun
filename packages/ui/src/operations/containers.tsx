@@ -5,15 +5,16 @@ import { Field, FormDialog, useToast } from '../feedback';
 import { useLoader, useIdempotencyKey } from '../hooks';
 import { Icon } from '../icons';
 import { Stepper } from '../ordering';
-import { MemberPicker, PayButtons, ReasonChips, UnavailableDialog, errorText, usePickedMember, useReviewSettings, waitsForReview, type Done } from './common';
+import { MemberPicker, PayButtons, ReasonChips, UnavailableDialog, errorText, parseYuan, sameYuan, usePickedMember, useReviewSettings, waitsForReview, type Done } from './common';
 
 export type DepositAction = 'collect' | 'refund';
 
 const REFUND_REASONS = ['不再订水', '搬家', '容器已全部归还', '退回多交押金'] as const;
 
 /**
- * 押金收退：与水费充值分开办理。先选业务和会员，再选水品配套容器，直接显示该会员对应的已交、持有和可退数量。
- * 收押金当场登记；退押金在后台要求审核时店员只提交申请，管理员通过才退款，否则当场退款。
+ * 押金收退：与水费充值分开办理。先选业务和会员，再选水品配套容器，直接填收了或退了多少钱：收押金按现行标准折成几个，
+ * 退押金按原收款单价先进先出折成几个，个数可以再改。退的比这几个的押金原价少，差额记为扣押金。
+ * 收押金当场登记；退押金在后台要求审核时店员只提交申请，管理员确认金额后才退款，否则当场退款。
  */
 export function DepositDialog({ containers, memberId, action: initialAction, onClose, onDone }: {
   containers: ContainerSummaryItem[];
@@ -32,7 +33,9 @@ export function DepositDialog({ containers, memberId, action: initialAction, onC
   const [member, setMember] = usePickedMember(memberId);
   const [container, setContainer] = useState<ContainerType>('BUCKET');
   const [action, setAction] = useState<DepositAction>(initialAction === 'refund' && canRefund || !canCollect ? 'refund' : 'collect');
-  const [quantity, setQuantity] = useState(1);
+  // Both start from the books (null) until staff type an amount or set a count themselves.
+  const [typed, setTyped] = useState<string | null>(null);
+  const [count, setCount] = useState<number | null>(null);
   const [pay, setPay] = useState<PayMethod>('CASH');
   const [reason, setReason] = useState('');
   const [summary, setSummary] = useState<DepositSummaryRow[] | null>(null);
@@ -50,58 +53,81 @@ export function DepositDialog({ containers, memberId, action: initialAction, onC
 
   if (!canCollect && !canRefund) return <UnavailableDialog title="押金办理" message="当前账号没有押金办理权限" onClose={onClose} />;
 
+  const restart = () => { setTyped(null); setCount(null); };
   const collect = action === 'collect';
+  const unit = containerUnit(container);
   const row = summary?.find(r => r.containerType === container);
   const unitDeposit = containers.find(c => c.containerType === container)?.unitDeposit;
   const available = row ? applicable(row) : 0;
+  const worth = (n: number) => row ? refundValue(row, n) : 0;
+  const books = collect ? (unitDeposit ?? 0) * (count ?? 1) : worth(count ?? available);
+  const amountText = typed ?? (books > 0 ? money(books) : '');
+  const value = parseYuan(amountText);
+  const quantity = count ?? (collect
+    ? (value && unitDeposit ? Math.max(1, Math.round(value / unitDeposit)) : 1)
+    : value === null || value === 0 ? Math.max(available, 1) : refundCount(row, available, value));
+  const each = value === null ? null : value / quantity;
+  const splits = value !== null && Math.round(value * 100) % quantity === 0;
+  const original = collect ? 0 : worth(quantity);
   const over = !collect && !!row && quantity > available;
   const submit = async () => {
     if (!member) throw new Error('请选择会员');
-    if (over) throw new Error(`最多可申请退 ${available} 个，请先登记归还容器`);
+    if (value === null) throw new Error(`请填写${collect ? '收' : '退'}了多少钱，最多两位小数`);
     if (collect) {
-      const result = await api.collectDeposit({ memberId: member.id, containerType: container, quantity, payMethod: pay, idempotencyKey: key });
+      if (value <= 0) throw new Error('收的押金要大于 0');
+      if (!splits) throw new Error(`¥${money(value)} 分到 ${quantity} 个${unit}不是整分，请改个数或金额`);
+      const result = await api.collectDeposit({ memberId: member.id, containerType: container, quantity, payMethod: pay, idempotencyKey: key, amount: value });
       await onDone?.();
-      toast(`已收押金 ¥${money(result.totalAmount)}`);
+      toast(`已收押金 ¥${money(result.totalAmount)}（${quantity} 个${unit}）`);
       return;
     }
-    const result = await api.applyRefund({ kind: 'DEPOSIT', memberId: member.id, containerType: container, quantity, payMethod: pay, reason: reason.trim(), idempotencyKey: key });
+    if (over) throw new Error(`最多可退 ${available} 个的押金，请先登记归还容器`);
+    if (value > original) throw new Error(`${quantity} 个${unit}的押金按原价一共 ¥${money(original)}，退的不能比这多`);
+    const result = await api.applyRefund({ kind: 'DEPOSIT', memberId: member.id, containerType: container, quantity, payMethod: pay, reason: reason.trim(), idempotencyKey: key, amount: value });
     await onDone?.();
     toast(result.status === 'APPROVED' ? `已退押金 ¥${money(result.refundAmount ?? 0)}` : `退押金申请 ${result.requestNo} 已提交，等管理员审核`);
   };
   const refundLabel = waits ? '申请退押金' : '退押金';
   return (
     <FormDialog title={collect ? '收押金' : refundLabel}
-      description={collect ? '押金单独记账：不算水费，也不送水' : waits ? '提交后由管理员审核，审核通过才退款' : '确认后当场退款，按原收款单价计算'}
-      submitLabel={collect ? '确认已收款' : waits ? '提交退款申请' : '确认已退款'} onClose={onClose} onSubmit={submit}>
+      description={collect ? '押金单独记账：不算水费，也不送水' : waits ? '提交后由管理员审核，审核通过才退款' : '确认后当场退款；退得比原价少，差额记为扣押金'}
+      submitLabel={collect ? (value ? `确认已收 ¥${money(value)}` : '确认已收款') : waits ? '提交退款申请' : value !== null ? `确认已退 ¥${money(value)}` : '确认已退款'} onClose={onClose} onSubmit={submit}>
       {canCollect && canRefund && (
         <div className="seg-switch" role="group" aria-label="押金业务">
           {(['collect', 'refund'] as const).map(a => (
-            <button key={a} type="button" aria-pressed={action === a} onClick={() => setAction(a)}>{a === 'collect' ? '收押金' : refundLabel}</button>
+            <button key={a} type="button" aria-pressed={action === a} onClick={() => { setAction(a); restart(); }}>{a === 'collect' ? '收押金' : refundLabel}</button>
           ))}
         </div>
       )}
-      <Field label="会员" htmlFor="depositMember"><MemberPicker id="depositMember" value={member} onChange={setMember} /></Field>
+      <Field label="会员" htmlFor="depositMember"><MemberPicker id="depositMember" value={member} onChange={m => { setMember(m); restart(); }} /></Field>
       <label id="depositContainerLabel">水品配套桶袋</label>
       <div className="mode-switch deposit-containers" role="group" aria-labelledby="depositContainerLabel">
         {containers.map(c => c.containerType).map(type => {
           const r = summary?.find(x => x.containerType === type);
-          const unit = containers.find(c => c.containerType === type)?.unitDeposit;
+          const standard = containers.find(c => c.containerType === type)?.unitDeposit;
           return (
-            <button key={type} type="button" className={container === type ? 'active' : ''} aria-pressed={container === type} onClick={() => setContainer(type)}>
+            <button key={type} type="button" className={container === type ? 'active' : ''} aria-pressed={container === type} onClick={() => { setContainer(type); restart(); }}>
               <Icon name={containerKind(type) === 'BUCKET' ? 'drop' : 'box'} />
               <span>
                 <b>{containerLabel(type)}</b>
-                <small>{unit === undefined ? '押金标准加载中' : `押金 ¥${money(unit)}/个`}</small>
+                <small>{standard === undefined ? '押金标准加载中' : `押金 ¥${money(standard)}/个`}</small>
                 {r && <small>已交 {r.paidQty} · 持有 {r.heldQty} · 可退 <em>{applicable(r)}</em>{r.pendingRefundQty > 0 && ` · 审核中 ${r.pendingRefundQty}`}</small>}
               </span>
             </button>
           );
         })}
       </div>
-      <Field label={collect ? '收几个的押金' : '退几个的押金'} htmlFor="depositQuantity">
+      <Field label={collect ? '收了多少押金（元）' : waits ? '申请退多少押金（元）' : '退了多少押金（元）'} htmlFor="depositAmount">
+        <input id="depositAmount" className="input deposit-amount" type="number" inputMode="decimal" required min={collect ? 0.01 : 0} step={0.01} placeholder="0.00"
+          value={amountText} onChange={e => { setTyped(e.target.value); if (!collect) setCount(null); }} />
+      </Field>
+      <Field label={collect ? `算几个${unit}的押金` : `退几个${unit}的押金`} htmlFor="depositQuantity">
         <div className="deposit-qty">
-          <Stepper id="depositQuantity" label="押金个数" value={quantity} onChange={setQuantity} min={1} max={10000} />
-          {!collect && available > 0 && <button type="button" className="btn sm" onClick={() => setQuantity(available)}>全部可退 {available} 个</button>}
+          <Stepper id="depositQuantity" label="押金个数" value={quantity} min={1} max={10000}
+            onChange={n => { setCount(n); if (!collect) setTyped(money(worth(n))); }} />
+          {!collect && available > 0 && quantity !== available && (
+            <button type="button" className="btn sm" onClick={() => { setCount(available); setTyped(money(worth(available))); }}>全部可退 {available} 个</button>
+          )}
         </div>
       </Field>
       <label id="depositPayLabel">{collect ? '收款方式' : '退款方式'}</label>
@@ -110,7 +136,8 @@ export function DepositDialog({ containers, memberId, action: initialAction, onC
         <Field label="退款原因（选填）" htmlFor="depositReason"><input id="depositReason" className="input" maxLength={500} placeholder="如：不再订水" value={reason} onChange={e => setReason(e.target.value)} /></Field>
         <ReasonChips options={REFUND_REASONS} value={reason} onPick={setReason} />
       </>}
-      <DepositTotal collect={collect} waits={waits} quantity={quantity} unitDeposit={unitDeposit} row={row} hasMember={!!owner} error={previewError} />
+      <DepositTotal collect={collect} waits={waits} quantity={quantity} unit={unit} value={value} each={each} splits={splits} unitDeposit={unitDeposit}
+        original={original} available={available} row={row} hasMember={!!owner} error={previewError} />
     </FormDialog>
   );
 }
@@ -118,34 +145,56 @@ export function DepositDialog({ containers, memberId, action: initialAction, onC
 /** What a new refund request may still cover: refundable now, less what is already waiting for review. */
 const applicable = (row: DepositSummaryRow) => Math.max(0, row.refundableQty - row.pendingRefundQty);
 
-function DepositTotal({ collect, waits, quantity, unitDeposit, row, hasMember, error }: {
-  collect: boolean; waits: boolean; quantity: number; unitDeposit?: number; row?: DepositSummaryRow; hasMember: boolean; error: string;
+/** The deposit of the next `n` refundable containers at their original prices, oldest first, after those already under review. */
+function refundValue(row: DepositSummaryRow, n: number) {
+  let skip = row.pendingRefundQty; let left = n; let amount = 0;
+  for (const lot of row.lots ?? []) {
+    let usable = lot.quantity;
+    const skipped = Math.min(skip, usable); skip -= skipped; usable -= skipped;
+    const take = Math.min(left, usable); left -= take; amount += take * Number(lot.unitPrice);
+    if (left === 0) break;
+  }
+  // Older servers send no lots: fall back to the average of what is refundable.
+  if (!row.lots && row.refundableQty > 0) return Math.round(Number(row.refundableAmount) / row.refundableQty * n * 100) / 100;
+  return Math.round(amount * 100) / 100;
+}
+
+/** The fewest containers whose deposit covers the amount typed in; all of them when it is more than they are worth. */
+function refundCount(row: DepositSummaryRow | undefined, available: number, value: number) {
+  if (!row || available === 0) return 1;
+  for (let n = 1; n <= available; n++) if (refundValue(row, n) + 0.001 >= value) return n;
+  return available;
+}
+
+function DepositTotal({ collect, waits, quantity, unit, value, each, splits, unitDeposit, original, available, row, hasMember, error }: {
+  collect: boolean; waits: boolean; quantity: number; unit: string; value: number | null; each: number | null; splits: boolean; unitDeposit?: number;
+  original: number; available: number; row?: DepositSummaryRow; hasMember: boolean; error: string;
 }) {
   if (error) return <p className="account-error" role="alert">{error}</p>;
   if (collect) return (
-    <div className="deposit-total">
-      <span>应收押金</span>
-      <b>{unitDeposit === undefined ? '—' : `¥ ${money(unitDeposit * quantity)}`}</b>
-      <small>{unitDeposit === undefined ? '押金标准加载中' : `${quantity} 个 × ¥${money(unitDeposit)}，按现行押金标准收取；交押金不改变会员手里的桶袋数`}</small>
+    <div className={`deposit-total${value !== null && !splits ? ' warn' : ''}`}>
+      <span>这次收押金</span>
+      <b>{value === null ? '—' : `¥ ${money(value)}`}</b>
+      <small>{value === null ? '填收了多少钱，个数按现行押金标准自动算，可以再改'
+        : !splits ? `¥${money(value)} 分到 ${quantity} 个${unit}不是整分，请改个数或金额`
+        : `${quantity} 个${unit}，每个 ¥${money(each!)}${unitDeposit !== undefined && !sameYuan(each!, unitDeposit) ? `（现行标准 ¥${money(unitDeposit)}）` : ''}；交押金不改变会员手里的桶袋数`}</small>
     </div>
   );
-  const title = waits ? '预计退还' : '应退押金';
+  const title = waits ? '申请退押金' : '实退押金';
   if (!hasMember) return <div className="deposit-total"><span>{title}</span><b>—</b><small>请选择会员后查询可退押金</small></div>;
   if (!row) return <div className="deposit-total"><span>{title}</span><b>—</b><small>正在查询可退押金…</small></div>;
-  const available = applicable(row);
   const over = quantity > available;
-  // Exact only when nothing else is waiting and the whole refundable quantity is asked back; otherwise the FIFO lots decide.
-  const exact = row.pendingRefundQty === 0 && quantity === row.refundableQty;
+  const tooMuch = value !== null && !over && value > original + 0.001;
+  const kept = value !== null && !over && !tooMuch ? original - value : 0;
   return (
-    <div className={`deposit-total${over ? ' warn' : ''}`}>
+    <div className={`deposit-total${over || tooMuch ? ' warn' : ''}`}>
       <span>{title}</span>
-      <b>{available === 0 ? '没有可退的押金' : over ? `最多可退 ${available} 个` : exact ? `¥ ${money(row.refundableAmount)}` : '按原批次单价计算'}</b>
+      <b>{available === 0 ? '没有可退的押金' : over ? `最多可退 ${available} 个` : value === null ? '—' : `¥ ${money(value)}`}</b>
       <small>
         {over
           ? `超出可退数量：已交未退 ${row.paidQty} 个，会员手里 ${row.heldQty} 个${row.pendingDamageQty ? `，待报废 ${row.pendingDamageQty} 个` : ''}${row.pendingRefundQty ? `，已有 ${row.pendingRefundQty} 个在审核中` : ''}。请先登记还回桶袋。`
-          : waits
-            ? '审核通过时按原收款批次单价先进先出计算实退金额，不按现行标准；提交申请不会动押金余额。'
-            : '按原收款批次单价先进先出计算，不按现行标准；确认后押金余额随即减少。'}
+          : tooMuch ? `${quantity} 个${unit}的押金按原收款单价一共 ¥${money(original)}，退的不能比这多`
+          : `退 ${quantity} 个${unit}的押金，按原收款单价 ¥${money(original)}${kept > 0.001 ? `，少退的 ¥${money(kept)} 记为扣押金` : ''}；${waits ? '管理员审核通过时以他确认的金额为准，提交申请不会动押金。' : '确认后押金余额随即减少。'}`}
       </small>
     </div>
   );

@@ -27,14 +27,16 @@ public sealed record CollectDepositRequest(
     string ContainerType, // BUCKET | BAG
     int Quantity,
     string PayMethod,
-    string IdempotencyKey);
+    string IdempotencyKey,
+    decimal? Amount = null); // 实际收了多少钱，按个数平分成每个的押金；不传按现行押金标准 × 个数
 
 public sealed record RefundDepositRequest(
     Guid MemberId,
     string ContainerType, // BUCKET | BAG
     int Quantity,
     string IdempotencyKey,
-    string? PayMethod = null); // 实际退款方式；旧客户端不传时记为未登记
+    string? PayMethod = null, // 实际退款方式；旧客户端不传时记为未登记
+    decimal? Amount = null); // 实际退了多少钱，不超过这几个的押金原价，少退的记为扣押金；不传按原价全退
 
 public sealed record RegisterContainerMovementRequest(
     Guid MemberId,
@@ -156,6 +158,14 @@ public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunA
                 UNIQUE (tenant_id, idempotency_key)
             );
             ALTER TABLE deposit_refunds ADD COLUMN IF NOT EXISTS pay_method VARCHAR(24);
+            -- Staff may pay back less than the deposit was worth: the rest is kept as a deduction, and the whole deposit may be kept.
+            ALTER TABLE deposit_refunds ADD COLUMN IF NOT EXISTS deducted_amount NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (deducted_amount >= 0);
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'deposit_refunds_refund_amount_nonnegative') THEN
+                ALTER TABLE deposit_refunds DROP CONSTRAINT IF EXISTS deposit_refunds_refund_amount_check;
+                ALTER TABLE deposit_refunds ADD CONSTRAINT deposit_refunds_refund_amount_nonnegative CHECK (refund_amount >= 0);
+              END IF;
+            END $$;
             """;
 
         await using (var cmd = new NpgsqlCommand(ddl, conn, tx))

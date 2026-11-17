@@ -7,8 +7,8 @@ import { Icon, useAuth } from '@kunlun/ui';
 import { DateFilterSelect, EmptyRow, Pager, StatCard, handledBy, ledgerEmptyText, useDebounced, useExport, useGo, useLedger, useOperations } from '../common';
 import { useAdminData } from '../data';
 
-const FLOWS: Array<[DepositFlowType | '', string]> = [['', '全部流水'], ['COLLECT', '收押金'], ['REFUND', '退押金'], ['DEDUCT', '报废扣押'], ['OPENING', '上系统前']];
-const FLOW_TAGS: Record<DepositFlowType, [string, string]> = { COLLECT: ['收押金', 'green'], REFUND: ['退押金', 'blue'], DEDUCT: ['报废扣押', 'orange'], OPENING: ['上系统前', 'gold'] };
+const FLOWS: Array<[DepositFlowType | '', string]> = [['', '全部流水'], ['COLLECT', '收押金'], ['REFUND', '退押金'], ['DEDUCT', '扣押金'], ['OPENING', '上系统前']];
+const FLOW_TAGS: Record<DepositFlowType, [string, string]> = { COLLECT: ['收押金', 'green'], REFUND: ['退押金', 'blue'], DEDUCT: ['扣押金', 'orange'], OPENING: ['上系统前', 'gold'] };
 const NO_REPORTS = '需要报表权限';
 
 /** 押金管理：桶、袋押金单独收退和对账，与水费充值分开。 */
@@ -43,7 +43,7 @@ export function Deposits() {
       <StatCard label="累计收押" icon="plus" tone="gold" value={f ? `¥ ${money(f.depositCollectedTotal)}` : '—'}
         foot={f ? `共 ${f.depositCollectCount} 笔${Number(f.depositOpeningTotal) ? `；另有上系统前已收 ${f.depositOpeningCount} 笔 ¥${money(f.depositOpeningTotal)}，在池里、不算收押` : ''}` : NO_REPORTS} />
       <StatCard label="累计退押与扣押" icon="refresh" tone="orange" value={f ? `¥ ${money(Number(f.depositRefundedTotal) + Number(f.depositDeductedTotal))}` : '—'}
-        foot={f ? `退押 ${f.depositRefundCount} 笔 ¥${money(f.depositRefundedTotal)} · 报废扣押 ${f.depositDeductCount} 笔 ¥${money(f.depositDeductedTotal)}` : NO_REPORTS} />
+        foot={f ? `退押 ${f.depositRefundCount} 笔 ¥${money(f.depositRefundedTotal)} · 扣押金 ${f.depositDeductCount} 笔 ¥${money(f.depositDeductedTotal)}` : NO_REPORTS} />
     </div>
     {standards && (
       <div className="ledger-hint">
@@ -85,7 +85,7 @@ function DepositTable({ filter, filtered }: { filter: DepositLedgerQuery; filter
               // A deposit from before the system is a lot like a collection, only not taken in on that day.
               const collect = d.flowType === 'COLLECT' || d.flowType === 'OPENING';
               return (
-                <tr key={d.docNo}>
+                <tr key={`${d.flowType}:${d.docNo}`}>
                   <td><span className="order-no">{d.docNo}</span><br /><small>{shortDateTime(d.createdAt)}</small></td>
                   <td><b>{d.memberName}</b><br /><small>{d.memberNo}</small></td>
                   <td><span className={`tag ${tone}`}>{label}</span>{d.reason && <><br /><small className="ledger-reason">{d.reason}</small></>}</td>

@@ -7,6 +7,15 @@ export type Done = () => void | Promise<void>;
 
 export const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** A typed amount in yuan: not negative, at most two decimals; null when empty or not a valid amount. */
+export function parseYuan(text: string): number | null {
+  const t = text.trim();
+  return /^\d{1,8}(\.\d{1,2})?$/.test(t) ? Number(t) : null;
+}
+
+/** Amounts compared to the cent, so 0.1 + 0.2 still equals 0.3. */
+export const sameYuan = (a: number, b: number) => Math.round(a * 100) === Math.round(b * 100);
+
 export function PayOptions() {
   return <>{PAY_METHODS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}</>;
 }

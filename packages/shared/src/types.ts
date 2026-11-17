@@ -516,8 +516,11 @@ export interface OpeningTicketInput {
   remove?: boolean;
 }
 
-/** The deposit a member paid before the system for one container: how many and at what price each; 0 removes an untouched entry. */
-export interface OpeningDepositInput { containerType: ContainerType; quantity: number; unitPrice: number }
+/**
+ * The deposit a member paid before the system for one container: how many and the total paid (`amount`, split evenly over them to
+ * the cent); older clients send `unitPrice` instead. 0 removes an untouched entry.
+ */
+export interface OpeningDepositInput { containerType: ContainerType; quantity: number; amount?: number; unitPrice?: number }
 /** How many of one container the member holds now. */
 export interface OpeningHoldingInput { containerType: ContainerType; quantity: number }
 
@@ -581,6 +584,8 @@ export interface DepositSummaryRow {
   refundableAmount: number;
   /** Already asked back in refund requests awaiting review; new requests can cover only the rest. */
   pendingRefundQty: number;
+  /** The deposit not held for a damage, oldest first: refunds take from the front at these prices. Absent from older servers. */
+  lots?: Array<{ unitPrice: number; quantity: number }>;
 }
 
 export interface StaffAccount {
@@ -787,6 +792,10 @@ export interface RefundRequestRow {
   /** The recharge a refund or gift belongs to: what was paid and how many tickets were bought. */
   rechargePaid: number | null;
   rechargeBuyQty: number | null;
+  /** What the applicant typed in when it differs from the books; the reviewer then confirms the amount. */
+  requestedAmount?: number | null;
+  /** Pending water refunds: the remaining paid tickets at the original price now (tickets stay usable during review). */
+  currentAmount?: number | null;
 }
 
 export interface RefundRequestQuery extends PageQuery {
@@ -795,9 +804,114 @@ export interface RefundRequestQuery extends PageQuery {
   q?: string;
 }
 
+/** `amount`: what is actually paid back; without it the books decide (remaining paid tickets or the deposit at the original price). */
 export type ApplyRefundBody =
-  | { kind: 'DEPOSIT'; memberId: string; containerType: ContainerType; quantity: number; payMethod: PayMethod; reason?: string; idempotencyKey: string }
-  | { kind: 'RECHARGE'; memberId: string; batchId: string; payMethod: PayMethod; reason?: string; idempotencyKey: string };
+  | { kind: 'DEPOSIT'; memberId: string; containerType: ContainerType; quantity: number; payMethod: PayMethod; reason?: string; idempotencyKey: string; amount?: number }
+  | { kind: 'RECHARGE'; memberId: string; batchId: string; payMethod: PayMethod; reason?: string; idempotencyKey: string; amount?: number };
+
+/**
+ * One container in a settlement. Of what the member holds, `returned` came back good and `damaged` broken; the rest stays out.
+ * `waiveDamage`: the station bears the broken ones. `unreturned`: CHARGE keeps the deposit of the rest (charging the standard
+ * deposit for any without one); KEEP leaves them with the member to bring back later, taking any deposit owed from the refund.
+ */
+export interface SettlementContainerInput {
+  containerType: ContainerType;
+  returned: number;
+  damaged: number;
+  waiveDamage: boolean;
+  unreturned: 'CHARGE' | 'KEEP';
+}
+
+export interface SettlementTicketLine {
+  batchId: string;
+  name: string;
+  waterType: WaterType;
+  unit: string;
+  remainingBuy: number;
+  remainingGift: number;
+  /** The remaining paid tickets at the original price. */
+  value: number;
+  /** What the recharge took in: the most it may pay back. */
+  paid: number;
+  /** What is paid back for it. */
+  amount: number;
+  refundNo: string | null;
+}
+
+export interface SettlementContainerLine {
+  containerType: ContainerType;
+  name: string;
+  unit: string;
+  /** The current standard, charged for containers without a deposit. */
+  unitDeposit: number;
+  held: number;
+  /** Containers the member's deposit covers (not held for an earlier damage). */
+  covered: number;
+  returned: number;
+  damaged: number;
+  waiveDamage: boolean;
+  unreturned: number;
+  unreturnedMode: 'CHARGE' | 'KEEP';
+  /** Containers without a deposit that need one (to keep it, or to stay out), taken from the refund at the standard price. */
+  offsetQty: number;
+  offsetAmount: number;
+  damageDeducted: number;
+  /** Broken ones the station bears that never had a deposit. */
+  damageUncovered: number;
+  chargeDeducted: number;
+  keptQty: number;
+  keptDeposit: number;
+  refundQty: number;
+  /** The deposit of the containers refunded, at the original prices. */
+  refundValue: number;
+  /** What is paid back for them. */
+  refundAmount: number;
+  refundNo: string | null;
+  offsetNo: string | null;
+  scrapNos: string[];
+  pendingDamageQty: number;
+  pendingDamageAmount: number;
+}
+
+/** 退款结算单: before it is done (preview) the numbers and who/when are null. */
+export interface SettlementSlip {
+  id: string | null;
+  settlementNo: string | null;
+  memberId: string;
+  memberName: string;
+  memberNo: string;
+  payMethod: PayMethod | null;
+  reason: string | null;
+  operatorName: string | null;
+  createdAt: string | null;
+  /** What the books say: water refunds plus deposit refunds, less deposit owed. Negative when the member owes. */
+  computedAmount: number;
+  /** What is actually paid back (negative: what the member pays). */
+  amount: number;
+  tickets: SettlementTicketLine[];
+  containers: SettlementContainerLine[];
+  notes: string[];
+}
+
+export interface SettlementPreview {
+  slip: SettlementSlip;
+  /** The amounts the settlement can book: refunds down to nothing, water refunds up to what each recharge took in. */
+  range: { min: number; max: number };
+  /** Why the amount asked for cannot be booked; the slip then shows the computed amount. */
+  amountError: string | null;
+  /** Why the member cannot be settled now (open orders, refunds under review, nothing to settle). */
+  blockers: string[];
+}
+
+export interface SettlementRequest {
+  idempotencyKey: string;
+  payMethod: PayMethod;
+  containers: SettlementContainerInput[];
+  amount: number;
+  /** The computed total the counter saw; the server refuses if the books moved meanwhile. */
+  expectedAmount: number;
+  reason?: string;
+}
 
 /** 费用支出类别：买桶袋、配件耗材、维修、其他。 */
 export type ExpenseCategory = 'CONTAINER' | 'PARTS' | 'REPAIR' | 'OTHER';

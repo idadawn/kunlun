@@ -5,6 +5,9 @@ import {
   type OpeningEntry, type OpeningHoldingInput, type OpeningItem, type OpeningTicketInput, type RechargePlan, type TicketBatch, type WaterProduct,
 } from '@kunlun/shared';
 import { Dialog, Field, FormDialog, Icon, NumberInput, Stepper, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
+
+/** One container's opening deposit as typed: how many, and the total paid for them; `typed` once the total was edited by hand. */
+interface DepositDraft { qty: number; amount: string; typed: boolean }
 import { useAdminData } from './data';
 
 /** The largest count the server takes for tickets left, and for deposits or containers. */
@@ -53,9 +56,9 @@ function OpeningForm({ member, title, data, onClose, onDone }: { member: MemberP
     Object.fromEntries(recorded.map(b => [b.id, { remaining: b.remainingBuy, remove: false }])));
   const [added, setAdded] = useState<NewPackage[]>(() => recorded.length ? [] : [{ key: 1, choice: '', paid: '', qty: 1, remaining: 1 }]);
   const openingOf = (type: string) => data.opening.deposits.find(d => d.containerType === type);
-  const [deposits, setDeposits] = useState<Record<string, { qty: number; price: string }>>(() => Object.fromEntries(data.deposits.map(r => {
+  const [deposits, setDeposits] = useState<Record<string, DepositDraft>>(() => Object.fromEntries(data.deposits.map(r => {
     const lot = openingOf(r.containerType);
-    return [r.containerType, { qty: lot?.quantity ?? 0, price: money(lot?.unitPrice ?? r.unitDeposit) }];
+    return [r.containerType, lot ? { qty: lot.quantity, amount: money(lot.amount), typed: true } : { qty: 0, amount: '', typed: false }];
   })));
   const [holdings, setHoldings] = useState<Record<string, number>>(() => Object.fromEntries(data.deposits.map(r => [r.containerType, r.heldQty])));
   const [note, setNote] = useState('');
@@ -99,10 +102,13 @@ function OpeningForm({ member, title, data, onClose, onDone }: { member: MemberP
     for (const r of data.deposits) {
       const lot = openingOf(r.containerType); const d = deposits[r.containerType];
       if (lot?.locked) continue;
-      if (d.qty > 0 && !moneyOk(d.price)) throw new Error(`${containerLabel(r.containerType)}每个的押金要大于 0、最多两位小数`);
-      const price = d.qty > 0 ? Number(d.price) : 0;
-      if (lot ? d.qty !== lot.quantity || (d.qty > 0 && price !== Number(lot.unitPrice)) : d.qty > 0)
-        depositChanges.push({ containerType: r.containerType, quantity: d.qty, unitPrice: price });
+      if (d.qty === 0) { if (lot) depositChanges.push({ containerType: r.containerType, quantity: 0 }); continue; }
+      const label = containerLabel(r.containerType);
+      if (!moneyOk(d.amount)) throw new Error(`${label}上系统前交的押金要填一共多少钱，大于 0、最多两位小数`);
+      const total = Number(d.amount);
+      if (Math.round(total * 100) % d.qty !== 0) throw new Error(`${label}：¥${money(total)} 分到 ${d.qty} 个不是整分，请核对金额或个数`);
+      if (!lot || d.qty !== lot.quantity || Math.round(total * 100) !== Math.round(Number(lot.amount) * 100))
+        depositChanges.push({ containerType: r.containerType, quantity: d.qty, amount: total });
     }
     const holdingChanges: OpeningHoldingInput[] = data.deposits
       .filter(r => holdings[r.containerType] !== r.heldQty)
@@ -162,7 +168,7 @@ function OpeningForm({ member, title, data, onClose, onDone }: { member: MemberP
       <section className="opening-section" aria-labelledby="openingContainersTitle">
         <div className="opening-section-head">
           <h3 id="openingContainersTitle">押金和手里的桶袋</h3>
-          <small>每种水品的配套桶袋分开填；押金退的时候按这里填的单价退</small>
+          <small>每种水品的配套桶袋分开填：交了几个的押金、一共多少钱；以后退押金按每个平均的钱退</small>
         </div>
         {data.deposits.map(r => (
           <ContainerRow key={r.containerType} row={r} lot={openingOf(r.containerType)} deposit={deposits[r.containerType]} held={holdings[r.containerType]}
@@ -229,10 +235,13 @@ function NewPackageRow({ row, index, products, plans, unit, onChoose, onChange, 
   );
 }
 
-/** One container: the deposit paid before the system (count × price each) and how many the member holds now. */
+/**
+ * One container: the deposit paid before the system (how many, and the total paid) and how many the member holds now. The total
+ * follows the count at the current standard until it is typed in.
+ */
 function ContainerRow({ row: r, lot, deposit, held, onDeposit, onHeld }: {
-  row: DepositSummaryRow; lot?: OpeningDeposit; deposit: { qty: number; price: string }; held: number;
-  onDeposit: (deposit: { qty: number; price: string }) => void; onHeld: (held: number) => void;
+  row: DepositSummaryRow; lot?: OpeningDeposit; deposit: DepositDraft; held: number;
+  onDeposit: (deposit: DepositDraft) => void; onHeld: (held: number) => void;
 }) {
   const unit = containerUnit(r.containerType);
   const locked = !!lot?.locked;
@@ -240,21 +249,23 @@ function ContainerRow({ row: r, lot, deposit, held, onDeposit, onHeld }: {
   const coveredNow = r.paidQty - r.pendingDamageQty;
   const covered = coveredNow - (lot?.remainingQty ?? 0) + (locked ? lot!.remainingQty : deposit.qty);
   const owing = Math.max(0, held - covered);
-  const total = deposit.qty > 0 && moneyOk(deposit.price) ? deposit.qty * Number(deposit.price) : 0;
+  const each = deposit.qty > 0 && moneyOk(deposit.amount) ? Number(deposit.amount) / deposit.qty : null;
+  const count = (qty: number) => onDeposit(deposit.typed ? { ...deposit, qty } : { qty, amount: qty > 0 ? money(qty * Number(r.unitDeposit)) : '', typed: false });
   return (
     <div className="opening-row">
       <div className="opening-row-head"><b>{containerLabel(r.containerType)}</b><small>现在：已交押金 {r.paidQty} 个 ¥{money(r.paidAmount)} · 手里 {r.heldQty} 个</small></div>
       {locked ? <>
-        <div className="opening-inline"><span>上系统前交的押金</span><b>{lot!.quantity} 个 × ¥{money(lot!.unitPrice)} = ¥{money(lot!.amount)}</b></div>
+        <div className="opening-inline"><span>上系统前交的押金</span><b>{lot!.quantity} 个，共 ¥{money(lot!.amount)}</b></div>
         <p className="membership-note">这笔押金已经退过或报废扣过，不能再改；要退押金请走「退押金」。</p>
       </> : (
         <div className="opening-inline">
           <label htmlFor={`openingDeposit-${r.containerType}`}>上系统前交的押金</label>
-          <Stepper id={`openingDeposit-${r.containerType}`} label="押金个数" value={deposit.qty} min={0} max={MAX_CONTAINERS} onChange={qty => onDeposit({ ...deposit, qty })} />
-          <label htmlFor={`openingPrice-${r.containerType}`}>个 × 每个 ¥</label>
-          <input id={`openingPrice-${r.containerType}`} className="input opening-money" inputMode="decimal" value={deposit.price}
-            onChange={e => onDeposit({ ...deposit, price: e.target.value })} />
-          {deposit.qty > 0 && <small className="opening-change">共 ¥{money(total)}</small>}
+          <Stepper id={`openingDeposit-${r.containerType}`} label="押金个数" value={deposit.qty} min={0} max={MAX_CONTAINERS} onChange={count} />
+          <label htmlFor={`openingAmount-${r.containerType}`}>个，共 ¥</label>
+          <input id={`openingAmount-${r.containerType}`} className="input opening-money" inputMode="decimal" disabled={deposit.qty === 0}
+            placeholder={deposit.qty === 0 ? '先填个数' : '一共多少钱'} value={deposit.amount}
+            onChange={e => onDeposit({ ...deposit, amount: e.target.value, typed: true })} />
+          {each !== null && deposit.qty > 1 && <small className="opening-change">每个 ¥{money(each)}</small>}
         </div>
       )}
       <div className="opening-inline">
@@ -276,7 +287,7 @@ export function describeOpeningItem(item: OpeningItem) {
         : item.action === 'REMOVE' ? `删除「${item.name}」（原来还剩 ${item.before}${item.unit}）`
         : `「${item.name}」还剩 ${item.before} → ${item.after}${item.unit}`;
     case 'DEPOSIT': {
-      const amount = (a: { quantity: number; unitPrice: number }) => `${a.quantity} 个 × ¥${money(a.unitPrice)}`;
+      const amount = (a: { quantity: number; amount: number }) => `${a.quantity} 个，共 ¥${money(a.amount)}`;
       return item.action === 'CREATE' ? `${containerLabel(item.containerType)}上系统前的押金 ${amount(item.after!)}`
         : item.action === 'REMOVE' ? `删除${containerLabel(item.containerType)}上系统前的押金（${amount(item.before!)}）`
         : `${containerLabel(item.containerType)}上系统前的押金 ${amount(item.before!)} → ${amount(item.after!)}`;

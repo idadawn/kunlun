@@ -60,6 +60,11 @@ public static class BusinessNumbers
         Daily(conn, tx, "member-opening", (day, n) => $"QC{day}{n:D4}",
             "SELECT EXISTS(SELECT 1 FROM plugin_kunlun_waterstation.member_opening_entries WHERE entry_no=@no)", ct);
 
+    /// <summary>退款结算单号：会员一次结清水票、押金和桶袋的那张单子。</summary>
+    public static Task<string> SettlementNo(NpgsqlConnection conn, NpgsqlTransaction tx, CancellationToken ct) =>
+        Daily(conn, tx, "settlement", (day, n) => $"JS{day}{n:D4}",
+            "SELECT EXISTS(SELECT 1 FROM plugin_kunlun_waterstation.member_settlements WHERE settlement_no=@no)", ct);
+
     public static Task<string> OrderNo(NpgsqlConnection conn, NpgsqlTransaction tx, CancellationToken ct) =>
         Daily(conn, tx, "order", (day, n) => $"ORD-{day}-{n:D6}",
             "SELECT EXISTS(SELECT 1 FROM plugin_kunlun_waterstation.water_orders WHERE order_no=@no)", ct);
