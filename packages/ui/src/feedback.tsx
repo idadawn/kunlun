@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type InputHTMLAttributes, type ReactNode } from 'react';
 import { Icon } from './icons';
 
 /** `'error'` swaps the check mark for a warning icon, so a failure never looks like it succeeded. */
@@ -143,6 +143,25 @@ export function FormDialog({ title, onClose, onSubmit, submitLabel = '保存', c
 /** Label + control pair used inside `.membership-fields`. */
 export function Field({ label, htmlFor, children }: { label: ReactNode; htmlFor: string; children: ReactNode }) {
   return <><label htmlFor={htmlFor}>{label}</label>{children}</>;
+}
+
+/**
+ * A number field that shows what was typed. Bound straight to a number, a controlled `type="number"` input shows "0" once
+ * it is cleared and then "01" after typing 1, because React leaves the text alone when it already equals the value.
+ * While cleared it stands for 0; leaving the field shows the value again.
+ */
+export function NumberInput({ value, onChange, onBlur, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'value' | 'onChange'> & {
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  // Follow changes made elsewhere, such as the − / + buttons, a reset or a clamp.
+  const shown = text === '' ? (value === 0 ? '' : String(value)) : Number(text) === value ? text : String(value);
+  return (
+    <input {...props} type="number" value={shown}
+      onChange={e => { setText(e.target.value); onChange(e.target.value === '' ? 0 : Number(e.target.value)); }}
+      onBlur={e => { setText(String(value)); onBlur?.(e); }} />
+  );
 }
 
 /** Asks before an irreversible action; resolves the dialog with `true` only after `onConfirm` succeeds. */

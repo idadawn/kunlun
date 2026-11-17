@@ -8,6 +8,22 @@ if (releaseUri.scheme != 'https' || !releaseUri.host || releaseUri.userInfo || r
     throw new GradleException('memberReleaseOrigin must be an HTTPS origin without credentials, path, query or fragment')
 }
 
+// Release signing stays out of the repository: -PkunlunSigning=<file> (or KUNLUN_ANDROID_SIGNING) names a properties
+// file with storeFile, storePassword, keyAlias and keyPassword; a relative storeFile is read next to that file.
+// Without it the release APK is left unsigned, as in CI.
+def signingPath = providers.gradleProperty('kunlunSigning').orElse(providers.environmentVariable('KUNLUN_ANDROID_SIGNING')).getOrNull()
+def releaseSigning = null
+if (signingPath) {
+    def signingFile = file(signingPath)
+    if (!signingFile.isFile()) throw new GradleException("kunlunSigning: $signingPath is not a file")
+    releaseSigning = new Properties()
+    signingFile.withInputStream { releaseSigning.load(it) }
+    def missing = ['storeFile', 'storePassword', 'keyAlias', 'keyPassword'].findAll { !releaseSigning.getProperty(it) }
+    if (missing) throw new GradleException("kunlunSigning: $signingPath has no ${missing.join(', ')}")
+    def store = new File(releaseSigning.getProperty('storeFile'))
+    releaseSigning.setProperty('storeFile', (store.absolute ? store : new File(signingFile.parentFile, store.path)).path)
+}
+
 android {
     namespace 'cn.idalee.kunlun.member'
     compileSdk 36
@@ -16,9 +32,22 @@ android {
         minSdk 26
         targetSdk 36
         versionCode 1
-        versionName '0.1.0'
+        versionName '1.0.0'
     }
     buildFeatures { buildConfig true }
+    signingConfigs {
+        if (releaseSigning) {
+            release {
+                storeFile file(releaseSigning.getProperty('storeFile'))
+                storePassword releaseSigning.getProperty('storePassword')
+                keyAlias releaseSigning.getProperty('keyAlias')
+                keyPassword releaseSigning.getProperty('keyPassword')
+                // v1 as well as v2, for installers and app-market tools that still look for the older signature.
+                enableV1Signing true
+                enableV2Signing true
+            }
+        }
+    }
     buildTypes {
         debug {
             applicationIdSuffix '.debug'
@@ -26,6 +55,7 @@ android {
         }
         release {
             buildConfigField 'String', 'MEMBER_ORIGIN', '"' + releaseOrigin.replaceAll('/$', '') + '"'
+            if (releaseSigning) signingConfig signingConfigs.release
         }
     }
     compileOptions {

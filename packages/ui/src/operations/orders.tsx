@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { KUNLUN_PERMISSIONS as P, calcDepositGap, containerOf, unitOf, type PayMethod, type WaterOrder } from '@kunlun/shared';
 import { useAuth } from '../auth';
-import { Field, FormDialog, useToast } from '../feedback';
+import { Field, FormDialog, NumberInput, useToast } from '../feedback';
 import { useIdempotencyKey } from '../hooks';
 import { DepositDue, useDepositPositions } from '../ordering';
 import { PayOptions } from './common';
@@ -43,9 +43,9 @@ export function FulfillDialog({ order, onClose, onDone }: { order?: WaterOrder; 
       {order && <p>{order.orderNo} · 下单 {order.orderQty}{unitOf(order.waterType)}{!pickup && order.addressSnapshot?.address ? ` · ${order.addressSnapshot.address}` : ''}</p>}
       {order?.remark && <p className="membership-note">备注：{order.remark}</p>}
       {pickup && <Field label="会员出示的六位取水码" htmlFor="pickupCode"><input id="pickupCode" className="input" required pattern="[0-9]{6}" inputMode="numeric" maxLength={6} value={code} onChange={e => setCode(e.target.value)} /></Field>}
-      <Field label="实际交付数量" htmlFor="fulfillQty"><input id="fulfillQty" className="input" type="number" min={1} step={1} required value={actual} onChange={e => setActual(Number(e.target.value))} /></Field>
-      <Field label="满桶领出" htmlFor="fullOut"><input id="fullOut" className="input" type="number" min={0} step={1} required value={fullOut} onChange={e => setFullOut(Number(e.target.value))} /></Field>
-      <Field label="空桶收回" htmlFor="emptyIn"><input id="emptyIn" className="input" type="number" min={0} step={1} required value={emptyIn} onChange={e => setEmptyIn(Number(e.target.value))} /></Field>
+      <Field label="实际交付数量" htmlFor="fulfillQty"><NumberInput id="fulfillQty" className="input" inputMode="numeric" min={1} step={1} required value={actual} onChange={setActual} /></Field>
+      <Field label="满桶领出" htmlFor="fullOut"><NumberInput id="fullOut" className="input" inputMode="numeric" min={0} step={1} required value={fullOut} onChange={setFullOut} /></Field>
+      <Field label="空桶收回" htmlFor="emptyIn"><NumberInput id="emptyIn" className="input" inputMode="numeric" min={0} step={1} required value={emptyIn} onChange={setEmptyIn} /></Field>
       {container && position && (
         <DepositDue type={container} position={position} fullOut={fullOut} emptyIn={emptyIn}>
           <select className="select" aria-label="押金收款方式" value={payMethod} onChange={e => setPayMethod(e.target.value as PayMethod)}><PayOptions /></select>

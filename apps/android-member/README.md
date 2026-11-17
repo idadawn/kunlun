@@ -24,7 +24,16 @@ cd apps/android-member
 ./gradlew :app:assembleRelease -PmemberReleaseOrigin=https://kunlun.idalee.cn
 ```
 
-Gradle 会先检查前端类型，再将当前 `apps/mobile-h5` 构建到生成的 assets 目录，不改动 H5 的 `dist`。员工端和会员端打包的是同一份 H5，会员端只放行会员页面。发布版仅允许 HTTPS，默认连接正式服务，可用 `memberReleaseOrigin` 指定其他 HTTPS 域名。发布 APK 尚未配置签名，正式分发前需由发布人员提供签名配置；本地调试包由 Android 调试密钥签名。
+Gradle 会先检查前端类型，再将当前 `apps/mobile-h5` 构建到生成的 assets 目录，不改动 H5 的 `dist`。员工端和会员端打包的是同一份 H5，会员端只放行会员页面。发布版仅允许 HTTPS，默认连接正式服务，可用 `memberReleaseOrigin` 指定其他 HTTPS 域名。本地调试包由 Android 调试密钥签名。
+
+正式包与员工端用同一把签名密钥，生成密钥、签名配置文件和保管要求见 [Android 员工端 · 正式签名与打包](../android-staff/README.md#正式签名与打包)：
+
+```sh
+cd apps/android-member
+./gradlew :app:assembleRelease -PkunlunSigning=$HOME/kunlun-release/signing.properties
+```
+
+输出 `app/build/outputs/apk/release/app-release.apk`；不提供签名配置时为未签名的 `app-release-unsigned.apk`。版本号同样在 `app/build.gradle`，首个正式版是 1 / 1.0.0。
 
 ## 容器规则
 
