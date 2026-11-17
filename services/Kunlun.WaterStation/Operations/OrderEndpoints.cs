@@ -271,7 +271,7 @@ public static class OrderEndpoints
             return await Paging.From(page, pageSize, legacyLimit: 50).Query(conn, """
                 o.id, o.order_no, o.member_id, o.water_type, o.fulfill_mode, o.order_qty, o.reserved_qty,
                 o.actual_qty, o.full_out_qty, o.empty_in_qty, o.pickup_code, o.address_snapshot,
-                o.status, o.diff_reason, o.cancel_reason, o.created_at, o.product_snapshot, o.remark
+                o.status, o.diff_reason, o.cancel_reason, o.created_at, o.product_snapshot, o.remark, o.override_reason
                 """, """
                 plugin_kunlun_waterstation.water_orders o
                 WHERE o.tenant_id = @tid
@@ -315,7 +315,8 @@ public static class OrderEndpoints
                 cancelReason = r.IsDBNull(14) ? null : r.GetString(14),
                 createdAt = r.GetDateTime(15),
                 productSnapshot = r.IsDBNull(16) ? (JsonElement?)null : JsonSerializer.Deserialize<JsonElement>(r.GetString(16)),
-                remark = r.IsDBNull(17) ? null : r.GetString(17)
+                remark = r.IsDBNull(17) ? null : r.GetString(17),
+                overrideReason = r.IsDBNull(18) ? null : r.GetString(18)
             }, ct);
         }).RequireAuthorization();
 
@@ -440,7 +441,7 @@ public static class OrderEndpoints
                 return Results.Json(new { error = "FORBIDDEN_PERMISSION", message = "缺少订单核销/签收权限 order.fulfill（AC-16）" }, statusCode: 403);
 
             var operatorName = user.FindFirstValue("display_name") ?? "配送员/店员";
-            return await ExecuteFulfillOrderAsync(orderId, null, req, operatorName, db, orderRepo, ct);
+            return await ExecuteFulfillOrderAsync(orderId, null, req, operatorName, perms.Contains(KunlunPermissions.DepositCollect), db, orderRepo, ct);
         }).RequireAuthorization();
 
         // 5. 门店 6 位自提码一键核销快捷端点
@@ -457,7 +458,7 @@ public static class OrderEndpoints
 
             var operatorName = user.FindFirstValue(ClaimTypes.Name) ?? "店员";
             var fulfillReq = new FulfillWaterOrderRequest(req.ActualQty, req.FullOutN, req.EmptyInM, req.PickupCode, req.DiffReason);
-            return await ExecuteFulfillOrderAsync(null, req.PickupCode, fulfillReq, operatorName, db, orderRepo, ct);
+            return await ExecuteFulfillOrderAsync(null, req.PickupCode, fulfillReq, operatorName, false, db, orderRepo, ct);
         }).RequireAuthorization();
 
         // 6. 容器库存与低库存预警查询 (AC-19, AC-20)：每种桶袋三个数——店里、客户手里、累计报废；现存总量 = 店里 + 客户手里 + 待确认报废
@@ -511,6 +512,7 @@ public static class OrderEndpoints
         string? lookupPickupCode,
         FulfillWaterOrderRequest req,
         string operatorName,
+        bool canOweDeposit,
         NpgsqlDataSource db,
         KunlunOrderRepository orderRepo,
         CancellationToken ct)
@@ -632,8 +634,25 @@ public static class OrderEndpoints
             coveredDepositQty = (int)(await depCmd.ExecuteScalarAsync(ct))!;
         }
 
-        // AC-09: 若本次履约后会员持有桶数 newHeld > 已缴押金覆盖桶数 coveredDepositQty，默认拦截要求先补押金
-        if (newHeld > coveredDepositQty && !req.ForceCreditOverride)
+        // AC-09: 若本次履约后会员持有桶数 newHeld > 已缴押金覆盖桶数 coveredDepositQty，默认拦截要求先补押金。
+        // 顾客当场没交够时，有收押金权限的员工可以记欠押金照样交付，但必须写备注（报废了多少、是否给了报废费用、为什么没交），
+        // 备注存进水单 override_reason 和袋桶台账；会员手里比押金多的个数就是欠的押金，下次交付时并进需补押金。
+        string? owedNote = null;
+        if (newHeld > coveredDepositQty && req.ForceCreditOverride)
+        {
+            var uncoveredGap = newHeld - coveredDepositQty;
+            if (!canOweDeposit)
+                return Results.Json(new { error = "FORBIDDEN_PERMISSION", message = "记欠押金需要收押金权限 deposit.collect" }, statusCode: StatusCodes.Status403Forbidden);
+            owedNote = req.OverrideReason?.Trim();
+            if (string.IsNullOrEmpty(owedNote) || owedNote.Length > 500)
+                return Results.BadRequest(new
+                {
+                    error = "DEPOSIT_OWED_NOTE_REQUIRED",
+                    message = $"押金还差 {uncoveredGap} 个没交，记欠押金必须写备注：报废了多少、是否给了报废费用、为什么没交（500 字以内）",
+                    uncoveredGap
+                });
+        }
+        else if (newHeld > coveredDepositQty)
         {
             var uncoveredGap = newHeld - coveredDepositQty;
             return Results.BadRequest(new
@@ -680,7 +699,7 @@ public static class OrderEndpoints
             uOrdCmd.Parameters.AddWithValue("outN", req.FullOutN);
             uOrdCmd.Parameters.AddWithValue("inM", req.EmptyInM);
             uOrdCmd.Parameters.AddWithValue("diff", (object?)req.DiffReason ?? DBNull.Value);
-            uOrdCmd.Parameters.AddWithValue("ovr", (object?)req.OverrideReason ?? DBNull.Value);
+            uOrdCmd.Parameters.AddWithValue("ovr", (object?)owedNote ?? DBNull.Value);
             uOrdCmd.Parameters.AddWithValue("op", operatorName);
             uOrdCmd.Parameters.AddWithValue("tid", orderRepo.TenantId);
             uOrdCmd.Parameters.AddWithValue("oid", resolvedOrderId);
@@ -749,7 +768,8 @@ public static class OrderEndpoints
             clCmd.Parameters.AddWithValue("held", newHeld);
             clCmd.Parameters.AddWithValue("cov", coveredDepositQty);
             clCmd.Parameters.AddWithValue("op", operatorName);
-            clCmd.Parameters.AddWithValue("rmk", req.DiffReason ?? "正常履约交接");
+            var ledgerRemark = string.Join("；", new[] { req.DiffReason, owedNote }.Where(text => !string.IsNullOrWhiteSpace(text)));
+            clCmd.Parameters.AddWithValue("rmk", ledgerRemark.Length > 0 ? ledgerRemark : "正常履约交接");
             await clCmd.ExecuteNonQueryAsync(ct);
         }
 
@@ -767,6 +787,7 @@ public static class OrderEndpoints
             deltaHeld,
             heldAfter = newHeld,
             coveredDepositQty,
+            owedDepositQty = Math.Max(0, newHeld - coveredDepositQty),
             depositAmountUnchanged = depositAmount,
             availableTicketsAfter = newAvail,
             reservedTicketsAfter = newReserved

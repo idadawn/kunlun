@@ -167,6 +167,8 @@ export interface WaterOrder {
   createdAt: string;
   /** Delivery note from whoever placed the order, e.g. where to leave empty buckets. */
   remark?: string | null;
+  /** 交付时顾客没交够押金、记了欠押金写的备注（欠几个、报废了多少、报废费用给没给、为什么没交）；没欠为空。 */
+  overrideReason?: string | null;
 }
 
 export interface CreateOrderRequest {
@@ -203,6 +205,10 @@ export interface FulfillOrderRequest {
   emptyInM: number;
   pickupCode?: string | null;
   diffReason?: string | null;
+  /** 顾客没交够押金照样交付，差额记成欠押金；需要收押金权限，押金够时服务端不理会。 */
+  forceCreditOverride?: boolean;
+  /** 记欠押金必填的备注，存进水单和袋桶台账。 */
+  overrideReason?: string | null;
 }
 
 /**
@@ -713,6 +719,10 @@ export interface ContainerDamageRow {
   scrapReason: string;
   /** Scrapped without deducting the deposit; the reserved deposit went back to the member. */
   depositWaived: boolean;
+  /** 交过的押金不够扣的个数（如欠着押金），报废时这些没有押金可扣。 */
+  uncoveredQty: number;
+  /** 登记时为没押金的那几个写的备注：报废费用给没给、为什么没交。 */
+  uncoveredNote: string;
 }
 
 /** GIFT: tickets a clerk gave away by hand while gifts are reviewed. */
