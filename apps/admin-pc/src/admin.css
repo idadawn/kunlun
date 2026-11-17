@@ -142,6 +142,8 @@ td b{color:var(--ink)}
 .member-cell{display:flex;align-items:center;gap:10px}
 .member-avatar{width:36px;height:36px;border-radius:10px;background:var(--brand-50);color:var(--brand-600);display:grid;place-items:center;font-weight:700;flex:none}
 .member-cell small{display:block;color:var(--muted);font-size:12px;margin-top:1px}
+/* 表格「操作」列：几个文字按钮排成一行 */
+.row-actions .link+.link{margin-left:14px}
 .ledger-table td small{color:var(--muted);font-size:12px}.ledger-reason{white-space:normal;min-width:140px;max-width:260px}
 .amount-in{color:var(--brand-600)!important}.amount-out{color:var(--orange-500)!important}
 /* 费用支出：作废的行变淡，金额划掉 */

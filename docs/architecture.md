@@ -454,6 +454,14 @@ kunlun/
   - 只有没记录的会员能删，停用和删除都写审计；
   - 已有管理员启动后自动获得权限。
 
+## 24. 会员列表停用删除、买桶袋支出入库和台账（2026-11-18）
+
+- 管理端会员列表「操作」列加「停用 / 启用」「删除」（需 `member:manage`）。停用弹窗、重新启用确认和删除确认从会员档案移到 `apps/admin-pc/src/memberStatus.tsx` 的 `useMemberStatusActions`，列表和档案的停用横幅共用；档案「基础资料」只留设置登录账号。接口不变。
+- `CreateExpenseRequest` 增加可选 `ContainerType`：只用于 `CONTAINER`，另需 `container:inventory_manage`（没有时 403，提示可以只记钱）。同一事务里先写支出（`container_type` 即这个容器），再由 `ContainerInventory.ReceiveForExpense` 锁容器行、店里加 `Quantity`、写一条 `RECEIVE` / `EXTERNAL` 库存记录（请求键 `expense:{支出ID}`，收据带 `expense: { expenseNo, amount, payMethod }`，原因取支出备注，空时为“新购”），最后把库存单号写回支出的 `inventory_operation_no`。容器不存在时整笔回滚。请求哈希只在带容器时加入 `containerType`，只记钱的请求哈希形状不变；重放直接返回原支出，不会再入库。作废支出不动库存。
+- `GET /api/containers/circulation` 改为会员流水 `container_ledgers` 与店里的库存记录 `UNION ALL`：`member_id IS NULL` 的 `RECEIVE` 和 `source_state <> 'DAMAGED'` 的 `SCRAP`（条件在 `ContainerCirculation.StoreFlows`），业务类型分别是 `RECEIVE`、`STORE_SCRAP`；`referenceNo` 是收据里的支出单号；新增 `receivedQty`、`storeBefore`、`storeAfter`（会员行为 null；店里的行会员名和会员号为空串）。会员破损的确认报废带 `member_id`，只出现在会员流水里。对店里的行，搜索匹配库存记录号、原因和支出单号；排序为 `created_at DESC`、会员流水 `id DESC`、单号 `DESC`。`/api/exports/container-ledgers` 同样合并，店里的行会员ID和持有余额为空，末尾加“新购数量”列。
+- 前端：费用支出登记弹窗选「买桶袋」后要选容器（显示店里现有数量）或「只记钱，不加库存」，提交前提示店里 N → M；没有库存权限时只能只记钱。支出列表“已加到店里库存”链接袋桶库存。袋桶台账流转记录里店里的行会员一栏写“店里”，标签「新购」「店里报废」，写明店里 N → M，支出单号链接费用支出。
+- 测试：`ExpenseTests` 新增买桶袋入库只记一次（店里数量、修改记录、台账、导出、重放与冲突、只记钱、作废不减库存）和只有支出权限不能入库；坏请求补上非买桶袋带容器、容器 ID 不合法或不存在（整笔回滚）。`ContainerCirculationTests` 新增店里新购、门店报废进台账和导出，会员破损报废只记一行。
+
 ## 独立测试服务（2026-10-30，2026-11-01 更新）
 
 `kunlun-test.idalee.cn` 使用独立 Compose、数据库 `kunlun_test`、非超级用户 `kunlun_test_app` 及 JWT 密钥，承载管理端与 H5 的联调。`/healthz` 返回当前数据库名，部署检查据此确认连接的是测试库。详见 [测试部署](../deploy/test/README.md)。
