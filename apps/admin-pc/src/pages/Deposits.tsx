@@ -7,8 +7,8 @@ import { Icon, useAuth } from '@kunlun/ui';
 import { DateFilterSelect, EmptyRow, Pager, StatCard, handledBy, ledgerEmptyText, useDebounced, useExport, useGo, useLedger, useOperations } from '../common';
 import { useAdminData } from '../data';
 
-const FLOWS: Array<[DepositFlowType | '', string]> = [['', '全部流水'], ['COLLECT', '收押金'], ['REFUND', '退押金'], ['DEDUCT', '报废扣押']];
-const FLOW_TAGS: Record<DepositFlowType, [string, string]> = { COLLECT: ['收押金', 'green'], REFUND: ['退押金', 'blue'], DEDUCT: ['报废扣押', 'orange'] };
+const FLOWS: Array<[DepositFlowType | '', string]> = [['', '全部流水'], ['COLLECT', '收押金'], ['REFUND', '退押金'], ['DEDUCT', '报废扣押'], ['OPENING', '上系统前']];
+const FLOW_TAGS: Record<DepositFlowType, [string, string]> = { COLLECT: ['收押金', 'green'], REFUND: ['退押金', 'blue'], DEDUCT: ['报废扣押', 'orange'], OPENING: ['上系统前', 'gold'] };
 const NO_REPORTS = '需要报表权限';
 
 /** 押金管理：桶、袋押金单独收退和对账，与水费充值分开。 */
@@ -39,7 +39,9 @@ export function Deposits() {
       <StatCard label="在池押金" icon="deposit" value={f ? `¥ ${money(f.unrefundedDepositPoolTotal)}` : '—'}
         foot={f ? (f.reconciledZeroDiff ? '与收退流水零误差对齐' : '与收退流水不一致，请核对') : NO_REPORTS} />
       <StatCard label="当前可退押金" icon="wallet" tone="blue" value={overview ? `¥ ${money(overview.refundableDeposit)}` : '—'} foot="已扣除会员持有容器的占用" />
-      <StatCard label="累计收押" icon="plus" tone="gold" value={f ? `¥ ${money(f.depositCollectedTotal)}` : '—'} foot={f ? `共 ${f.depositCollectCount} 笔` : NO_REPORTS} />
+      {/* Deposits recorded from before the system were not taken in here: shown beside the collections, never added to them. */}
+      <StatCard label="累计收押" icon="plus" tone="gold" value={f ? `¥ ${money(f.depositCollectedTotal)}` : '—'}
+        foot={f ? `共 ${f.depositCollectCount} 笔${Number(f.depositOpeningTotal) ? `；另有上系统前已收 ${f.depositOpeningCount} 笔 ¥${money(f.depositOpeningTotal)}，在池里、不算收押` : ''}` : NO_REPORTS} />
       <StatCard label="累计退押与扣押" icon="refresh" tone="orange" value={f ? `¥ ${money(Number(f.depositRefundedTotal) + Number(f.depositDeductedTotal))}` : '—'}
         foot={f ? `退押 ${f.depositRefundCount} 笔 ¥${money(f.depositRefundedTotal)} · 报废扣押 ${f.depositDeductCount} 笔 ¥${money(f.depositDeductedTotal)}` : NO_REPORTS} />
     </div>
@@ -80,7 +82,8 @@ function DepositTable({ filter, filtered }: { filter: DepositLedgerQuery; filter
           <tbody>
             {rows.length === 0 ? <EmptyRow colSpan={9}>{ledgerEmptyText(table, filtered, '暂无押金流水，请点击右上角「收押金」办理', '押金流水')}</EmptyRow> : rows.map(d => {
               const [label, tone] = FLOW_TAGS[d.flowType] ?? [d.flowType, 'gray'];
-              const collect = d.flowType === 'COLLECT';
+              // A deposit from before the system is a lot like a collection, only not taken in on that day.
+              const collect = d.flowType === 'COLLECT' || d.flowType === 'OPENING';
               return (
                 <tr key={d.docNo}>
                   <td><span className="order-no">{d.docNo}</span><br /><small>{shortDateTime(d.createdAt)}</small></td>
@@ -88,7 +91,7 @@ function DepositTable({ filter, filtered }: { filter: DepositLedgerQuery; filter
                   <td><span className={`tag ${tone}`}>{label}</span>{d.reason && <><br /><small className="ledger-reason">{d.reason}</small></>}</td>
                   <td>{containerLabel(d.containerType)} × {d.qty}</td>
                   <td>¥ {money(d.unitPrice)}</td>
-                  <td><b className={collect ? 'amount-in' : 'amount-out'}>{collect ? '+' : '−'}¥ {money(d.amount)}</b></td>
+                  <td><b className={collect ? 'amount-in' : 'amount-out'}>{d.flowType === 'OPENING' ? '' : collect ? '+' : '−'}¥ {money(d.amount)}</b></td>
                   <td>{d.payMethod ? payMethodLabel(d.payMethod) : <small>{d.flowType === 'DEDUCT' ? '从押金扣抵' : '未登记'}</small>}</td>
                   <td>{collect ? `${d.remainingQty} 个` : <small>—</small>}</td>
                   <td>{handledBy(d.applicantName, d.operatorName, '退款')}</td>
