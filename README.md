@@ -7,7 +7,7 @@
 ## 业务入口
 
 - 管理后台 `/admin`：管理员登录后办理会员、订单、账务与设置。
-- Windows 管理端：门店电脑（Windows 10 / 11，64 位）安装后在独立窗口打开正式环境的管理后台，页面随线上发布自动更新，见 [Windows 管理端说明](apps/windows-admin/README.md)。
+- Windows 管理端：门店电脑（Windows 10 / 11，64 位）安装后在独立窗口打开正式环境的管理后台，页面随线上发布自动更新，默认自动登录（在本机记住密码），见 [Windows 管理端说明](apps/windows-admin/README.md)。
 - 员工工作台 `/staff`：独立员工登录入口，适配手机。首页、底部导航和能办理的业务按角色开通的功能显示，管理员在管理端「系统设置 → 移动端配置」设置并在手机框里实时预览。
 - Android 员工端：将员工页面打包进 APK，以内置 WebView 运行，见 [Android 构建与模拟器安装](apps/android-staff/README.md)。
 - iOS 员工端：同样把员工页面打包进 App，由 WKWebView 运行、原生转发接口，支持 iOS 17+，见 [iOS 员工端说明](apps/ios-staff/README.md)。

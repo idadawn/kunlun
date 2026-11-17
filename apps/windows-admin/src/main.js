@@ -2,18 +2,86 @@
  * Windows desktop shell for the admin site: one window showing the live /admin pages of the server
  * baked in at packaging time. Pages come from the server, so publishing the site updates every desk.
  */
-import { app, BrowserWindow, Menu, dialog, screen, session, shell } from 'electron';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { app, BrowserWindow, Menu, dialog, ipcMain, safeStorage, screen, session, shell } from 'electron';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { clampZoom, externalUrl, isAppUrl, nextZoom, resolveOrigin, startUrl } from './rules.js';
+import {
+  authPause, clampZoom, externalUrl, isAppUrl, loginOffer, nextZoom, normalizeLogin, resolveOrigin, savedLoginFor, startUrl,
+} from './rules.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8'));
 const OFFLINE_PAGE = join(here, 'offline.html');
+const PRELOAD = join(here, 'preload.cjs');
 const ALLOWED_PERMISSIONS = new Set(['clipboard-sanitized-write', 'fullscreen']);
 
 const statePath = () => join(app.getPath('userData'), 'window-state.json');
+// Encrypted with Windows DPAPI through safeStorage, so only this Windows user on this computer can read it.
+const loginPath = () => join(app.getPath('userData'), 'saved-login.bin');
+
+const encryptionAvailable = () => safeStorage.isAsyncEncryptionAvailable().catch(() => false);
+
+async function writeSavedLogin(origin, login) {
+  writeFileSync(loginPath(), await safeStorage.encryptStringAsync(JSON.stringify({ origin, ...login })));
+}
+
+async function readSavedLogin(origin) {
+  let encrypted;
+  try { encrypted = readFileSync(loginPath()); } catch { return null; }
+  try {
+    const { result, shouldReEncrypt } = await safeStorage.decryptStringAsync(encrypted);
+    const login = savedLoginFor(origin, JSON.parse(result));
+    if (login && shouldReEncrypt) await writeSavedLogin(origin, login).catch(() => {});
+    return login;
+  } catch {
+    return null;
+  }
+}
+
+const forgetSavedLogin = () => rmSync(loginPath(), { force: true });
+
+// Whether 自动登录 is ticked: on unless the user unticked it. Not secret, so kept in plain JSON.
+const loginSettingsPath = () => join(app.getPath('userData'), 'login-settings.json');
+function readRemember() {
+  try { return JSON.parse(readFileSync(loginSettingsPath(), 'utf8')).remember !== false; } catch { return true; }
+}
+function writeRemember(remember) {
+  try { writeFileSync(loginSettingsPath(), JSON.stringify({ remember })); } catch { /* The box falls back to ticked. */ }
+}
+
+/** The 自动登录 box on the login page talks to these; only the admin pages of the configured server get answers. */
+function setupSavedLogin(win, origin) {
+  // A logout or password change stops the next automatic login until a login works again (or the app restarts).
+  let pause = null;
+  win.webContents.session.webRequest.onSendHeaders({ urls: ['*://*/api/auth/*'] }, details => {
+    pause = authPause(origin, details.method, details.url) ?? pause;
+  });
+  const fromAdminPage = event => event.sender === win.webContents && event.senderFrame?.parent === null
+    && isAppUrl(origin, event.senderFrame.url);
+
+  ipcMain.handle('kunlun:login:get', async event => {
+    if (!fromAdminPage(event)) return null;
+    const available = await encryptionAvailable();
+    return loginOffer({ available, saved: available ? await readSavedLogin(origin) : null, remember: readRemember(), pause });
+  });
+  ipcMain.handle('kunlun:login:succeeded', async (event, value) => {
+    if (!fromAdminPage(event)) return false;
+    pause = null;
+    const remember = value?.remember === true;
+    const login = normalizeLogin(value);
+    writeRemember(remember);
+    if (!remember || !login || !await encryptionAvailable()) { forgetSavedLogin(); return false; }
+    await writeSavedLogin(origin, login);
+    return true;
+  });
+  ipcMain.handle('kunlun:login:forget', event => {
+    if (!fromAdminPage(event)) return false;
+    writeRemember(false);
+    forgetSavedLogin();
+    return true;
+  });
+}
 
 function readState() {
   try {
@@ -55,8 +123,9 @@ function createWindow(origin) {
     title: app.getName(),
     backgroundColor: '#f8fafc',
     autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
+    webPreferences: { preload: PRELOAD, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
   });
+  setupSavedLogin(win, origin);
   const contents = win.webContents;
   let lastAppUrl = startUrl(origin);
   let zoomLevel = state.zoomLevel;
