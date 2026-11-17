@@ -5,7 +5,10 @@ import {
   type DepositFlowType, type DepositLedgerRow, type DepositSummaryRow, type MemberProfile, type Paged, type RechargeLedgerRow,
   type TicketBatch, type WaterOrder,
 } from '@kunlun/shared';
-import { AddressBook, BatchCards, CredentialsDialog, Icon, RefundBatchDialog, useAuth, useDialogs, useLoader, useRun } from '@kunlun/ui';
+import {
+  AddressBook, BatchCards, ConfirmDialog, CredentialsDialog, FormDialog, Icon, ReasonChips, RefundBatchDialog, useAuth, useDialogs, useLoader, useRun,
+  useToast,
+} from '@kunlun/ui';
 import { StatCard, useOperations } from '../common';
 import { useAdminData } from '../data';
 import { OpeningCard, OpeningDialog } from '../opening';
@@ -27,7 +30,7 @@ export function MemberProfilePage({ memberId, onBack }: { memberId: string; onBa
   const member = profile.data?.id === memberId ? profile.data : null;
   return <>
     <button type="button" className="back-link" onClick={onBack}><Icon name="back" size="sm" />返回会员列表</button>
-    {member ? <Profile member={member} />
+    {member ? <Profile member={member} onDeleted={onBack} />
       : <div className="card profile-placeholder">{profile.error ? <p className="account-error" role="alert">{profile.error}</p> : <p className="membership-note">正在读取会员档案…</p>}</div>}
   </>;
 }
@@ -35,12 +38,16 @@ export function MemberProfilePage({ memberId, onBack }: { memberId: string; onBa
 /** A batch whose tickets are still in use: active with tickets left. */
 const inUse = (b: TicketBatch) => b.status === 'ACTIVE' && b.remainingBuy + b.remainingGift > 0;
 
-function Profile({ member: m }: { member: MemberProfile }) {
+function Profile({ member: m, onDeleted }: { member: MemberProfile; onDeleted: () => void }) {
   const { api, can } = useAuth();
   const dialogs = useDialogs();
   const run = useRun();
+  const toast = useToast();
   const ops = useOperations();
   const { version, refresh } = useAdminData();
+  // A disabled member cannot be served: the server refuses every business, so the page offers none until they are enabled again.
+  const disabled = m.status === 'DISABLED';
+  const manage = can(P.MemberManage);
   const deposits = useLoader(() => api.depositSummary(m.id), [api, m.id, version]);
   const batches = useLoader(() => api.ticketBatches(m.id), [api, m.id, version]);
   const [allBatches, setAllBatches] = useState(false);
@@ -63,9 +70,28 @@ function Profile({ member: m }: { member: MemberProfile }) {
   const live = list?.filter(inUse) ?? [];
   const hidden = (list?.length ?? 0) - live.length;
   const shown = allBatches ? list ?? [] : live;
-  const refund = can(P.RechargeCreate) || can(P.RechargeRefund)
+  const refund = !disabled && (can(P.RechargeCreate) || can(P.RechargeRefund))
     ? (batch: TicketBatch) => run(() => dialogs.open(close => <RefundBatchDialog memberId={m.id} batch={batch} onClose={close} onDone={refresh} />))()
     : undefined;
+
+  const disable = run(() => dialogs.open(close => <DisableMemberDialog member={m} onClose={close} onDone={refresh} />));
+  const enable = run(async () => {
+    const enabled = await dialogs.open<boolean>(close => <ConfirmDialog title="重新启用会员" confirmLabel="重新启用" onClose={close}
+      message={`重新启用后，${m.name}可以登录会员端，员工也能照常为这位会员办理业务。`}
+      onConfirm={async () => { await api.setMemberStatus(m.id, 'ACTIVE'); }} />);
+    if (!enabled) return;
+    await refresh();
+    toast(`已重新启用 ${m.name}`);
+  });
+  const remove = run(async () => {
+    const deleted = await dialogs.open<boolean>(close => <ConfirmDialog title="删除会员" confirmLabel="确认删除" onClose={close}
+      message={<>只有一条记录都没有的会员才能删除，比如建错了、重复的档案；地址会一起删掉，删了找不回来。<br />有充值、水单、押金等记录的会员不能删，请用「停用」。</>}
+      onConfirm={async () => { await api.deleteMember(m.id); }} />);
+    if (!deleted) return;
+    toast(`已删除会员 ${m.name}（${m.memberNo}）`);
+    onDeleted();
+    await refresh();
+  });
 
   return <>
     <section className="profile-hero" aria-label="会员概况">
@@ -74,7 +100,7 @@ function Profile({ member: m }: { member: MemberProfile }) {
         <h2>{m.name}<span className={`tag ${m.status === 'ACTIVE' ? 'green' : 'gray'}`}>{m.status === 'ACTIVE' ? '正常' : '已停用'}</span></h2>
         <p><span>{m.memberNo}</span><span>{m.phone}</span><span>建档 {(m.createdAt || '').slice(0, 10) || '—'}</span></p>
       </div>
-      <div className="profile-actions">
+      {!disabled && <div className="profile-actions">
         <button type="button" className="btn primary" onClick={() => ops.order(m.id)}><Icon name="drop" />点单</button>
         <button type="button" className="btn" onClick={() => ops.recharge(m.id)}><Icon name="wallet" />水费充值</button>
         <button type="button" className="btn" onClick={() => ops.deposit('collect', m.id)}><Icon name="deposit" />收押金</button>
@@ -84,8 +110,9 @@ function Profile({ member: m }: { member: MemberProfile }) {
           <button type="button" className="btn" title="补录这位会员用系统之前买的套餐、交的押金和手里的桶"
             onClick={run(() => dialogs.open(close => <OpeningDialog member={m} onClose={close} onDone={refresh} />))}><Icon name="ledger" />补录历史数据</button>
         )}
-      </div>
+      </div>}
     </section>
+    {disabled && <DisabledBanner member={m} onEnable={manage ? enable : undefined} />}
 
     <div className="stats-grid profile-stats-grid">
       <StatCard label="可用水票" icon="ticket" value={<>{available}<small>张</small></>}
@@ -105,7 +132,7 @@ function Profile({ member: m }: { member: MemberProfile }) {
         <section className="card">
           <div className="card-head">
             <div className="card-title">水票与充值批次 <small>一种水的票只能换这种水，先充的批次先用</small></div>
-            {can(P.RechargeCreate) && <button type="button" className="btn sm primary" onClick={() => ops.recharge(m.id)}><Icon name="plus" size="sm" />充值</button>}
+            {can(P.RechargeCreate) && !disabled && <button type="button" className="btn sm primary" onClick={() => ops.recharge(m.id)}><Icon name="plus" size="sm" />充值</button>}
           </div>
           <div className="profile-card-body">
             {tickets.length ? (
@@ -136,10 +163,10 @@ function Profile({ member: m }: { member: MemberProfile }) {
         <section className="card">
           <div className="card-head">
             <div className="card-title">押金与桶袋 <small>退押金按原收款单价</small></div>
-            <div className="profile-head-actions">
+            {!disabled && <div className="profile-head-actions">
               <button type="button" className="text-btn" onClick={() => ops.deposit('collect', m.id)}>收押金</button>
               <button type="button" className="text-btn" onClick={() => ops.deposit('refund', m.id)}>退押金</button>
-            </div>
+            </div>}
           </div>
           <div className="profile-card-body profile-containers">
             {deposits.error ? <p className="account-error" role="alert">{deposits.error}</p>
@@ -150,7 +177,13 @@ function Profile({ member: m }: { member: MemberProfile }) {
         <section className="card">
           <div className="card-head">
             <div className="card-title">基础资料</div>
-            <button type="button" className="text-btn" onClick={() => dialogs.open(close => <CredentialsDialog subjectType="MEMBER" id={m.id} onClose={close} />)}>设置登录账号</button>
+            <div className="profile-head-actions">
+              <button type="button" className="text-btn" onClick={() => dialogs.open(close => <CredentialsDialog subjectType="MEMBER" id={m.id} onClose={close} />)}>设置登录账号</button>
+              {manage && (disabled
+                ? <button type="button" className="text-btn" onClick={enable}>重新启用</button>
+                : <button type="button" className="text-btn" title="不再来的会员：停用后办不了业务，会员端也登录不了，记录和余额都留着" onClick={disable}>停用会员</button>)}
+              {manage && <button type="button" className="text-btn" title="只能删除一条记录都没有的会员，比如建错了的档案" onClick={remove}>删除</button>}
+            </div>
           </div>
           <div className="profile-card-body">
             <div className="detail-row"><span>会员编号</span><b>{m.memberNo}</b></div>
@@ -167,6 +200,52 @@ function Profile({ member: m }: { member: MemberProfile }) {
       </div>
     </div>
   </>;
+}
+
+/** 已停用会员的页头提示：谁、什么时候、为什么停用，以及停用后办不了什么、余额怎么办。 */
+function DisabledBanner({ member: m, onEnable }: { member: MemberProfile; onEnable?: () => void }) {
+  const who = [m.disabledAt && shortDateTime(m.disabledAt), m.disabledBy].filter(Boolean).join(' · ');
+  return (
+    <div className="member-disabled-note profile-disabled" role="status">
+      <div>
+        <b>这位会员已停用{m.disableReason ? `：${m.disableReason}` : ''}</b>
+        {who && `${who} 停用。`}会员端登录不了，也不能充值、点单、收退押金、退款、登记领还和补录；水票、押金和桶袋都还在，重新启用后照常用、照常退。
+      </div>
+      {onEnable && <button type="button" className="btn sm" onClick={onEnable}>重新启用</button>}
+    </div>
+  );
+}
+
+const DISABLE_REASONS = ['不再来了', '搬走了', '重复建档', '会员要求注销'] as const;
+
+/** 停用会员要写原因。还有的水票、押金和桶袋先列出来：停用后都还在，要退钱得先退再停用，或者重新启用后再退。 */
+function DisableMemberDialog({ member: m, onClose, onDone }: { member: MemberProfile; onClose: () => void; onDone: () => unknown }) {
+  const { api } = useAuth();
+  const toast = useToast();
+  const [reason, setReason] = useState('');
+  const tickets = m.tickets.reduce((sum, t) => sum + t.available + t.reserved, 0);
+  const holds = [
+    tickets > 0 && `${tickets} 张水票`,
+    Number(m.depositAmount) > 0 && `押金 ¥${money(m.depositAmount)}`,
+    m.heldBuckets + m.heldBags > 0 && `手里 ${m.heldBuckets} 个桶、${m.heldBags} 个袋`,
+  ].filter((hold): hold is string => !!hold);
+  const submit = async () => {
+    const text = reason.trim();
+    if (!text) throw new Error('请写明停用原因');
+    await api.setMemberStatus(m.id, 'DISABLED', text);
+    await onDone();
+    toast(`已停用会员 ${m.name}`);
+  };
+  return (
+    <FormDialog title="停用会员" description={`${m.name} · ${m.memberNo}`} submitLabel="确认停用" onClose={onClose} onSubmit={submit}
+      extraActions={<button type="button" className="btn" onClick={onClose}>取消</button>}>
+      <p className="membership-note">停用后会员端马上登录不了，员工也不能再为这位会员充值、点单、收退押金、退款、登记领还和补录。没完成的水单、待审核的赠送和退款要先办完。以后需要可以重新启用。</p>
+      {holds.length > 0 && <p className="profile-warn">还有 {holds.join('、')}：停用后都还在，照样算在账上。要退钱请先退再停用，或者重新启用后再退。</p>}
+      <label htmlFor="disableReason">停用原因</label>
+      <input id="disableReason" className="input" required maxLength={100} placeholder="如：搬走了" value={reason} onChange={e => setReason(e.target.value)} />
+      <ReasonChips options={DISABLE_REASONS} value={reason} onPick={setReason} />
+    </FormDialog>
+  );
 }
 
 /** One container's deposit: what the member holds, what they paid and what they could take back now. */

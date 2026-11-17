@@ -15,6 +15,11 @@
       "risk": "high"
     },
     {
+      "code": "kunlun.waterstation:member:manage",
+      "title": "停用、重新启用与删除会员",
+      "risk": "high"
+    },
+    {
       "code": "kunlun.waterstation:recharge:create",
       "title": "水费实收充值登记"
     },

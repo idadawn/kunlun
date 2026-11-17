@@ -92,7 +92,9 @@ export function StaffMembers() {
           <div className="member-cell">
             <div className="member-avatar">{m.name[0]}</div>
             <div><b>{m.name}</b><small>{m.phone} · {m.memberNo}</small></div>
-            <span className="tag green" style={{ marginLeft: 'auto' }}>查看 ›</span>
+            {m.status === 'DISABLED'
+              ? <span className="tag gray" style={{ marginLeft: 'auto' }}>已停用</span>
+              : <span className="tag green" style={{ marginLeft: 'auto' }}>查看 ›</span>}
           </div>
           <div className="wallet-tickets">
             {m.tickets.length === 0 && <span>暂无水票</span>}

@@ -141,6 +141,7 @@ using (var scope = app.Services.CreateScope())
     await ReviewSettings.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>());
     await ProductContainers.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>(), repo.DefaultTenantId);
     await MemberOpening.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>(), repo.DefaultTenantId);
+    await MemberStatus.EnsureSchema(scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>(), repo.DefaultTenantId);
 }
 
 app.MapGet("/healthz", async (NpgsqlDataSource ds) =>
@@ -205,7 +206,8 @@ app.MapGet("/api/members/{memberId:guid}/profile", async (
     await using var conn = await ds.OpenConnectionAsync(ct);
     await using var cmd = new NpgsqlCommand($"""
         SELECT m.id, m.member_no, m.name, m.phone, m.default_address,
-               m.deposit_amount, m.held_buckets, m.held_bags, m.status, m.remark, {MemberTickets.JsonOf("m")}
+               m.deposit_amount, m.held_buckets, m.held_bags, m.status, m.remark, {MemberTickets.JsonOf("m")},
+               m.disabled_at, m.disabled_by, m.disable_reason
         FROM plugin_kunlun_waterstation.members m
         WHERE m.id = @id
         """, conn);
@@ -226,7 +228,11 @@ app.MapGet("/api/members/{memberId:guid}/profile", async (
         status = r.GetString(8),
         remark = r.IsDBNull(9) ? null : r.GetString(9),
         // 每种水品、每种领取方式的可用和预占水票，各水品互不通用
-        tickets = JsonSerializer.Deserialize<JsonElement>(r.GetString(10))
+        tickets = JsonSerializer.Deserialize<JsonElement>(r.GetString(10)),
+        // 停用时谁停的、什么时候、为什么；正常的会员都是 null
+        disabledAt = r.IsDBNull(11) ? (DateTime?)null : r.GetDateTime(11),
+        disabledBy = r.IsDBNull(12) ? null : r.GetString(12),
+        disableReason = r.IsDBNull(13) ? null : r.GetString(13)
     });
 }).RequireAuthorization();
 
@@ -269,6 +275,7 @@ app.MapContainerInventory();
 app.MapContainerCirculation();
 app.MapMembershipEndpoints();
 app.MapMemberOpening();
+app.MapMemberStatus();
 app.MapRefundRequests();
 app.MapReviewSettings();
 app.MapMemberAddresses();

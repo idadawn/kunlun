@@ -90,7 +90,7 @@ function MemberList({ onOpen }: { onOpen: (id: string) => void }) {
           <tbody>
             {rows.length === 0 ? <EmptyRow colSpan={8}>{loaded ? '没有符合条件的会员' : '正在加载会员…'}</EmptyRow> : rows.map((m, i) => (
               <tr key={m.id}>
-                <td><div className="member-cell"><div className="member-avatar" style={PALETTE[i % PALETTE.length]}>{m.name[0]}</div><div><b>{m.name}</b><small>{m.memberNo}</small></div></div></td>
+                <td><div className="member-cell"><div className="member-avatar" style={PALETTE[i % PALETTE.length]}>{m.name[0]}</div><div><b>{m.name}</b>{m.status === 'DISABLED' && <span className="tag gray" style={{ marginLeft: 6 }} title={m.disableReason ?? undefined}>已停用</span>}<small>{m.memberNo}</small></div></div></td>
                 <td>{m.phone}</td>
                 <td style={{ whiteSpace: 'normal', minWidth: 180, maxWidth: 260 }}>{m.defaultAddress || <span style={{ color: 'var(--muted)' }}>未设置</span>}</td>
                 <td><TicketCell tickets={m.tickets} /></td>
