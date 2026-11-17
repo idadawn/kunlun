@@ -14,8 +14,8 @@ public sealed record UpdateMemberStatusRequest(string Status, string? Reason = n
 /// <summary>
 /// 停用、重新启用和删除会员（「停用和删除会员」权限，默认只给管理员，不随手机端功能开通）。
 /// <para>停用：会员端登录和手里的登录凭证马上失效（登录和每次请求本来就只认 ACTIVE）；员工也办不了他的充值、点单、收退押金、退款、
-/// 登记领还和补录（都要先锁会员，不是 ACTIVE 一律拒绝）。所以停用前要把没办完的事办完：未完成的水单、待审核的赠送和退款、
-/// 待确认的报废。水票、押金和桶袋原样留着、照样算在账上，重新启用后照常用、照常退。</para>
+/// 登记领还和补录（都要先锁会员，不是 ACTIVE 一律拒绝）。所以停用前要把没办完的事办完：未完成的水单、待审核的赠送、收押金、
+/// 退款和损坏不赔付、待确认的报废。水票、押金和桶袋原样留着、照样算在账上，重新启用后照常用、照常退。</para>
 /// <para>删除：只给一条业务记录都没有的会员（建错、重复的档案），连同地址一起删；有记录的只能停用，账上的会员不能凭空消失。</para>
 /// 每次停用、启用、删除都写一条 auth_audit_logs，记下是谁、对哪位会员、为什么。
 /// </summary>
@@ -144,7 +144,7 @@ public static class MemberStatus
         await r.ReadAsync(ct);
         var open = new List<string>();
         if (r.GetInt64(0) > 0) open.Add($"{r.GetInt64(0)} 张水单没完成");
-        if (r.GetInt64(1) > 0) open.Add($"{r.GetInt64(1)} 笔赠送或退款在等审核");
+        if (r.GetInt64(1) > 0) open.Add($"{r.GetInt64(1)} 笔赠送、收押金、退款或损坏不赔付在等审核");
         if (r.GetInt64(2) > 0) open.Add($"{r.GetInt64(2)} 笔报损待确认报废");
         return open;
     }

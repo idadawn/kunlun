@@ -60,7 +60,7 @@ function DisableMemberDialog({ member: m, onClose, onDone }: { member: Member; o
   return (
     <FormDialog title="停用会员" description={`${m.name} · ${m.memberNo}`} submitLabel="确认停用" onClose={onClose} onSubmit={submit}
       extraActions={<button type="button" className="btn" onClick={onClose}>取消</button>}>
-      <p className="membership-note">停用后会员端马上登录不了，员工也不能再为这位会员充值、点单、收退押金、退款、登记领还和补录。没完成的水单、待审核的赠送和退款要先办完。以后需要可以重新启用。</p>
+      <p className="membership-note">停用后会员端马上登录不了，员工也不能再为这位会员充值、点单、收退押金、退款、登记领还和补录。没完成的水单、待审核的赠送、收押金、退款和损坏不赔付要先办完。以后需要可以重新启用。</p>
       {holds.length > 0 && <p className="profile-warn">还有 {holds.join('、')}：停用后都还在，照样算在账上。要退钱请先退再停用，或者重新启用后再退。</p>}
       <label htmlFor="disableReason">停用原因</label>
       <input id="disableReason" className="input" required maxLength={100} placeholder="如：搬走了" value={reason} onChange={e => setReason(e.target.value)} />

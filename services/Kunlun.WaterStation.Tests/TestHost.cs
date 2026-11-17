@@ -1,6 +1,9 @@
 using System.Text.Json;
+using Kunlun.WaterStation.Auth;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Npgsql;
 
 namespace Kunlun.WaterStation.Tests;
@@ -38,6 +41,22 @@ public sealed class TestHost : WebApplicationFactory<Program>
         Environment.SetEnvironmentVariable(key, value);
     }
     protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Testing");
+    /// <summary>
+    /// Most tests take deposits and register damage expecting them settled at once, as before those reviews existed, so this
+    /// run starts with both switches off; the tests about these reviews switch them on and back off themselves.
+    /// </summary>
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        var host = base.CreateHost(builder);
+        using var conn = OpenDatabase();
+        using var cmd = new NpgsqlCommand("""
+            INSERT INTO plugin_kunlun_waterstation.review_settings(tenant_id, deposit_review, damage_review) VALUES(@tid, FALSE, FALSE)
+            ON CONFLICT (tenant_id) DO UPDATE SET deposit_review = FALSE, damage_review = FALSE
+            """, conn);
+        cmd.Parameters.AddWithValue("tid", host.Services.GetRequiredService<KunlunAuthRepository>().DefaultTenantId);
+        cmd.ExecuteNonQuery();
+        return host;
+    }
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);

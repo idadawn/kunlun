@@ -195,7 +195,8 @@ function DisabledBanner({ member: m, onEnable }: { member: MemberProfile; onEnab
 /** One container's deposit: what the member holds, what they paid and what they could take back now. */
 function ContainerDeposit({ row: r }: { row: DepositSummaryRow }) {
   const unit = containerUnit(r.containerType);
-  const owing = Math.max(0, r.heldQty - Math.max(0, r.paidQty - r.pendingDamageQty));
+  // Deposit taken but still waiting for an admin covers containers already, as at the hand-over.
+  const owing = Math.max(0, r.heldQty - Math.max(0, r.paidQty - r.pendingDamageQty + r.pendingCollectQty));
   return (
     <div className={`profile-container${r.containerKind === 'BAG' ? ' bag' : ''}`}>
       <div className="profile-container-head"><b>{containerLabel(r.containerType)}</b><small>现行押金 ¥{money(r.unitDeposit)}/个</small></div>
@@ -205,6 +206,7 @@ function ContainerDeposit({ row: r }: { row: DepositSummaryRow }) {
         <div><small>现在可退</small><b>¥{money(r.refundableAmount)}</b><small>{r.refundableQty} 个</small></div>
       </div>
       {owing > 0 && <p className="profile-warn">手里的{unit}比押金多 {owing} 个，下次交付时会提示补交押金。</p>}
+      {r.pendingCollectQty > 0 && <p className="membership-note">另收了押金 ¥{money(r.pendingCollectAmount)}（{r.pendingCollectQty} 个），等管理员在「审核」里核对到账，批准后计入已交押金。</p>}
       {r.pendingRefundQty > 0 && <p className="membership-note">退押金审核中 {r.pendingRefundQty} 个，批准后退款。</p>}
       {r.pendingDamageQty > 0 && <p className="membership-note">{r.pendingDamageQty} 个{unit}待确认报废，占用押金 ¥{money(r.pendingDamageAmount)}，确认报废后按原批次扣除。</p>}
     </div>

@@ -23,7 +23,11 @@ public sealed record FulfillWaterOrderRequest(
     string? PickupCode = null,
     string? DiffReason = null,
     bool ForceCreditOverride = false,
-    string? OverrideReason = null);
+    string? OverrideReason = null,
+    // 交付时有损坏的桶袋：几个、顾客赔不赔、不赔的原因；不赔付按审核开关等管理员批准。
+    int DamagedQty = 0,
+    bool? DamageCompensated = null,
+    string? DamageReason = null);
 
 public sealed record VerifyPickupCodeRequest(
     string PickupCode,

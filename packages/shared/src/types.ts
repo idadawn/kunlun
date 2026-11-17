@@ -174,7 +174,7 @@ export interface WaterOrder {
   createdAt: string;
   /** Delivery note from whoever placed the order, e.g. where to leave empty buckets. */
   remark?: string | null;
-  /** 交付时顾客没交够押金、记了欠押金写的备注（欠几个、报废了多少、报废费用给没给、为什么没交）；没欠为空。 */
+  /** 交付备注：顾客没交或没交够押金（交了几个、欠几个），损坏的桶袋赔没赔、不赔的原因；都没有为空。 */
   overrideReason?: string | null;
 }
 
@@ -212,10 +212,14 @@ export interface FulfillOrderRequest {
   emptyInM: number;
   pickupCode?: string | null;
   diffReason?: string | null;
-  /** 顾客没交够押金照样交付，差额记成欠押金；需要收押金权限，押金够时服务端不理会。 */
+  /** 顾客没交或没交够押金照样交付，差额记成欠押金；需要收押金权限，押金够时服务端不理会。 */
   forceCreditOverride?: boolean;
-  /** 记欠押金必填的备注，存进水单和袋桶台账。 */
+  /** 交付备注（交没交押金、损坏的桶袋赔没赔），记欠押金时必填；有就存进水单和袋桶台账，500 字以内。 */
   overrideReason?: string | null;
+  /** 交付时损坏的桶袋个数、顾客赔不赔、不赔的原因；不赔付按审核开关等管理员批准。 */
+  damagedQty?: number;
+  damageCompensated?: boolean | null;
+  damageReason?: string | null;
 }
 
 /**
@@ -581,6 +585,9 @@ export interface DepositSummaryRow {
   refundableAmount: number;
   /** Already asked back in refund requests awaiting review; new requests can cover only the rest. */
   pendingRefundQty: number;
+  /** Deposit staff took that waits for an admin to approve: it covers containers already, but is booked (and refundable) only once approved. */
+  pendingCollectQty: number;
+  pendingCollectAmount: number;
 }
 
 export interface StaffAccount {
@@ -753,18 +760,26 @@ export interface ContainerDamageRow {
 }
 
 /** GIFT: tickets given away by hand on a recharge while gifts are reviewed, whoever typed them in. */
-export type RefundKind = 'DEPOSIT' | 'RECHARGE' | 'GIFT';
+/** 审核的种类：押金退款、水费退款、充值赠送、员工收的押金、交付时登记的损坏不赔付。 */
+export type RefundKind = 'DEPOSIT' | 'RECHARGE' | 'GIFT' | 'COLLECT' | 'DAMAGE';
 export type RefundRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
-/** 审核开关：充值时手动赠送（管理员账号填的也算）、店员退押金和退水费要不要管理员审核；管理员自己办理的退款直接生效。 */
+/**
+ * 审核开关：充值时手动赠送、店员退押金和退水费、员工收的押金、交付时登记的损坏不赔付要不要管理员审核。
+ * 赠送、收押金和损坏不赔付不分谁办的都要审核（门店共用一个管理员账号）；管理员自己办理的退款直接生效。
+ */
 export interface ReviewSettings {
   giftReview: boolean;
   refundReview: boolean;
+  /** 员工收的押金（含交付时收的）先记待审核，管理员核对到账批准后才算数。 */
+  depositReview: boolean;
+  /** 交付时损坏的桶袋选了不赔付，要管理员批准。 */
+  damageReview: boolean;
   updatedBy: string | null;
   updatedAt: string | null;
 }
 
-/** 审核申请：押金退款、退清充值剩余权益或店员手动赠送的水票，不需要审核时当场记为已通过。 */
+/** 审核申请：押金退款、退清充值剩余权益、店员手动赠送的水票、员工收的押金或交付时的损坏不赔付；不需要审核时当场记为已通过。 */
 export interface RefundRequestRow {
   id: string;
   requestNo: string;
@@ -797,6 +812,10 @@ export interface RefundRequestRow {
   /** The recharge a refund or gift belongs to: what was paid and how many tickets were bought. */
   rechargePaid: number | null;
   rechargeBuyQty: number | null;
+  /** A deposit staff took: the unit price it was taken at, booked at that price once approved. */
+  unitPrice: number | null;
+  /** A damage waiver: the order handed over when the damage was found. */
+  orderNo: string | null;
 }
 
 export interface RefundRequestQuery extends PageQuery {
