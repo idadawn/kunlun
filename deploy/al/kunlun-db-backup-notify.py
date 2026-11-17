@@ -10,6 +10,7 @@ Usage: kunlun-db-backup-notify <failed unit>   (e.g. kunlun-db-backup@prod.servi
 """
 import collections
 import os
+import re
 import smtplib
 import socket
 import ssl
@@ -17,6 +18,7 @@ import subprocess
 import sys
 import textwrap
 import time
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid, parseaddr
 
@@ -28,6 +30,7 @@ LOG_LINES = 10
 JOURNAL_LINES = 20
 RETRY_DELAYS = (30, 60)  # seconds before the second and the third attempt
 SMTP_TIMEOUT = 30
+JOURNAL_TIMEOUT = 120  # even the narrow query in compose() took 6-10 s on al's ~3G journal; leave room for a busy disk
 
 
 def read_config():
@@ -55,10 +58,10 @@ def read_config():
     return conf
 
 
-def run(*args):
+def run(*args, timeout=30):
     """Output of a read-only command, or why there is none: the mail must go out even if this part fails."""
     try:
-        done = subprocess.run(args, capture_output=True, text=True, errors="replace", timeout=30, check=False)
+        done = subprocess.run(args, capture_output=True, text=True, errors="replace", timeout=timeout, check=False)
     except (OSError, subprocess.SubprocessError) as e:
         return f"({args[0]}: {e})"
     return (done.stdout or done.stderr).rstrip()
@@ -75,14 +78,26 @@ def tail(path, count):
 def compose(unit, conf):
     host = socket.gethostname()
     props = {}
-    for line in run("systemctl", "show", unit, "--property=Result,ExecMainStatus,ExecMainExitTimestamp").splitlines():
+    for line in run("systemctl", "show", unit,
+                    "--property=Result,ExecMainStatus,ExecMainStartTimestamp,ExecMainExitTimestamp").splitlines():
         key, _, value = line.partition("=")
         props[key] = value
     result = f"{props.get('Result') or '?'}（ExecMainStatus={props.get('ExecMainStatus') or '?'}）"
     when = props.get("ExecMainExitTimestamp") or time.strftime("%Y-%m-%d %H:%M:%S %Z")
     log_tail = textwrap.indent(tail(LOG, LOG_LINES), "  ")
-    journal = textwrap.indent(
-        run("journalctl", "--unit", unit, "--lines", str(JOURNAL_LINES), "--output", "short-iso", "--no-pager"), "  ")
+
+    # journalctl -u also matches coredumps and _PID=1 entries over the whole journal, which took 25-35 s per unit on
+    # al. The unit's own output plus systemd's messages about it, from a minute before this run started, took ~7 s.
+    journal_cmd = ["journalctl", f"_SYSTEMD_UNIT={unit}", "+", f"UNIT={unit}"]
+    started = re.search(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d", props.get("ExecMainStartTimestamp", ""))
+    if started:
+        since = f"{datetime.strptime(started.group(), '%Y-%m-%d %H:%M:%S') - timedelta(minutes=1):%Y-%m-%d %H:%M:%S}"
+        journal_cmd += ["--since", since]
+        see_journal = f'journalctl _SYSTEMD_UNIT={unit} + UNIT={unit} --since "{since}" --no-pager'
+    else:
+        see_journal = f"journalctl -u {unit} -n 100 --no-pager"
+    journal = textwrap.indent(run(*journal_cmd, "--lines", str(JOURNAL_LINES), "--output", "short-iso", "--no-pager",
+                                  timeout=JOURNAL_TIMEOUT), "  ")
 
     name, sender = parseaddr(conf["MAIL_FROM"] or conf["SMTP_USER"])
     msg = EmailMessage()
@@ -102,10 +117,10 @@ def compose(unit, conf):
 {LOG} 最后 {LOG_LINES} 行：
 {log_tail}
 
-journalctl -u {unit} 最后 {JOURNAL_LINES} 行：
+本次运行的 journal（最后 {JOURNAL_LINES} 行）：
 {journal}
 
-排查：ssh al 'journalctl -u {unit} -n 100 --no-pager'
+排查：ssh al '{see_journal}'
 修好后重跑：ssh al 'systemctl start {unit} && tail -n 1 {LOG}'
 
 这封邮件由 al 上的 kunlun-db-backup-notify@{unit}.service 发出，说明见仓库 deploy/al/README.md。
@@ -144,7 +159,9 @@ def main():
         return 2
     os.umask(0o077)
     unit = sys.argv[1]
-    env_name = unit.removeprefix("kunlun-db-backup@").removesuffix(".service")
+    # The log's second column: the instance (prod, test) of kunlun-db-backup@ and kunlun-db-offsite@ units, else the
+    # unit's own name (the drill).
+    env_name = unit.partition("@")[2].removesuffix(".service") or unit.removesuffix(".service")
 
     def log(text):
         print(text)

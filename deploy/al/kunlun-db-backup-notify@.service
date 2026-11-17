@@ -10,4 +10,5 @@ After=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/kunlun-db-backup-notify %i
-TimeoutStartSec=5min
+# Up to 2 min reading the journal, then up to three send attempts 30 s and 60 s apart.
+TimeoutStartSec=10min

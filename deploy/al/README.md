@@ -72,10 +72,10 @@ ssh al 'install -d -m 700 /var/backups/kunlun/prod/keep && cp -p /var/backups/ku
 
 `kunlun-db-backup@.service` 设了 `OnFailure=kunlun-db-backup-notify@%n.service`。生产或测试备份以非零退出或超时后（手动 `systemctl start` 也算），systemd 会启动 `kunlun-db-backup-notify@kunlun-db-backup@prod.service.service` 这样的实例，由本目录的 `kunlun-db-backup-notify.py`（安装为 `/usr/local/sbin/kunlun-db-backup-notify`）发一封邮件；备份成功不会启动它。al 没有本地 MTA（`/usr/sbin/sendmail` 是 `lsb-invalid-mta` 占位），阿里云又封了出站 25 端口，所以脚本用系统自带 python3 的 smtplib 直接连邮箱服务商的 465（SSL）或 587（STARTTLS），不需要装软件包。
 
-- 标题含失败的单元名和主机名。正文有单元的 `Result` 和退出码、`/var/log/kunlun-db-backup.log` 最后 10 行、该单元 journal 最后 20 行，以及排查和重跑命令。
+- 标题含失败的单元名和主机名。正文有单元的 `Result` 和退出码、`/var/log/kunlun-db-backup.log` 最后 10 行、本次运行的 journal 最后 20 行，以及排查和重跑命令。
 - SMTP 服务器、账号、授权码和收件人只写在 al 的 `/etc/kunlun-db-backup-notify.conf`（root、600），格式见本目录 `kunlun-db-backup-notify.conf.example`。这些值不进仓库，也不要贴到聊天里。用 `ssh -t al nano /etc/kunlun-db-backup-notify.conf` 修改；文件权限被放宽或缺少必填项时，脚本拒绝发送。
 - 网络错误重试两次（间隔 30 秒、60 秒）；用户名或授权码错误、收件人被拒等 5xx 回复不重试。结果记入日志（`NOTIFY sent` 或 `NOTIFY FAILED`）。发信也失败时，`systemctl --failed` 会同时列出备份单元和 `kunlun-db-backup-notify@…` 单元，`NOTIFY FAILED` 行末附有该通知单元的 journal 命令。
-- al 的 journal 约 3G，查询时写完整单元名。`journalctl -u 'kunlun-db-backup-notify@*'` 这类通配符要扫描全部 journal，几分钟都出不了结果。
+- al 的 journal 约 3G，查询很慢：`journalctl -u 'kunlun-db-backup-notify@*'` 这类通配符几分钟都出不了结果，写完整单元名的 `journalctl -u` 也要 25–35 秒。所以脚本改查 `_SYSTEMD_UNIT=<单元> + UNIT=<单元>`，并从本次运行开始前 1 分钟查起，约 7 秒；上限 120 秒，超时也照样发信。邮件里的排查命令用的是同一种写法。
 
 改了配置或收件人后演练一次：起一个必然失败、挂同样 `OnFailure=` 的临时单元（对这个单元名，`%n` 展开后就是下面的值），不碰真实备份：
 
@@ -86,7 +86,11 @@ ssh al 'sleep 5; while [ "$(systemctl show -p ActiveState --value kunlun-db-back
 
 日志最后一行应为 `… NOTIFY sent unit=kunlun-db-backup-drill.service …`，收件人会收到标题为「数据库备份失败：kunlun-db-backup-drill.service（主机 jhs）」的邮件。如果是 `NOTIFY FAILED`，按行末命令查原因，修好后先 `systemctl reset-failed kunlun-db-backup-notify@kunlun-db-backup-drill.service.service` 再演练。
 
-2026-11-17 部署时 SMTP 配置还没填，已验证触发路径：失败的临时单元启动了通知单元，参数是正确的单元名，并记下 `NOTIFY FAILED … has no value for SMTP_HOST, …`；挂同样 `OnFailure=` 的成功临时单元，以及一次手动测试库备份（`kunlun_test-20261117-091133.dump`），都没有启动通知单元。邮件能否送达，要等配置填好后按上面的命令演练。
+2026-11-17 验证：
+
+- SMTP 配置填好前，失败的临时单元启动了通知单元，参数是正确的单元名，并记下 `NOTIFY FAILED … has no value for SMTP_HOST, …`。
+- 挂同样 `OnFailure=` 的成功临时单元，以及当天两次手动备份（测试库 09:11、生产库 09:25），都没有启动通知单元。
+- 配置填好后按上面的命令演练了两次（09:28、09:37），日志都是 `NOTIFY sent … attempt=1`，收件人收到了邮件。第一次组装邮件用了 22 秒，几乎都花在 `journalctl -u` 上；改成上面的查询后，整个通知用时 8 秒。
 
 ### 恢复演练
 
