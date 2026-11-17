@@ -8,7 +8,7 @@ import { useApi, useAuth } from './auth';
 import { FormDialog, NumberInput, useDialogs, useRun } from './feedback';
 import { useLoader } from './hooks';
 import { Icon } from './icons';
-import { useReviewSettings, waitsForReview } from './operations/common';
+import { parseYuan, useReviewSettings, waitsForReview } from './operations/common';
 
 export const DELIVERY_SLOTS = ['尽快送达（约 45 分钟内）', '今天 14:00–16:00', '今天 16:00–18:00'];
 
@@ -66,13 +66,13 @@ export function DepositEstimate({ type, position, qty, title }: {
 }
 
 /**
- * What staff answer at a hand-over: whether the customer paid the deposit (asked only when some is due) and how many,
+ * What staff record at hand-over: the amount received when a deposit is due,
  * and whether any container came back damaged, whether the customer pays for it, and why not.
  */
 export interface HandoverChoice {
   /** 客户是否支付押金, null until staff answer. */
   pays: boolean | null;
-  /** Containers below 应付 that the customer did not pay for; 实付 follows 应付 until staff lower it. */
+  /** Actual yuan received, defaulting to the estimated shortfall. */
   amount?: string;
   damaged: boolean;
   damagedQty: number;
@@ -83,14 +83,14 @@ export interface HandoverChoice {
 }
 export const EMPTY_HANDOVER: HandoverChoice = { pays: null, damaged: false, damagedQty: 1, compensated: null, reason: '' };
 
-/** 实付押金 in containers: 应付 minus what staff took off when the customer paid, 0 when they did not. */
+/** A shortfall is advisory. Only an explicitly recorded payment is collected. */
 export function paidOf(choice: HandoverChoice, due: number) {
-  return choice.pays ? Number(choice.amount ?? money(due)) : 0;
+  return choice.pays && due > 0 ? parseYuan(choice.amount ?? money(due)) ?? 0 : 0;
 }
 
 /** What the hand-over answers still lack, or '' when they are complete. */
 export function handoverProblem(choice: HandoverChoice, due: number, unit: string) {
-  if (choice.pays && (!Number.isFinite(paidOf(choice, due)) || paidOf(choice, due) <= 0 || !/^\d+(?:\.\d{1,2})?$/.test(choice.amount ?? money(due)))) return '请输入实际收到的押金，最多两位小数';
+  if (due > 0 && choice.pays && paidOf(choice, due) <= 0) return '请输入实际收到的押金，最多两位小数';
   if (choice.damaged && choice.compensated === null) return `先选损坏的${unit}是否赔付`;
   if (choice.damaged && choice.compensated === false && !choice.reason.trim()) return `损坏的${unit}不赔付，要写上原因`;
   return '';
@@ -307,14 +307,12 @@ type Line = {
   /** Empties returned: counted by the counter at a hand-over, unknown (0) for an order handed over later. */
   emptyIn: number;
   /** 应付 (hand-over) or 需补 (order) for this line in containers and money, as if the lines before it were paid in full. */
-  gap: number; deposit: number;
+  gap: number;
   choice: HandoverChoice;
   /** Containers whose deposit an earlier try of this checkout already took for this line. */
   collected: number;
   /** Containers whose deposit the customer pays now (实付) and leaves unpaid (欠押金, once staff answered), at a hand-over. */
   paid: number; owed: number;
-  /** Containers the member holds without a deposit once this line is handed over, debts earlier in the checkout included. */
-  uncoveredAfter: number;
 };
 /** An order placed in this checkout, with what of its hand-over still waits for an admin: the deposit taken, an unpaid damage. */
 type Placed = CreateOrderResult & { name: string; handedOver: boolean; depositPending?: number; damagePending?: boolean };
@@ -378,7 +376,7 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
     addedValue += (qty - emptyIn) * (position?.unitDeposit ?? 0);
     paidSoFar += paid;
     return [{ product, water, qty, tickets: ticketsFor(member, water, mode), container, unit: containerUnit(container),
-      position, empties, emptyIn, gap, deposit: gap, choice, collected, paid, owed, uncoveredAfter: owed }];
+      position, empties, emptyIn, gap, choice, collected, paid, owed }];
   });
   const count = lines.reduce((sum, l) => sum + l.qty, 0);
   const depositTotal = lines.at(-1)?.gap ?? 0;
@@ -432,15 +430,15 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
         let damagePending = false;
         if (handOver) {
           if (line.paid > 0 && !p.deposit) {
-            const taken = await api.collectDeposit({ memberId: member.id, amount: line.paid, payMethod, idempotencyKey: `${p.key}:deposit:${line.paid}:${payMethod}` });
+            const taken = await api.collectDeposit({ memberId: member.id, amount: line.paid, payMethod, idempotencyKey: `${p.key}:deposit` });
             p.deposit = line.paid;
             if (taken.status === 'PENDING') p.depositPending = taken.totalAmount;
           }
-          const owe = line.uncoveredAfter;
+          const owe = line.owed;
           const note = composeHandoverNote(line.choice, { unit: line.unit, paid: p.deposit ?? 0, owed: owe });
           const result = await api.fulfillOrder(p.order.id, {
             actualQty: line.qty, fullOutN: line.qty, emptyInM: line.emptyIn, pickupCode: p.order.pickupCode ?? null,
-            ...(owe > 0 && { forceCreditOverride: true }), ...(note && { overrideReason: note }), ...damageFields(line.choice),
+            ...(note && { overrideReason: note }), ...damageFields(line.choice),
           });
           damagePending = result.damageReviewStatus === 'PENDING';
         }

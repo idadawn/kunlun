@@ -61,15 +61,13 @@ export function FulfillDialog({ order, onClose, onDone }: { order?: WaterOrder; 
         const name = order.productSnapshot?.waterLabel || waterFallbackLabel(order.waterType);
         const unpaidPart = owed > 0 ? { amount: owed, text: "交付后差额" } : undefined;
         if (!await confirmDeposit(payMethod, [{ name, amount: paid }], unpaidPart)) throw new Error(DEPOSIT_NOT_RECEIVED);
-        // Keyed by the amount and method so a retry after a later failure cannot charge twice; coverage is re-read afterwards,
-        // which leaves only the unpaid part as 应付 (and 实付 at zero) if the hand-over itself has to be retried.
-        const taken = await api.collectDeposit({ memberId: order.memberId, amount: paid, payMethod, idempotencyKey: `${key}:${paid}:${payMethod}` });
+        // Reuse the collection key even if the response was lost.
+        const taken = await api.collectDeposit({ memberId: order.memberId, amount: paid, payMethod, idempotencyKey: `${key}:deposit` });
         collected.current += paid;
         if (taken.status === 'PENDING') waiting.current += taken.totalAmount;
         await deposits.reload();
       }
       const note = composeHandoverNote(choice, { unit, paid: collected.current, owed });
-      if (owed > 0) body.forceCreditOverride = true;
       if (note) body.overrideReason = note;
       Object.assign(body, damageFields(choice));
     }

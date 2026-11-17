@@ -163,7 +163,7 @@ public static class ReportEndpoints
             // Deposit kept: scrapped damages, and the part of a deposit refund staff chose not to pay back.
             await using (var deductions = TicketBatches.Command(conn, null, """
                 SELECT count(*),COALESCE(sum(amount),0) FROM (
-                  SELECT deposit_amount AS amount FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED' AND NOT deposit_waived
+                  SELECT deposit_amount AS amount FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED' AND NOT deposit_waived AND deposit_amount>0
                   UNION ALL
                   SELECT deducted_amount FROM plugin_kunlun_waterstation.deposit_refunds WHERE tenant_id=@tid AND deducted_amount>0) kept
                 """, ("tid",tenantId)))
@@ -314,7 +314,7 @@ public static class ReportEndpoints
                         UNION ALL
                         SELECT scrap_no AS doc_no,'DEDUCT' AS flow_type,member_id,container_type,quantity AS qty,
                                ROUND(deposit_amount/quantity,2) AS unit_price,deposit_amount AS amount,0 AS remaining_qty,scrap_operator AS operator_name,scrapped_at AS created_at,NULL
-                        FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED' AND NOT deposit_waived
+                        FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED' AND NOT deposit_waived AND deposit_amount>0
                         UNION ALL
                         SELECT refund_no,'DEDUCT',member_id,COALESCE(container_type,''),COALESCE(refund_qty,0),
                                COALESCE(ROUND(deducted_amount/refund_qty,2),0),deducted_amount,0,operator_name,created_at,NULL
@@ -564,7 +564,7 @@ public static class ReportEndpoints
                         NULL, NULLIF(COALESCE(d.scrap_reason, d.reason), '')
                  FROM plugin_kunlun_waterstation.container_damages d
                  JOIN plugin_kunlun_waterstation.members m ON m.id = d.member_id AND m.tenant_id = d.tenant_id
-                 WHERE d.tenant_id = @tid AND d.status = 'SCRAPPED' AND NOT d.deposit_waived
+                 WHERE d.tenant_id = @tid AND d.status = 'SCRAPPED' AND NOT d.deposit_waived AND d.deposit_amount>0
                  UNION ALL
                  -- The part of a deposit refund that was kept instead of paid back.
                  SELECT rf.refund_no, m.name, m.member_no, m.phone, 'DEDUCT', rf.container_type, rf.refund_qty,
