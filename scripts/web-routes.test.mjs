@@ -54,6 +54,12 @@ test('the Android member app opens exactly the declared member pages and their a
  assert.deepEqual(android,allPaths('member').sort());
 });
 
+test('the Windows admin app keeps every declared admin page in its window and nothing from the other areas',async()=>{
+ const {DEFAULT_ORIGIN:origin,isAppUrl}=await import('../apps/windows-admin/src/rules.js');
+ for(const path of allPaths('admin'))assert.ok(isAppUrl(origin,origin+path),path);
+ for(const path of [...allPaths('staff'),...allPaths('member'),'/admin.html','/api/auth/me'])assert.equal(isAppUrl(origin,origin+path),false,path);
+});
+
 test('package classification and search never expose disabled packages',()=>{
  const plans=[{id:'a',name:'袋装自提100',waterType:'BAG_7_5L',fulfillMode:'PICKUP',price:100,buyQty:50,status:'ACTIVE'},{id:'b',name:'袋装自提499',waterType:'BAG_7_5L',fulfillMode:'PICKUP',price:499,buyQty:300,status:'ACTIVE'},{id:'c',name:'桶装配送100',waterType:'BUCKET_18_9L',fulfillMode:'DELIVERY',price:100,buyQty:13,status:'ACTIVE'},{id:'d',name:'停用袋装100',waterType:'BAG_7_5L',fulfillMode:'PICKUP',price:100,buyQty:50,status:'DISABLED'}];
  assert.equal(filterPlans(plans).length,3);
