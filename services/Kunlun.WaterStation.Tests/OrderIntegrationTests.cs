@@ -102,6 +102,95 @@ public sealed class OrderIntegrationTests(TestHost factory)
     }
 
     [Fact]
+    public async Task Owed_Deposit_Needs_A_Note_At_Handover_And_When_Damage_Exceeds_The_Paid_Deposit()
+    {
+        var token = await GetAdminTokenAsync();
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        // 会员交了 1 个桶的押金，配送 3 桶一个空桶都没换回：还差 2 个桶的押金。
+        var memResp = await _client.PostAsJsonAsync("/api/members",
+            new CreateMemberRequest("欠押金验收", $"137{Random.Shared.Next(10000000, 99999999)}", "绿麒麟嘉园 7 栋", "欠押金测试", "701"));
+        var member = await memResp.Content.ReadFromJsonAsync<JsonElement>();
+        var memberId = member.GetProperty("id").GetGuid();
+        await _client.PostAsJsonAsync("/api/recharges",
+            new CreateRechargeOrderRequest(memberId, Guid.Parse("30000000-0000-0000-0000-000000000103"), "WECHAT", $"idem-owe-rcg-{Guid.NewGuid()}"));
+        await _client.PostAsJsonAsync("/api/deposits/collect", new CollectDepositRequest(memberId, "BUCKET", 1, "CASH", $"idem-owe-dep-{Guid.NewGuid()}"));
+        var ordResp = await _client.PostAsJsonAsync("/api/orders",
+            new CreateWaterOrderRequest(memberId, "BUCKET_18_9L", "DELIVERY", 3, $"idem-owe-ord-{Guid.NewGuid()}"));
+        var orderJson = await ordResp.Content.ReadFromJsonAsync<JsonElement>();
+        var orderId = orderJson.GetProperty("id").GetGuid();
+
+        // 记欠押金不写备注（或只写空格）被拦下，水单不变。
+        foreach (var blank in new string?[] { null, "   " })
+        {
+            var refused = await _client.PostAsJsonAsync($"/api/orders/{orderId}/fulfill",
+                new FulfillWaterOrderRequest(ActualQty: 3, FullOutN: 3, EmptyInM: 0, ForceCreditOverride: true, OverrideReason: blank));
+            Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+            var refusedJson = await refused.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("DEPOSIT_OWED_NOTE_REQUIRED", refusedJson.GetProperty("error").GetString());
+            Assert.Equal(2, refusedJson.GetProperty("uncoveredGap").GetInt32());
+        }
+
+        // 写了备注照样交付：会员手里 3 个，押金只够 1 个，欠 2 个；备注记进水单和袋桶台账。
+        const string note = "这单后欠押金 2 个桶 ¥100.00；报废 1 个桶，报废费用没给；说明：顾客说下次带钱来";
+        var owed = await _client.PostAsJsonAsync($"/api/orders/{orderId}/fulfill",
+            new FulfillWaterOrderRequest(ActualQty: 3, FullOutN: 3, EmptyInM: 0, ForceCreditOverride: true, OverrideReason: $"  {note}  "));
+        Assert.Equal(HttpStatusCode.OK, owed.StatusCode);
+        var owedJson = await owed.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(3, owedJson.GetProperty("heldAfter").GetInt32());
+        Assert.Equal(2, owedJson.GetProperty("owedDepositQty").GetInt32());
+
+        var orders = await _client.GetFromJsonAsync<JsonElement>($"/api/orders?memberId={memberId}&page=1&pageSize=20");
+        var fulfilled = orders.GetProperty("rows").EnumerateArray().Single(o => o.GetProperty("id").GetGuid() == orderId);
+        Assert.Equal("COMPLETED", fulfilled.GetProperty("status").GetString());
+        Assert.Equal(note, fulfilled.GetProperty("overrideReason").GetString());
+        var orderNo = fulfilled.GetProperty("orderNo").GetString()!;
+        var ledger = await _client.GetFromJsonAsync<JsonElement>($"/api/containers/circulation?q={Uri.EscapeDataString(orderNo)}&page=1");
+        Assert.Contains(note, ledger.GetProperty("rows")[0].GetProperty("remark").GetString());
+
+        // 欠着的押金会带到下一单：等量换桶也还差 2 个，不记欠押金就拦下。
+        var nextOrder = await (await _client.PostAsJsonAsync("/api/orders",
+            new CreateWaterOrderRequest(memberId, "BUCKET_18_9L", "DELIVERY", 1, $"idem-owe-ord2-{Guid.NewGuid()}"))).Content.ReadFromJsonAsync<JsonElement>();
+        var swap = await _client.PostAsJsonAsync($"/api/orders/{nextOrder.GetProperty("id").GetGuid()}/fulfill",
+            new FulfillWaterOrderRequest(ActualQty: 1, FullOutN: 1, EmptyInM: 1));
+        Assert.Equal(HttpStatusCode.BadRequest, swap.StatusCode);
+        Assert.Equal(2, (await swap.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("uncoveredGap").GetInt32());
+
+        // 破损 2 个：交过的 1 个押金先扣，剩下 1 个没押金。不勾选就拦下，勾了不写备注也拦下。
+        var damage = new ReportContainerDamageRequest(memberId, "BUCKET", 2, "桶身开裂", $"idem-owe-dmg-{Guid.NewGuid()}");
+        var blocked = await _client.PostAsJsonAsync("/api/containers/damages", damage);
+        Assert.Equal(HttpStatusCode.BadRequest, blocked.StatusCode);
+        Assert.Contains("还差 1 个没押金", await blocked.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync("/api/containers/damages", damage with { AcceptUncovered = true, UncoveredNote = " " })).StatusCode);
+
+        var uncoveredRequest = damage with { AcceptUncovered = true, UncoveredNote = "报废费用没给，顾客说下次一起交" };
+        var reported = await _client.PostAsJsonAsync("/api/containers/damages", uncoveredRequest);
+        Assert.Equal(HttpStatusCode.OK, reported.StatusCode);
+        var receipt = await reported.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(50m, receipt.GetProperty("depositAmount").GetDecimal());
+        Assert.Equal(1, receipt.GetProperty("uncoveredQty").GetInt32());
+        var replay = await (await _client.PostAsJsonAsync("/api/containers/damages", uncoveredRequest)).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(receipt.GetProperty("id").GetGuid(), replay.GetProperty("id").GetGuid());
+
+        var memberNo = Uri.EscapeDataString(member.GetProperty("memberNo").GetString()!);
+        var damages = await _client.GetFromJsonAsync<JsonElement>($"/api/containers/damages?q={memberNo}&page=1");
+        var row = damages.GetProperty("rows").EnumerateArray().Single();
+        Assert.Equal(1, row.GetProperty("uncoveredQty").GetInt32());
+        Assert.Equal("报废费用没给，顾客说下次一起交", row.GetProperty("uncoveredNote").GetString());
+        var damageLedger = await _client.GetFromJsonAsync<JsonElement>($"/api/containers/circulation?q={Uri.EscapeDataString(row.GetProperty("damageNo").GetString()!)}&page=1");
+        Assert.Contains("没押金 1 个：报废费用没给", damageLedger.GetProperty("rows")[0].GetProperty("remark").GetString());
+
+        // 确认报废只扣交过的那 1 个桶的押金。
+        var scrap = await _client.PostAsJsonAsync($"/api/containers/damages/{row.GetProperty("id").GetGuid()}/scrap",
+            new ScrapContainerDamageRequest("无法继续周转", $"idem-owe-scrap-{Guid.NewGuid()}"));
+        Assert.Equal(HttpStatusCode.OK, scrap.StatusCode);
+        Assert.Equal(50m, (await scrap.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("deductedAmount").GetDecimal());
+        var profile = await _client.GetFromJsonAsync<JsonElement>($"/api/members/{memberId}/profile");
+        Assert.Equal(1, profile.GetProperty("heldBuckets").GetInt32());
+        Assert.Equal(0m, profile.GetProperty("depositAmount").GetDecimal());
+    }
+
+    [Fact]
     public async Task PickupCode_Verification_DiffAdjustment_AC14_And_ContainerIdentity_AC20_Should_Pass()
     {
         var token = await GetAdminTokenAsync();
