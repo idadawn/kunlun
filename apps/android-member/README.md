@@ -33,7 +33,11 @@ cd apps/android-member
 ./gradlew :app:assembleRelease -PkunlunSigning=$HOME/kunlun-release/signing.properties
 ```
 
-输出 `app/build/outputs/apk/release/app-release.apk`；不提供签名配置时为未签名的 `app-release-unsigned.apk`。版本号同样在 `app/build.gradle`，首个正式版是 1 / 1.0.0。
+输出 `app/build/outputs/apk/release/app-release.apk`；不提供签名配置时为未签名的 `app-release-unsigned.apk`。版本号同样在 `app/build.gradle`，首个正式版是 1 / 1.0.0，带自动更新的是 2 / 1.1.0。
+
+## 自动更新
+
+与员工端相同，见 [Android 员工端 · 自动更新](../android-staff/README.md#自动更新)。会员端问的是 `/api/app-update/android/member`，对应蒲公英上会员端自己的 App；发布新版本时上传到那里。已经装了 1.0.0 的手机要手动装一次 1.1.0。
 
 ## 容器规则
 

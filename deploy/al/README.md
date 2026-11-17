@@ -4,6 +4,7 @@
 
 - 独立 PostgreSQL 16 数据卷 `kunlun_postgres_data`、业务库 `kunlun_prod`、非超级用户 `kunlun_app`；不导入本地测试数据，禁止启用 `SeedDemoData`。
 - 应用无公网端口，前端只在本机 `127.0.0.1:18085` 提供诊断入口。公网入口由既有 `atlas-wiki-gateway-1` Caddy 反向代理。
+- 数据库只在内部网络 `kunlun_backend`。API 另接只用于出网的 `kunlun_egress`，向蒲公英查询 Android App 有没有新版本。
 - 三个基础镜像在 `.env` 中固定 digest。密钥和初始管理员密码只保存在服务器受限配置中，不进入仓库或发布归档。
 - 管理端、员工端和会员端采用仓库 `deploy/nginx.conf` 的同一套路由；域名根路径跳转管理后台。
 
@@ -12,7 +13,7 @@
 1. 本机运行 `pnpm install --frozen-lockfile && pnpm build`，执行后端测试和前端检查。
 2. 运行 `dotnet publish services/Kunlun.WaterStation -c Release -r linux-x64 --self-contained false -o .publish/al/api`。
 3. 使用 `deploy/al/prepare-release.sh .publish/al/release-<sha>` 生成纯发布文件，并归档上传至 al 的版本目录。
-4. 将与发布包同一版本的 `compose.yaml`、`init-database.sh` 放在 `/opt/kunlun`。首次部署时创建权限 600 的 `.env`，设置 `POSTGRES_IMAGE`、`ASPNET_IMAGE`、`NGINX_IMAGE`（digest），`POSTGRES_ADMIN_PASSWORD`、`KUNLUN_DB_PASSWORD`、`KUNLUN_JWT_KEY`、`KUNLUN_ADMIN_USER`、`KUNLUN_ADMIN_PASSWORD` 和 `RELEASE_DIR`。
+4. 将与发布包同一版本的 `compose.yaml`、`init-database.sh` 放在 `/opt/kunlun`。首次部署时创建权限 600 的 `.env`，设置 `POSTGRES_IMAGE`、`ASPNET_IMAGE`、`NGINX_IMAGE`（digest），`POSTGRES_ADMIN_PASSWORD`、`KUNLUN_DB_PASSWORD`、`KUNLUN_JWT_KEY`、`KUNLUN_ADMIN_USER`、`KUNLUN_ADMIN_PASSWORD` 和 `RELEASE_DIR`。可选 `KUNLUN_PGYER_API_KEY`：蒲公英账号 API Key，Android App 检查更新时由后端代查用；不设置时 App 不会收到更新提示。
 5. `docker compose --project-directory /opt/kunlun -f /opt/kunlun/compose.yaml config --quiet` 验证后，`up -d --wait`。首次初始化会创建管理员；后续启动不会重置其密码。
 6. 网关备份后加入 `Caddyfile.fragment` 和 HTTP 重定向。分别执行 `caddy validate`、`nginx -t`，通过后热加载，保留其他站点配置。现有 Caddy 使用 `admin off`，以 `docker kill --signal=USR1 atlas-wiki-gateway-1` 重读原配置文件；不启用管理 API。HTTP 网关使用 `docker exec gitlab-proxy nginx -s reload`。
 7. 核对 HTTPS 证书、管理端静态文件哈希、管理员登录与 `/healthz`，并检查既有站点仍正常。

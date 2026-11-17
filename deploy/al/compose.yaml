@@ -39,11 +39,13 @@ services:
       Kunlun__Bootstrap__Username: ${KUNLUN_ADMIN_USER:-admin}
       Kunlun__Bootstrap__Password: ${KUNLUN_ADMIN_PASSWORD:?Required on first initialization}
       Kunlun__SeedDemoData: 'false'
+      # Optional: lets the Android apps' update check ask pgyer; without it they are told there is no update.
+      Kunlun__Pgyer__ApiKey: ${KUNLUN_PGYER_API_KEY:-}
     volumes:
       - ${RELEASE_DIR:?Set the absolute release directory}/api:/app:ro
     depends_on:
       database: { condition: service_healthy }
-    networks: [backend]
+    networks: [backend, egress]
     mem_limit: 512m
     logging: *logs
 
@@ -74,6 +76,8 @@ volumes:
 networks:
   backend:
     internal: true
+  # Outbound only, for the API's calls to pgyer; the database stays on the internal network alone.
+  egress: {}
   gateway:
     external: true
     name: atlas-wiki_default

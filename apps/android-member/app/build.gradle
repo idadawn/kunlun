@@ -31,8 +31,8 @@ android {
         applicationId 'cn.idalee.kunlun.member'
         minSdk 26
         targetSdk 36
-        versionCode 1
-        versionName '1.0.0'
+        versionCode 2
+        versionName '1.1.0'
     }
     buildFeatures { buildConfig true }
     signingConfigs {
@@ -85,4 +85,6 @@ tasks.named('preBuild').configure { dependsOn bundleWeb }
 dependencies {
     implementation 'androidx.webkit:webkit:1.14.0'
     testImplementation 'junit:junit:4.13.2'
+    // Android's org.json is a stub on the JVM; the tests parse update replies with the real one.
+    testImplementation 'org.json:json:20250517'
 }

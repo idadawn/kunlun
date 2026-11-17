@@ -290,6 +290,29 @@ kunlun/
   - 新增共用的 `NumberInput`：显示用户输入的文字，清空时代表 0，离开输入框后再显示数值。
   - 改用它的地方：点单数量和赠送等步进器（`Stepper`，库存三个数也用它）、交付数量与桶数、库存提醒线。管理端的金额和数量输入框本来就按文字保存，不受影响。
 
+## 16. Android 自动更新（2026-11-17）
+
+- 员工端、会员端在蒲公英分发。蒲公英的检查更新接口要用账号 API Key，这个 Key 还能上传、删除应用，接口返回的下载地址里也带着它，所以不能打进 APK。改为后端代查：
+  - `GET /api/app-update/android/{staff|member}?versionCode=N`，不用登录。后端用 `Kunlun:Pgyer:ApiKey`（compose 里取 `.env` 的 `KUNLUN_PGYER_API_KEY`）和该 App 的 App Key 调蒲公英 `apiv2/app/check`，只回 `hasUpdate`、`versionName`、`versionCode`、`notes`、`force`、`url`。
+  - 蒲公英说有新版、且新版的 `versionCode`（`buildVersionNo`）大于已装版本时才算有更新，刚装好的版本不会再提示。`url` 取 `appURl`；它不是 HTTPS 的 `www.pgyer.com`、`pgyer.com` 页面时改用短链接 `buildShortcutUrl`，并去掉查询参数。带 Key 的 `downloadURL` 不转给 App，日志只记蒲公英的 code 和 message。
+  - 答复按（App，已装版本）缓存 10 分钟，失败只缓存 1 分钟；接口另有每分钟 60 次的限流（`app-update`）。没配 Key、蒲公英出错或答复不完整时一律回「没有更新」。
+  - 两个 App Key 不是机密，写在代码里，可用 `Kunlun:Pgyer:StaffAppKey`、`Kunlun:Pgyer:MemberAppKey` 覆盖；`Kunlun:Pgyer:BaseUrl` 只在本机联调时指向模拟服务。
+  - 后端容器原来只在内部网络，不能出网。两套 compose 给 API 加了只用于出网的 `egress` 网络，数据库仍只在内部网络。这个网络上只有 API 自己，Docker 默认隔离不同的网络，从这里能连到 API 的只有宿主机。
+- App（`AppUpdate` 负责解析和判断，`UpdateChecker` 负责联网和弹窗，两个 App 各一份）：
+  - 启动时检查一次，之后回到前台时最多每小时一次；没联网或后端出错时 5 分钟后再试。
+  - 有新版时弹窗「发现新版本 x.y.z」，显示更新说明和当前版本。「立即更新」用系统浏览器打开蒲公英安装页，只打开 HTTPS 的 `www.pgyer.com`、`pgyer.com` 页面。「以后再说」或返回键：这个版本 24 小时内不再提示，更新的版本照常提示。强制更新没有「以后再说」、关不掉，回到 App 就再弹出，不受之前「以后再说」影响。
+  - 版本改为 `versionCode` 2 / `versionName` 1.1.0。1.0.0 没有检查更新，已装 1.0.0 的手机要手动装一次 1.1.0。
+- 实测：
+  - 后端新增 3 个测试（没配 Key；有新版、缓存和各种安装页地址；蒲公英各种失败），全部 83 个通过。Android 两端新增解析和「以后再说」规则的单元测试，构建和 lint 通过。
+  - Android 17 模拟器连本机后端，后端的 `Kunlun:Pgyer:BaseUrl` 指向本机模拟的蒲公英。
+    - 员工端弹出 1.2.0 的更新，后端查蒲公英时带的是员工端 App Key 和 `buildVersion=2`。点「以后再说」后重启 App 不再提示。
+    - 改成强制更新后，弹窗没有「以后再说」，返回键关不掉。点「立即更新」打开 Chrome 访问 `https://www.pgyer.com/…`，回到 App 再次弹出。
+    - 已是最新版、后端停掉时都不弹窗，App 照常使用。
+    - 会员端用会员端 App Key 查询，弹窗相同，返回键等同「以后再说」。
+  - 从 al 上桥接网络的容器访问蒲公英接口正常：不带 Key 时返回 `{"code":1001,...}`。真实蒲公英的完整答复要等服务器配好 Key 后在测试环境核对。
+- 没做：App 内下载安装（要 `REQUEST_INSTALL_PACKAGES` 和 FileProvider，蒲公英的直接下载地址又带着 Key），改由浏览器打开安装页。
+- 顺带发现（本次未改）：两个限流都按 `RemoteIpAddress` 分组，但请求都经 nginx 转来，后端看到的是同一个地址，所以登录的「每分钟 15 次」实际是所有人共用。改为按真实客户端 IP 计数见 PR #46。
+
 ## 独立测试服务（2026-10-30，2026-11-01 更新）
 
 `kunlun-test.idalee.cn` 使用独立 Compose、数据库 `kunlun_test`、非超级用户 `kunlun_test_app` 及 JWT 密钥，承载管理端与 H5 的联调。`/healthz` 返回当前数据库名，部署检查据此确认连接的是测试库。详见 [测试部署](../deploy/test/README.md)。
