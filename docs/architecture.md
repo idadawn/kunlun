@@ -369,7 +369,15 @@ kunlun/
   `MembershipTests` 的两个恒等式加上了上系统前的部分。全部 89 个测试通过。
 - iOS 会员端（原生页面，`apps/ios-member`）：充值记录里补录的批次写明「上系统前买的 · 补录单 QC…」，不显示日期（那是会员建档时间）；有价的金额旁注明「当时实付」；套餐不清楚的显示「套餐不清楚」而不是 ¥0.00，不显示购票数，脚注提示可以照常用水、不能按原价退。`opening` 字段可选，旧后端照常解码。见 PR #49。
 
-## 19. 费用支出与交付按容器说明（2026-11-17）
+## 19. iOS 上传 TestFlight（2026-11-17）
+
+- 开发者账号是个人类型（Individual），App Store 上显示个人姓名。会员端、员工端都以 1.0.0（构建号 1）上传到 App Store Connect，处理完成后出现在 TestFlight。员工端版本从 0.1.0 改为 1.0.0。
+- 新团队里没有登记设备，按自动签名直接归档会失败：生成开发描述文件至少要一台设备。上传 App Store 用不到开发描述文件，所以改为先不签名归档（`CODE_SIGNING_ALLOWED=NO`），导出时按 `app-store-connect` 自动签名。Xcode 通过登录的账号注册了两个 Bundle ID，生成了 Apple Distribution 证书和 App Store 描述文件。导出的包核对过：签名是 Apple Distribution，描述文件不绑定设备，`get-task-allow` 为 false。
+- `scripts/ios-release.sh member|staff [upload|export]` 固化了这套流程。团队 ID 由环境变量 `KUNLUN_IOS_TEAM` 传入，不写进仓库；归档保留在 `~/kunlun-release/ios/<版本>-<构建号>/`。
+- 两个 App 都已有隐私清单和 1024 图标，并声明不使用受管制加密（`ITSAppUsesNonExemptEncryption` 为 false），上传时没有警告。
+- 还没做：会员端上架 App Store 需要隐私政策网址、「App 隐私」问卷、iPhone 和 iPad 截图和审核用会员账号；员工端走 TestFlight 内部测试，要把员工加进 App Store Connect 团队。
+
+## 20. 费用支出与交付按容器说明（2026-11-17）
 
 - 表 `expenses`（`Operations/Expenses.cs`）：`expense_no`（`ZCyyyyMMddNNNN`，北京时间日期，计数器 `expense`）、`category`（`CONTAINER` 买桶袋 / `PARTS` 配件耗材 / `REPAIR` 维修 / `OTHER` 其他）、`item`、`quantity`、`amount`（NUMERIC(12,2) > 0）、`pay_method`、`spent_on`（购买日期，统计口径）、`remark`、随新购记的 `container_type` 与 `inventory_operation_no`、`status`（`ACTIVE` / `VOIDED`）、经办人、作废人 / 时间 / 原因；`(tenant_id, idempotency_key)` 唯一。启动时给已有管理员补上 `expense:manage`，不加 `token_version`：权限每次请求都从员工行重新读取。
 - 接口：
