@@ -14,8 +14,11 @@ namespace Kunlun.WaterStation.Operations;
 /// </summary>
 public sealed record OpeningTicketInput(Guid? BatchId = null, string? WaterType = null, string? FulfillMode = null, Guid? PlanId = null,
     decimal PaidAmount = 0, int PackageQty = 0, int Remaining = 0, bool Remove = false);
-/// <summary>上系统前交的某种桶袋的押金：几个、每个多少钱。每位会员每种桶袋只有一笔，Quantity 为 0 删掉还没退过、没扣过的那笔。</summary>
-public sealed record OpeningDepositInput(string ContainerType, int Quantity, decimal UnitPrice = 0);
+/// <summary>
+/// 上系统前交的某种桶袋的押金：几个、一共多少钱（Amount，按个数平分成每个的押金，要能分到整分）；旧客户端传每个多少钱（UnitPrice）。
+/// 每位会员每种桶袋只有一笔，Quantity 为 0 删掉还没退过、没扣过的那笔。
+/// </summary>
+public sealed record OpeningDepositInput(string ContainerType, int Quantity, decimal UnitPrice = 0, decimal? Amount = null);
 /// <summary>会员现在手里某种桶袋的个数。</summary>
 public sealed record OpeningHoldingInput(string ContainerType, int Quantity);
 public sealed record SaveOpeningRequest(string IdempotencyKey, OpeningTicketInput[]? Tickets = null, OpeningDepositInput[]? Deposits = null,
@@ -108,7 +111,10 @@ public static class MemberOpening
         if (deposits.GroupBy(d => d.ContainerType).Any(g => g.Count() > 1)) throw new BusinessRuleException("同一种桶袋的押金只能填一次");
         if (holdings.GroupBy(h => h.ContainerType).Any(g => g.Count() > 1)) throw new BusinessRuleException("同一种桶袋手里的个数只能填一次");
         var note = Remarks.Normalize(req.Note, NoteMaxLength);
-        var hash = ContainerInventory.Hash(new { mid, tickets, deposits, holdings, note });
+        // Deposits given as a price each keep the original hash shape, so replays sent before totals existed still match.
+        var hash = deposits.Any(d => d.Amount is not null)
+            ? ContainerInventory.Hash(new { mid, tickets, deposits, holdings, note })
+            : ContainerInventory.Hash(new { mid, tickets, deposits = deposits.Select(d => new { d.ContainerType, d.Quantity, d.UnitPrice }), holdings, note });
         var tid = repo.DefaultTenantId; var actor = Actor(user);
 
         await using var conn = await db.OpenConnectionAsync(ct);
@@ -242,8 +248,11 @@ public static class MemberOpening
         public async Task<object?> SetDeposit(OpeningDepositInput d, CancellationToken ct)
         {
             if (!ProductContainers.ValidId(d.ContainerType) || d.Quantity is < 0 or > MaxContainers) throw new BusinessRuleException("请填写有效的桶袋和押金个数");
-            if (d.Quantity > 0 && (d.UnitPrice <= 0 || d.UnitPrice > 99999999 || decimal.Round(d.UnitPrice, 2) != d.UnitPrice))
-                throw new BusinessRuleException("每个桶袋的押金要大于 0、精确到分");
+            // A total typed in splits evenly over the containers; older clients send the price each.
+            var price = d.Quantity == 0 ? 0m
+                : d.Amount is { } typed ? Money.UnitPrice(typed, d.Quantity, "")
+                : Money.Valid(d.UnitPrice, allowZero: false) ? d.UnitPrice
+                : throw new BusinessRuleException("押金金额要大于 0、精确到分");
             await ProductContainers.Require(conn, tx, tid, d.ContainerType, ct);
             (Guid Id, string No, int Qty, decimal Price, decimal Total, bool Touched)? lot = null;
             await using (var cmd = Command(conn, tx, """
@@ -252,7 +261,6 @@ public static class MemberOpening
                 """, ("tid", tid), ("mid", mid), ("type", d.ContainerType)))
             await using (var r = await cmd.ExecuteReaderAsync(ct))
                 if (await r.ReadAsync(ct)) lot = (r.GetGuid(0), r.GetString(1), r.GetInt32(2), r.GetDecimal(3), r.GetDecimal(4), r.GetBoolean(5));
-            var price = d.Quantity > 0 ? d.UnitPrice : 0m;
             var total = d.Quantity * price;
             if (lot is null)
             {

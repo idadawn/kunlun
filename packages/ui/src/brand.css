@@ -441,3 +441,48 @@ a{color:var(--brand-600);text-decoration:none}
 .stock-dialog-total b{font-family:var(--font-num);font-size:18px;color:var(--ink)}
 .stock-dialog-total s{color:var(--faint)}
 @media(max-width:560px){.stock-field{grid-template-columns:1fr}.stock-field .stepper{justify-self:start}}
+
+/* Refund amounts typed in at the counter (实退金额), and the settlement slip (退款结算单). */
+.refund-amount{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.membership-fields .refund-amount .input{width:220px;max-width:100%;font-family:var(--font-num);font-size:18px;font-weight:600}
+.refund-amount-note{margin:-4px 0 0;font-size:12px;color:var(--muted);line-height:1.6}
+.refund-amount-note.changed{color:var(--gold-600)}
+.membership-fields .input.deposit-amount{font-family:var(--font-num);font-size:18px;font-weight:600}
+.membership-dialog.settlement-dialog,.membership-dialog.settlement-slip{width:min(720px,96vw)}
+.settle-section{display:flex;flex-direction:column;gap:8px}
+.settle-section h3{margin:6px 0 0;font-size:14px}
+.settle-line{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.settle-line>span{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.settle-line small{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.settle-line>strong{flex:none;font-family:var(--font-num);font-size:17px;color:var(--brand-700)}
+.settle-card{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.settle-card-head{display:flex;align-items:baseline;justify-content:space-between;gap:4px 12px;flex-wrap:wrap}
+.settle-card-head small{font-size:12px;color:var(--muted)}
+.settle-counts{display:flex;align-items:center;gap:8px 18px;flex-wrap:wrap}
+.settle-count{display:inline-flex;align-items:center;gap:8px}
+.membership-fields .settle-counts label{font-size:13px;font-weight:500}
+.membership-fields .settle-check,.membership-fields .settle-modes label{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;cursor:pointer}
+.settle-modes{display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;font-size:13px}
+.settle-lines{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.settle-lines li{display:flex;align-items:baseline;gap:12px;padding:6px 0;border-top:1px dashed var(--line);font-size:13px}
+.settle-lines li>span{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.settle-lines small{font-size:12px;color:var(--muted)}
+.settle-lines b{flex:none;font-family:var(--font-num);white-space:nowrap}
+.settle-blockers{padding:10px 14px;border:1px solid var(--red-200);border-radius:10px;background:var(--red-50);color:var(--red-600);font-size:13px}
+.settle-blockers p{margin:2px 0}
+.membership-note.settle-note{margin:0}
+.settle-total{display:flex;flex-direction:column;gap:4px;padding:14px 16px;border-radius:12px;background:var(--brand-50);color:var(--brand-700)}
+.settle-total>div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-size:13px}
+.settle-total b{font-family:var(--font-num)}
+.settle-total-sum{margin-top:4px;padding-top:6px;border-top:1px solid var(--brand-100)}
+.settle-total-sum span{font-weight:600}
+.settle-total-sum strong{font-family:var(--font-num);font-size:24px}
+.settle-total>small{font-size:12px;color:var(--muted)}
+.settlement-slip .settle-section+.settle-section,.settlement-slip .settle-total{margin-top:14px}
+.settle-records{display:flex;flex-direction:column;gap:6px}
+.settle-record{display:flex;align-items:center;gap:12px;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:inherit;text-align:left;cursor:pointer}
+.settle-record:hover{border-color:var(--brand-100);background:var(--brand-50)}
+.settle-record>span{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.settle-record small{font-size:12px;color:var(--muted)}
+.settle-record strong{flex:none;font-family:var(--font-num);color:var(--brand-700)}
+@media(max-width:640px){.membership-fields .refund-amount .input{width:100%}.settle-total-sum strong{font-size:21px}}

@@ -50,6 +50,10 @@ import type {
   RoleCode,
   SaveMemberAddressRequest,
   SaveWaterProductRequest,
+  SettlementContainerInput,
+  SettlementPreview,
+  SettlementRequest,
+  SettlementSlip,
   StaffAccount,
   TicketBatch,
   TimeRange,
@@ -227,7 +231,8 @@ export class KunlunApi {
   refundRequests(query: RefundRequestQuery = {}) {
     return this.request<Paged<RefundRequestRow>>('/api/refund-requests' + paged(query));
   }
-  approveRefund(id: string, body: { payMethod?: PayMethod; note?: string }) {
+  /** `amount` is what the reviewer pays back; required when the applicant typed one in. */
+  approveRefund(id: string, body: { payMethod?: PayMethod; note?: string; amount?: number }) {
     return this.post<{ id: string; status: RefundRequestStatus; refundNo: string | null; refundAmount: number; idempotentReplay: boolean }>(`/api/refund-requests/${id}/approve`, body);
   }
   rejectRefund(id: string, note: string) {
@@ -262,10 +267,20 @@ export class KunlunApi {
   registerMovement(body: { memberId: string; containerType: ContainerType; fullOutN: number; emptyInM: number; idempotencyKey: string }) {
     return this.post<{ ledgerNo: string; currentHeld: number }>('/api/containers/movements', body);
   }
-  /** While deposits are reviewed the deposit waits as a request (status PENDING, no deposit number) until an admin approves it. */
-  collectDeposit(body: { memberId: string; containerType: ContainerType; quantity: number; payMethod: PayMethod; idempotencyKey: string }) {
+  /**
+   * `amount`: the money taken, split evenly over the containers; the current standard × quantity when omitted. While deposits are
+   * reviewed the deposit waits as a request (status PENDING, no deposit number) until an admin approves it.
+   */
+  collectDeposit(body: { memberId: string; containerType: ContainerType; quantity: number; payMethod: PayMethod; idempotencyKey: string; amount?: number }) {
     return this.post<{ status: 'PENDING' | 'APPROVED'; depositNo?: string | null; requestNo?: string; totalAmount: number }>('/api/deposits/collect', body);
   }
+
+  // 退款结算：一张单子结清会员的水票、押金和桶袋
+  settlementPreview(memberId: string, body: { containers?: SettlementContainerInput[]; amount?: number }) {
+    return this.post<SettlementPreview>(`/api/members/${memberId}/settlement/preview`, body);
+  }
+  settle(memberId: string, body: SettlementRequest) { return this.post<SettlementSlip>(`/api/members/${memberId}/settlement`, body); }
+  settlements(memberId: string) { return this.request<SettlementSlip[]>(`/api/members/${memberId}/settlements`); }
   inventory(body: InventoryRequest) { return this.post<InventoryOperation>('/api/containers/inventory', body); }
   updateStock(body: UpdateStockRequest) { return this.post<InventoryOperation>('/api/containers/stock', body); }
   inventoryOperations(containerType?: ContainerType) {

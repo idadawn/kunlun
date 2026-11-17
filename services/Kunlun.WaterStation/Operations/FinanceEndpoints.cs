@@ -205,11 +205,12 @@ public static class FinanceEndpoints
             await using (var r = await replay.ExecuteReaderAsync(ct))
                 if (await r.ReadAsync(ct))
                 {
-                    if (r.GetGuid(1) != req.MemberId || r.GetString(2) != ctype || r.GetInt32(3) != req.Quantity || r.GetString(5) != req.PayMethod) throw new BusinessRuleException("请求标识已用于其他收押操作", 409);
+                    if (r.GetGuid(1) != req.MemberId || r.GetString(2) != ctype || r.GetInt32(3) != req.Quantity || r.GetString(5) != req.PayMethod
+                        || (req.Amount is { } typed && r.GetDecimal(4) != typed)) throw new BusinessRuleException("请求标识已用于其他收押操作", 409);
                     return Results.Ok(new { depositNo = r.GetString(0), status = "APPROVED", totalAmount = r.GetDecimal(4), idempotentReplay = true });
                 }
             // Taken while deposits were reviewed: the same collect answers with its request, approved or not.
-            if (await RefundRequests.CollectReplay(conn, tx, finRepo.TenantId, req.IdempotencyKey, req.MemberId, ctype, req.Quantity, req.PayMethod, ct) is { } pendingReplay)
+            if (await RefundRequests.CollectReplay(conn, tx, finRepo.TenantId, req.IdempotencyKey, req.MemberId, ctype, req.Quantity, req.PayMethod, ct, req.Amount) is { } pendingReplay)
                 return Results.Ok(pendingReplay);
 
             await ProductContainers.Require(conn, tx, finRepo.TenantId, ctype, ct);
@@ -226,6 +227,8 @@ public static class FinanceEndpoints
                 if (val is null) return Results.BadRequest(new { error = "无效容器类型" });
                 unitPrice = Convert.ToDecimal(val);
             }
+            // The money actually taken, typed in at the counter, decides each container's price; without it the current standard does.
+            if (req.Amount is { } amount) unitPrice = Money.UnitPrice(amount, req.Quantity, "");
 
             var operatorName = user.FindFirstValue("display_name") ?? "员工";
             // 收押金要审核时（不分谁收的，门店共用一个管理员账号）先记成待审核：交付照样算进押金覆盖，管理员核对到账批准后才记成押金批次。
@@ -317,13 +320,14 @@ public static class FinanceEndpoints
             await using (var r = await replay.ExecuteReaderAsync(ct))
                 if (await r.ReadAsync(ct))
                 {
-                    if (r.GetGuid(1) != req.MemberId || r.GetString(2) != ctype || r.GetInt32(3) != req.Quantity || (r.IsDBNull(5) ? null : r.GetString(5)) != req.PayMethod) throw new BusinessRuleException("请求标识已用于其他退押操作", 409);
+                    if (r.GetGuid(1) != req.MemberId || r.GetString(2) != ctype || r.GetInt32(3) != req.Quantity || (r.IsDBNull(5) ? null : r.GetString(5)) != req.PayMethod
+                        || (req.Amount is { } typed && r.GetDecimal(4) != typed)) throw new BusinessRuleException("请求标识已用于其他退押操作", 409);
                     return Results.Ok(new { refundNo = r.GetString(0), refundAmount = r.GetDecimal(4), idempotentReplay = true });
                 }
 
             var actor = user.FindFirstValue("display_name") ?? "员工";
-            var refund = await ExecuteDepositRefund(conn, tx, finRepo.TenantId, req.MemberId, ctype, req.Quantity, req.PayMethod, req.IdempotencyKey, actor, ct);
-            await RefundRequests.RecordDirect(conn, tx, finRepo.TenantId, "DEPOSIT", req.MemberId, ctype, req.Quantity, null, req.PayMethod, "", refund.RefundNo, refund.Amount, actor, ct);
+            var refund = await ExecuteDepositRefund(conn, tx, finRepo.TenantId, req.MemberId, ctype, req.Quantity, req.PayMethod, req.IdempotencyKey, actor, ct, req.Amount);
+            await RefundRequests.RecordDirect(conn, tx, finRepo.TenantId, "DEPOSIT", req.MemberId, ctype, req.Quantity, null, req.PayMethod, "", refund.RefundNo, refund.Amount, actor, ct, refund.Value);
             await tx.CommitAsync(ct);
             return Results.Ok(new
             {
@@ -331,12 +335,40 @@ public static class FinanceEndpoints
                 containerType = ctype,
                 refundQty = req.Quantity,
                 refundAmount = refund.Amount,
+                deductedAmount = refund.Deducted,
                 lotBreakdown = refund.Breakdown
             });
         }).RequireAuthorization();
     }
 
-    public sealed record DepositRefundResult(string RefundNo, decimal Amount, List<object> Breakdown);
+    /// <summary>Amount is what was paid back; Value what those containers' deposit was worth at the original prices; Deducted the part kept.</summary>
+    public sealed record DepositRefundResult(string RefundNo, decimal Amount, List<object> Breakdown, decimal Value, decimal Deducted);
+
+    /// <summary>The deposit of the next <paramref name="quantity"/> refundable containers at their original prices, oldest first, after skipping <paramref name="skip"/>.</summary>
+    public static decimal FifoValue(IEnumerable<(decimal Price, int Qty)> lots, int quantity, int skip = 0)
+    {
+        decimal amount = 0; var left = quantity;
+        foreach (var (price, count) in lots)
+        {
+            var usable = count;
+            var skipped = Math.Min(skip, usable); skip -= skipped; usable -= skipped;
+            var take = Math.Min(left, usable); left -= take; amount += take * price;
+            if (left == 0) break;
+        }
+        return amount;
+    }
+
+    /// <summary>
+    /// What a deposit refund pays: the amount staff typed in, or the full deposit of those containers when they left it alone.
+    /// Paying less keeps the difference as a deduction; paying more than the deposit is not possible.
+    /// </summary>
+    public static decimal DepositRefundAmount(decimal? entered, decimal value)
+    {
+        if (entered is not { } amount) return value;
+        if (!Money.Valid(amount)) throw new BusinessRuleException("退押金金额要大于等于 0、精确到分");
+        if (amount > value) throw new BusinessRuleException($"这几个的押金按原价一共 ¥{Money.Text(value)}，退的不能比这多");
+        return amount;
+    }
 
     /// <summary>
     /// Books a deposit as a lot at the given unit price and adds it to the member's deposit balance: straight away when deposits
@@ -361,11 +393,11 @@ public static class FinanceEndpoints
     }
 
     /// <summary>
-    /// 在调用方事务内退押金：按 FIFO 从未退批次扣减，按原收款单价计算金额，并减少会员押金余额。
-    /// 只退未被实际持有和待报废占用的数量；调用方须先锁定会员。
+    /// 在调用方事务内退押金：按 FIFO 从未退批次扣减，减少会员押金余额。退的钱默认按原收款单价计算；传了 entered 就按它退，
+    /// 少退的部分记为扣押金（deducted_amount），在池押金照样按原价减少。只退未被实际持有和待报废占用的数量；调用方须先锁定会员。
     /// </summary>
     public static async Task<DepositRefundResult> ExecuteDepositRefund(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, string ctype,
-        int quantity, string? payMethod, string idempotencyKey, string operatorName, CancellationToken ct)
+        int quantity, string? payMethod, string idempotencyKey, string operatorName, CancellationToken ct, decimal? entered = null)
     {
         var currentHeld = await ProductContainers.Held(conn, tx, tid, mid, ctype, ct);
 
@@ -387,30 +419,33 @@ public static class FinanceEndpoints
         if (quantity > refundableQty)
             throw new BusinessRuleException($"可退押金数量不足：可用押金 {totalPaidRemaining} 个（已排除待报废占用），当前实际持有占用 {currentHeld} 个，最多可退 {refundableQty} 个（请先登记归还容器）");
 
-        // AC-12: 按历史原收款批次单价计算退款金额（不按修改后的当前单价）
+        // AC-12: 按历史原收款批次单价计算押金原价（不按修改后的当前单价）
         var needToRefund = quantity;
-        decimal refundAmount = 0m;
+        decimal value = 0m;
         var breakdown = new List<object>();
         foreach (var lot in lots)
         {
             if (needToRefund <= 0) break;
             var take = Math.Min(lot.Remaining, needToRefund);
             var subAmt = take * lot.UnitPrice;
-            refundAmount += subAmt;
+            value += subAmt;
             needToRefund -= take;
             await TicketBatches.Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.deposit_lots SET refunded_qty = refunded_qty + @take, remaining_qty = remaining_qty - @take WHERE id = @id", ct, ("take", take), ("id", lot.Id));
             breakdown.Add(new { lotNo = lot.No, takeQty = take, originalUnitPrice = lot.UnitPrice, subAmount = subAmt });
         }
+        var refundAmount = DepositRefundAmount(entered, value);
+        var deducted = value - refundAmount;
 
         var refundNo = await BusinessNumbers.DepositRefundNo(conn, tx, ct);
         await TicketBatches.Exec(conn, tx, """
             INSERT INTO plugin_kunlun_waterstation.deposit_refunds
-                (id, tenant_id, refund_no, idempotency_key, member_id, container_type, refund_qty, refund_amount, lot_breakdown, operator_name, pay_method)
-            VALUES (@id, @tid, @no, @key, @mid, @ct, @qty, @amt, @bd::jsonb, @op, @pay)
+                (id, tenant_id, refund_no, idempotency_key, member_id, container_type, refund_qty, refund_amount, deducted_amount, lot_breakdown, operator_name, pay_method)
+            VALUES (@id, @tid, @no, @key, @mid, @ct, @qty, @amt, @deducted, @bd::jsonb, @op, @pay)
             """, ct, ("id", Guid.NewGuid()), ("tid", tid), ("no", refundNo), ("key", idempotencyKey), ("mid", mid), ("ct", ctype), ("qty", quantity),
-            ("amt", refundAmount), ("bd", JsonSerializer.Serialize(breakdown)), ("op", operatorName), ("pay", (object?)payMethod ?? DBNull.Value));
-        await TicketBatches.Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.members SET deposit_amount = GREATEST(0, deposit_amount - @amt) WHERE id = @mid", ct, ("amt", refundAmount), ("mid", mid));
-        return new DepositRefundResult(refundNo, refundAmount, breakdown);
+            ("amt", refundAmount), ("deducted", deducted), ("bd", JsonSerializer.Serialize(breakdown)), ("op", operatorName), ("pay", (object?)payMethod ?? DBNull.Value));
+        // The pool loses the whole deposit of these containers: what was paid back plus what was kept.
+        await TicketBatches.Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.members SET deposit_amount = GREATEST(0, deposit_amount - @amt) WHERE id = @mid", ct, ("amt", value), ("mid", mid));
+        return new DepositRefundResult(refundNo, refundAmount, breakdown, value, deducted);
     }
 
     private static bool HasPerm(ClaimsPrincipal user, string perm) =>

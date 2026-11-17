@@ -194,6 +194,17 @@ kunlun/
 
 报废扣押可选免扣：`POST /api/containers/damages/{id}/scrap` 的 `deductDeposit=false` 时只释放押金批次的 `reserved_damage_qty`，不减少批次剩余、不扣会员押金；`container_damages.deposit_waived` 标记，周转流水业务类型为 `SCRAP_WAIVED`、扣押金额 0。财务汇总、押金流水和导出中的扣押统计排除免扣记录，剩余押金 = 累计收押 − 累计退押 − 累计报废扣押 仍成立。
 
+## 6.2 实退金额、按金额收退押金与会员退款结算（2026-11-18）
+
+- 实退金额：`ApplyRefundRequest.Amount`、`ApproveRefundRequest.Amount` 可选，不传就按账退。水费退款不超过批次 `paid_amount`；押金退款不超过所退那几个按原收款单价的合计（`FinanceEndpoints.FifoValue`）。申请时填的金额和按账不同才存 `refund_requests.requested_amount`；有它的申请审核时必须带 `amount`，否则 409，免得旧页面批准一个没看到的金额。列表给待审核水费退款另返回 `currentAmount`（按现在的剩余付费票折算），已退款的水费退款的 `remainingBuy` / `remainingGift` 取自 `recharge_refunds` 的实退票数。不带金额的请求保持原来的请求哈希，旧客户端重放照样匹配。
+- 押金少退：`deposit_refunds.deducted_amount` 记原价 − 实退，约束放宽为 `refund_amount >= 0`。批次和会员 `deposit_amount` 仍按原价减少；财务汇总的 `depositDeductedTotal` 和押金流水的 `DEDUCT` 把它算进去，`reconciledZeroDiff` 照样成立。
+- 收押金和补录按金额：`CollectDepositRequest.Amount`、`OpeningDepositInput.Amount` 是总金额，单价 = 金额 ÷ 个数（`Money.UnitPrice`，分不匀返回 400）；收押金要审核时单价记在 `COLLECT` 申请的 `unit_price` 上，批准时按它记批次。重放比较金额。`GET /api/members/{id}/deposit-summary` 返回 `lots`（没被破损暂占的批次单价和个数，先进先出），前端据此把金额折成个数。
+- 退款结算：`member_settlements` 每次一行（`settlement_no` 为 `JS{日期}{序号}`、按账 `computed_amount`、实退 `amount`、退款单 `receipt`）。`POST /api/members/{id}/settlement/preview` 和 `POST /api/members/{id}/settlement` 共用一份计划：
+  - 水票按批次原实付单价折算剩余付费票，赠票一并收回。
+  - 每种桶袋：坏的（扣押金时）和不还的个数超过押金覆盖的部分，按现行标准从退款里补成来源 `SETTLEMENT` 的押金批次（收款方式同退款）；然后按批次先进先出依次分给坏的、不还的、退押金的和留在会员手里的。坏的和不还的走 `ContainerCirculation.RecordDamage` 加 `Scrap`（扣押金，或坏的选水站承担时不扣），还回好的回到店里，留着的照旧在会员手里。
+  - 实退和按账的差额先摊到各笔水费退款（每笔 0 到原实付），再从押金退款里少退（记 `deducted_amount`）。执行时在会员锁内重算，按账金额和预览的 `expectedAmount` 不一致返回 409。
+  - 需要 `recharge:refund` 和 `deposit:refund_approve`。会员已停用、有未完成的水单或有任何待审核申请（含待审核的收押金：它算进覆盖却还没有批次）时不能结算。`GET /api/members/{id}/settlements` 列出这位会员的退款单。
+
 ## 7. 员工手机端功能与角色权限（2026-11-16）
 
 功能目录有两份对照：`services/Kunlun.WaterStation/Auth/MobileFeatures.cs` 的 `Catalog`（功能 → 授予的权限码，服务端以它为准）与 `packages/shared/src/mobile.ts` 的 `MOBILE_FEATURES`（名称、图标、说明、所在页面）。`scripts/mobile-features.test.mjs` 比对两边的功能顺序与权限，防止漂移。

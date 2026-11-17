@@ -28,7 +28,7 @@ public static class MembershipEndpoints
                 var container = product.ContainerId;
                 var held = await ProductContainers.Held(conn, null, repo.DefaultTenantId, mid, container, ct);
                 var lots = new List<(int Qty, decimal Price, int Reserved)>();
-                await using (var cmd = Command(conn, null, "SELECT remaining_qty,unit_price,reserved_damage_qty FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@container ORDER BY created_at,id", ("tid", repo.DefaultTenantId), ("mid", mid), ("container", container)))
+                await using (var cmd = Command(conn, null, "SELECT remaining_qty,unit_price,reserved_damage_qty FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@container AND remaining_qty>0 ORDER BY created_at,id", ("tid", repo.DefaultTenantId), ("mid", mid), ("container", container)))
                 await using (var r = await cmd.ExecuteReaderAsync(ct)) while (await r.ReadAsync(ct)) lots.Add((r.GetInt32(0), r.GetDecimal(1), r.GetInt32(2)));
                 var paidQty = lots.Sum(l => l.Qty); var reservedQty = lots.Sum(l => l.Reserved); var refundQty = Math.Max(0, paidQty - reservedQty - held); var left = refundQty; decimal amount = 0;
                 foreach (var lot in lots) { var take = Math.Min(left, lot.Qty - lot.Reserved); amount += take * lot.Price; left -= take; }
@@ -41,7 +41,9 @@ public static class MembershipEndpoints
                 await using (var r = await collectCmd.ExecuteReaderAsync(ct)) { await r.ReadAsync(ct); pendingCollectQty = Convert.ToInt32(r.GetValue(0)); pendingCollectAmount = r.GetDecimal(1); }
                 await using var configCmd = Command(conn, null, "SELECT unit_deposit FROM plugin_kunlun_waterstation.container_configs WHERE tenant_id=@tid AND container_type=@container", ("tid", repo.DefaultTenantId), ("container", container));
                 var unitDeposit = (decimal?)await configCmd.ExecuteScalarAsync(ct) ?? throw new BusinessRuleException("押金标准尚未配置", 503);
-                result.Add(new { containerType = container, waterType = product.WaterType, name = product.Name, containerKind = product.ContainerType, unitDeposit, paidQty, paidAmount = lots.Sum(l => l.Price * l.Qty), heldQty = held, pendingDamageQty = reservedQty, pendingDamageAmount = lots.Sum(l => l.Price * l.Reserved), refundableQty = refundQty, refundableAmount = amount, pendingRefundQty, pendingCollectQty, pendingCollectAmount });
+                // The deposit not held for a damage, oldest first: refunds take from the front at these prices.
+                var available = lots.Where(l => l.Qty > l.Reserved).Select(l => new { unitPrice = l.Price, quantity = l.Qty - l.Reserved }).ToList();
+                result.Add(new { containerType = container, waterType = product.WaterType, name = product.Name, containerKind = product.ContainerType, unitDeposit, paidQty, paidAmount = lots.Sum(l => l.Price * l.Qty), heldQty = held, pendingDamageQty = reservedQty, pendingDamageAmount = lots.Sum(l => l.Price * l.Reserved), refundableQty = refundQty, refundableAmount = amount, pendingRefundQty, pendingCollectQty, pendingCollectAmount, lots = available });
             }
             return Results.Ok(result);
         }).RequireAuthorization();
@@ -236,8 +238,11 @@ public static class MembershipEndpoints
     /// <summary>Batches with a known original price: recharges, and packages recorded from before the system together with what was paid.</summary>
     public static bool Priced(string source, decimal paidAmount) => source == "PURCHASE" || (source == MemberOpening.Source && paidAmount > 0);
 
-    /// <summary>Checks a batch can be refunded and returns its amount at the original paid price; the caller holds the member lock.</summary>
-    public static async Task<(Guid MemberId, string Water, string Mode, decimal Amount, int Buy, int Gift)> RefundableBatch(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid batchId, bool lockRow, CancellationToken ct)
+    /// <summary>
+    /// Checks a batch can be refunded and returns its amount at the original paid price (Amount) and what was paid for it (Paid);
+    /// the caller holds the member lock.
+    /// </summary>
+    public static async Task<(Guid MemberId, string Water, string Mode, decimal Amount, decimal Paid, int Buy, int Gift)> RefundableBatch(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid batchId, bool lockRow, CancellationToken ct)
     {
         await using var cmd = Command(conn, tx, "SELECT source,water_type,fulfill_mode,paid_amount,fixed_qty,remaining_buy,remaining_gift,reserved_buy,reserved_gift,status,member_id FROM plugin_kunlun_waterstation.ticket_batches WHERE tenant_id=@tid AND id=@id" + (lockRow ? " FOR UPDATE" : ""), ("tid", tid), ("id", batchId));
         await using var r = await cmd.ExecuteReaderAsync(ct);
@@ -251,13 +256,29 @@ public static class MembershipEndpoints
         int buy = r.GetInt32(5), gift = r.GetInt32(6);
         if (buy + gift == 0) throw new BusinessRuleException("该批次已用完，无剩余权益");
         var amount = RemainingValue(r.GetString(0), r.GetString(9), r.GetDecimal(3), buy, r.GetInt32(4));
-        return (r.GetGuid(10), r.GetString(1), r.GetString(2), amount, buy, gift);
+        return (r.GetGuid(10), r.GetString(1), r.GetString(2), amount, r.GetDecimal(3), buy, gift);
     }
 
-    /// <summary>退清一个充值批次的剩余权益：按原实付单价退付费票，收回赠票。调用方须先锁定会员。</summary>
-    public static async Task<RechargeRefundResult> ExecuteRechargeRefund(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid id, string payMethod, string reason, string idempotencyKey, string actor, CancellationToken ct)
+    /// <summary>
+    /// What a water refund pays back: the amount staff settled on, or the remaining paid tickets at the original price when
+    /// they left it alone. Never more than the recharge took in.
+    /// </summary>
+    public static decimal RefundAmount(decimal? entered, decimal computed, decimal paid)
     {
-        var (mid, water, mode, amount, buy, gift) = await RefundableBatch(conn, tx, tid, id, lockRow: true, ct);
+        if (entered is not { } amount) return computed;
+        if (!Money.Valid(amount)) throw new BusinessRuleException("退款金额要大于等于 0、精确到分");
+        if (amount > paid) throw new BusinessRuleException($"退款金额不能超过这笔充值的实付 ¥{Money.Text(paid)}");
+        return amount;
+    }
+
+    /// <summary>
+    /// 退清一个充值批次的剩余权益：退付费票、收回赠票。退的钱默认按原实付单价折算，传了 amount 就以它为准（不超过原实付）。
+    /// 调用方须先锁定会员。
+    /// </summary>
+    public static async Task<RechargeRefundResult> ExecuteRechargeRefund(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid id, string payMethod, string reason, string idempotencyKey, string actor, CancellationToken ct, decimal? entered = null)
+    {
+        var (mid, water, mode, computed, paid, buy, gift) = await RefundableBatch(conn, tx, tid, id, lockRow: true, ct);
+        var amount = RefundAmount(entered, computed, paid);
         var rid = Guid.NewGuid(); var no = Number("TK");
         await Exec(conn, tx, "INSERT INTO plugin_kunlun_waterstation.recharge_refunds(id,tenant_id,refund_no,member_id,batch_id,idempotency_key,refund_buy_qty,revoked_gift_qty,amount,pay_method,reason,operator_name) VALUES(@id,@tid,@no,@mid,@bid,@key,@buy,@gift,@amount,@pay,@reason,@actor)", ct, ("id", rid), ("tid", tid), ("no", no), ("mid", mid), ("bid", id), ("key", idempotencyKey), ("buy", buy), ("gift", gift), ("amount", amount), ("pay", payMethod), ("reason", reason), ("actor", actor));
         await Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.ticket_batches SET remaining_buy=0,remaining_gift=0,status='REFUNDED' WHERE id=@id AND tenant_id=@tid", ct, ("id", id), ("tid", tid));

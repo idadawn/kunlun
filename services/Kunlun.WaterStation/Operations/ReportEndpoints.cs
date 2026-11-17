@@ -157,7 +157,13 @@ public static class ReportEndpoints
             }
             decimal depositDeductedTotal;
             long depositDeductCount;
-            await using (var deductions = TicketBatches.Command(conn, null, "SELECT count(*),COALESCE(sum(deposit_amount),0) FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED' AND NOT deposit_waived", ("tid",tenantId)))
+            // Deposit kept: scrapped damages, and the part of a deposit refund staff chose not to pay back.
+            await using (var deductions = TicketBatches.Command(conn, null, """
+                SELECT count(*),COALESCE(sum(amount),0) FROM (
+                  SELECT deposit_amount AS amount FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED' AND NOT deposit_waived
+                  UNION ALL
+                  SELECT deducted_amount FROM plugin_kunlun_waterstation.deposit_refunds WHERE tenant_id=@tid AND deducted_amount>0) kept
+                """, ("tid",tenantId)))
             await using (var r = await deductions.ExecuteReaderAsync(ct))
             {
                 await r.ReadAsync(ct);
@@ -304,6 +310,10 @@ public static class ReportEndpoints
                         SELECT scrap_no AS doc_no,'DEDUCT' AS flow_type,member_id,container_type,quantity AS qty,
                                ROUND(deposit_amount/quantity,2) AS unit_price,deposit_amount AS amount,0 AS remaining_qty,scrap_operator AS operator_name,scrapped_at AS created_at,NULL
                         FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED' AND NOT deposit_waived
+                        UNION ALL
+                        SELECT refund_no,'DEDUCT',member_id,container_type,refund_qty,
+                               ROUND(deducted_amount/refund_qty,2),deducted_amount,0,operator_name,created_at,NULL
+                        FROM plugin_kunlun_waterstation.deposit_refunds WHERE tenant_id=@tid AND deducted_amount>0
                         ORDER BY created_at DESC
                         """, conn);
                     cmd.Parameters.AddWithValue("tid", tenantId);
@@ -548,7 +558,16 @@ public static class ReportEndpoints
                         NULL, NULLIF(COALESCE(d.scrap_reason, d.reason), '')
                  FROM plugin_kunlun_waterstation.container_damages d
                  JOIN plugin_kunlun_waterstation.members m ON m.id = d.member_id AND m.tenant_id = d.tenant_id
-                 WHERE d.tenant_id = @tid AND d.status = 'SCRAPPED' AND NOT d.deposit_waived) flows
+                 WHERE d.tenant_id = @tid AND d.status = 'SCRAPPED' AND NOT d.deposit_waived
+                 UNION ALL
+                 -- The part of a deposit refund that was kept instead of paid back.
+                 SELECT rf.refund_no, m.name, m.member_no, m.phone, 'DEDUCT', rf.container_type, rf.refund_qty,
+                        ROUND(rf.deducted_amount / rf.refund_qty, 2), rf.deducted_amount, 0, rf.operator_name, rf.created_at, NULL,
+                        q.applicant_name, COALESCE(NULLIF(q.reason, ''), '退押金时少退')
+                 FROM plugin_kunlun_waterstation.deposit_refunds rf
+                 JOIN plugin_kunlun_waterstation.members m ON m.id = rf.member_id
+                 LEFT JOIN plugin_kunlun_waterstation.refund_requests q ON q.refund_no = rf.refund_no AND q.kind = 'DEPOSIT'
+                 WHERE rf.tenant_id = @tid AND rf.deducted_amount > 0) flows
                 WHERE (@from IS NULL OR created_at >= @from)
                   AND (@to IS NULL OR created_at < @to)
                   AND (@flow IS NULL OR flow_type = @flow)

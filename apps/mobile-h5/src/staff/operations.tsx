@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { KUNLUN_PERMISSIONS as P, money, pathFor, ticketGroups, type MemberProfile, type MobileFeatureKey, type WaterOrder } from '@kunlun/shared';
 import {
   AddressBook, CredentialsDialog, DepositDialog, Dialog, FulfillDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog,
-  RechargeDialog, useAuth, useDialogs, useRun, useToast, type DepositAction,
+  RechargeDialog, SettlementDialog, SettlementRecords, canSettle, useAuth, useDialogs, useRun, useSettlements, useToast, type DepositAction,
 } from '@kunlun/ui';
 import { useMobileLayout, useStaffData } from './data';
 
@@ -80,6 +81,11 @@ function MemberDetailDialog({ member: opened, onClose }: { member: MemberProfile
   // A disabled member cannot be served: the server refuses every business, so none is offered here.
   const disabled = member.status === 'DISABLED';
   const depositActions = !disabled && (layout.has('depositCollect') || layout.has('depositRefund'));
+  const dialogs = useDialogs();
+  const [settled, setSettled] = useState(0);
+  const settlements = useSettlements(member.id, settled);
+  const settle = () => void dialogs.open(close => <SettlementDialog memberId={member.id} memberName={member.name} onClose={close}
+    onDone={async () => { await refresh(); setSettled(n => n + 1); }} />);
   return (
     <Dialog title={`${member.name} · 会员办理`} description={`${member.phone} · ${member.memberNo}`} onClose={onClose}>
       {disabled && (
@@ -104,10 +110,17 @@ function MemberDetailDialog({ member: opened, onClose }: { member: MemberProfile
           </div>}
         </section>
       </div>
-      {!disabled && (layout.has('order') || layout.has('movement')) && <div className="membership-actions" style={{ margin: '12px 0 14px' }}>
+      {!disabled && (layout.has('order') || layout.has('movement') || canSettle(can)) && <div className="membership-actions" style={{ margin: '12px 0 14px' }}>
         {layout.has('order') && can(P.OrderCreate) && <button type="button" className="btn sm" onClick={order}>点单</button>}
         {layout.has('movement') && <button type="button" className="btn sm" onClick={ops.container}>登记领还</button>}
+        {canSettle(can) && <button type="button" className="btn sm" onClick={settle}>退款结算</button>}
       </div>}
+      {settlements.data && settlements.data.length > 0 && (
+        <section className="member-settlements">
+          <header><b>退款结算单</b></header>
+          <SettlementRecords slips={settlements.data} />
+        </section>
+      )}
       <AddressBook owner={member} onChanged={refresh} compact />
     </Dialog>
   );

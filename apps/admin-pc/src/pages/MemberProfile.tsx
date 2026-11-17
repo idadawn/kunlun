@@ -5,7 +5,10 @@ import {
   type DepositFlowType, type DepositLedgerRow, type DepositSummaryRow, type MemberProfile, type Paged, type RechargeLedgerRow,
   type TicketBatch, type WaterOrder,
 } from '@kunlun/shared';
-import { AddressBook, BatchCards, CredentialsDialog, Icon, RefundBatchDialog, useAuth, useDialogs, useLoader, useRun } from '@kunlun/ui';
+import {
+  AddressBook, BatchCards, CredentialsDialog, Icon, RefundBatchDialog, SettlementDialog, SettlementRecords, canSettle, useAuth, useDialogs, useLoader,
+  useRun, useSettlements,
+} from '@kunlun/ui';
 import { StatCard, useOperations } from '../common';
 import { useAdminData } from '../data';
 import { useMemberStatusActions } from '../memberStatus';
@@ -49,6 +52,7 @@ function Profile({ member: m }: { member: MemberProfile }) {
   const manage = can(P.MemberManage);
   const deposits = useLoader(() => api.depositSummary(m.id), [api, m.id, version]);
   const batches = useLoader(() => api.ticketBatches(m.id), [api, m.id, version]);
+  const settlements = useSettlements(m.id, version);
   const [allBatches, setAllBatches] = useState(false);
 
   const tickets = ticketGroups(m.tickets);
@@ -73,6 +77,8 @@ function Profile({ member: m }: { member: MemberProfile }) {
     ? (batch: TicketBatch) => run(() => dialogs.open(close => <RefundBatchDialog memberId={m.id} batch={batch} onClose={close} onDone={refresh} />))()
     : undefined;
 
+  const settle = run(() => dialogs.open(close => <SettlementDialog memberId={m.id} memberName={m.name} onClose={close} onDone={refresh} />));
+
   return <>
     <section className="profile-hero" aria-label="会员概况">
       <div className="profile-avatar">{m.name[0]}</div>
@@ -86,6 +92,9 @@ function Profile({ member: m }: { member: MemberProfile }) {
         <button type="button" className="btn" onClick={() => ops.deposit('collect', m.id)}><Icon name="deposit" />收押金</button>
         <button type="button" className="btn" onClick={() => ops.deposit('refund', m.id)}><Icon name="refund" />退押金</button>
         <button type="button" className="btn" onClick={() => ops.movement(m.id)}><Icon name="swap" />登记领还</button>
+        {canSettle(can) && (
+          <button type="button" className="btn" title="会员不再订水或搬家：一张退款单结清剩余水票、押金和手里的桶袋" onClick={settle}><Icon name="refund" />退款结算</button>
+        )}
         {can(P.MemberOpening) && (
           <button type="button" className="btn" title="补录这位会员用系统之前买的套餐、交的押金和手里的桶"
             onClick={run(() => dialogs.open(close => <OpeningDialog member={m} onClose={close} onDone={refresh} />))}><Icon name="ledger" />补录历史数据</button>
@@ -154,6 +163,12 @@ function Profile({ member: m }: { member: MemberProfile }) {
               : rows.map(r => <ContainerDeposit key={r.containerType} row={r} />)}
           </div>
         </section>
+        {settlements.data && settlements.data.length > 0 && (
+          <section className="card">
+            <div className="card-head"><div className="card-title">退款结算单 <small>一次结清水票、押金和桶袋的单子</small></div></div>
+            <div className="profile-card-body"><SettlementRecords slips={settlements.data} /></div>
+          </section>
+        )}
         <section className="card">
           <div className="card-head">
             <div className="card-title">基础资料</div>
@@ -216,7 +231,7 @@ function ContainerDeposit({ row: r }: { row: DepositSummaryRow }) {
 type RecordTab = 'orders' | 'recharges' | 'deposits';
 const RECORD_TABS: Array<[RecordTab, string]> = [['orders', '水单'], ['recharges', '充值'], ['deposits', '押金']];
 type Records = ({ tab: 'orders' } & Paged<WaterOrder>) | ({ tab: 'recharges' } & Paged<RechargeLedgerRow>) | ({ tab: 'deposits' } & Paged<DepositLedgerRow>);
-const FLOW_TAGS: Record<DepositFlowType, [string, string]> = { COLLECT: ['收押金', 'green'], REFUND: ['退押金', 'blue'], DEDUCT: ['报废扣押', 'orange'], OPENING: ['上系统前', 'gold'] };
+const FLOW_TAGS: Record<DepositFlowType, [string, string]> = { COLLECT: ['收押金', 'green'], REFUND: ['退押金', 'blue'], DEDUCT: ['扣押金', 'orange'], OPENING: ['上系统前', 'gold'] };
 const ORDER_TONES: Record<WaterOrder['status'], string> = { PENDING: 'orange', DISPATCHED: 'aqua', COMPLETED: 'gray', CANCELLED: 'red' };
 
 /** The member's newest orders, recharges and deposit flows, one tab at a time. */

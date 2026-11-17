@@ -8,7 +8,7 @@ import { Dialog, Field, FormDialog, useDialogs, useRun, useToast } from '../feed
 import { useIdempotencyKey } from '../hooks';
 import { Stepper } from '../ordering';
 import { PlanChooser } from '../plan-picker';
-import { MemberPicker, PayButtons, ReasonChips, UnavailableDialog, errorText, usePickedMember, useReviewSettings, waitsForReview, type Done } from './common';
+import { MemberPicker, PayButtons, ReasonChips, UnavailableDialog, errorText, parseYuan, sameYuan, usePickedMember, useReviewSettings, waitsForReview, type Done } from './common';
 
 /** 收水费、按套餐发水票，可手动加赠送；后台要求审核时，赠送（管理员账号填的也一样）等管理员在审核页批准后才到账，付费的水票当场到账。 */
 export function RechargeDialog({ memberId, onClose, onDone }: { memberId?: string; onClose: () => void; onDone?: Done }) {
@@ -66,9 +66,12 @@ export function RechargeDialog({ memberId, onClose, onDone }: { memberId?: strin
   );
 }
 
-const RECHARGE_REFUND_REASONS = ['不再订水', '搬家', '水质或服务不满意', '重复充值'] as const;
+export const RECHARGE_REFUND_REASONS = ['不再订水', '搬家', '水质或服务不满意', '重复充值'] as const;
 
-/** 退清一次充值的剩余水票：后台要求审核时店员只提交申请，管理员通过才退款；不要求审核或管理员办理时当场退款。 */
+/**
+ * 退清一次充值的剩余水票：应退按原实付单价折算剩余付费票，实退金额默认等于应退，办理的人可以改，以填的为准（不超过原实付）。
+ * 后台要求审核时店员只提交申请，管理员确认金额后才退款；不要求审核或管理员办理时当场退款。
+ */
 export function RefundBatchDialog({ memberId, batch, onClose, onDone }: { memberId: string; batch: TicketBatch; onClose: () => void; onDone?: Done }) {
   const { api, can } = useAuth();
   const toast = useToast();
@@ -76,24 +79,44 @@ export function RefundBatchDialog({ memberId, batch, onClose, onDone }: { member
   const review = useReviewSettings();
   const [pay, setPay] = useState<PayMethod>('CASH');
   const [reason, setReason] = useState('');
+  const books = Number(batch.refundableAmount);
+  const paid = Number(batch.paidAmount);
+  const [amount, setAmount] = useState(() => money(books));
   const waits = waitsForReview(review, 'refund', can(P.RechargeRefund));
+  const unit = unitOf(batch.waterType);
+  const value = parseYuan(amount);
+  const changed = value !== null && !sameYuan(value, books);
+  const submit = async () => {
+    if (value === null) throw new Error('请填写退了多少钱，最多两位小数');
+    if (value > paid) throw new Error(`最多只能退这笔充值的原实付 ¥${money(paid)}`);
+    const result = await api.applyRefund({ kind: 'RECHARGE', memberId, batchId: batch.id, payMethod: pay, reason: reason.trim(), idempotencyKey: key, amount: value });
+    await onDone?.();
+    toast(result.status === 'APPROVED' ? `已退款 ¥${money(result.refundAmount ?? 0)}` : `退款申请 ${result.requestNo} 已提交，等管理员审核`);
+  };
   return (
     <FormDialog title={waits ? '申请退清剩余水票' : '退清剩余水票'} description={waits ? '提交后由管理员审核，审核通过才退款' : '确认后当场退款，剩余水票同时作废'}
-      submitLabel={waits ? '提交退款申请' : `确认已退 ¥${money(batch.refundableAmount)}`} onClose={onClose} onSubmit={async () => {
-        const result = await api.applyRefund({ kind: 'RECHARGE', memberId, batchId: batch.id, payMethod: pay, reason: reason.trim(), idempotencyKey: key });
-        await onDone?.();
-        toast(result.status === 'APPROVED' ? `已退款 ¥${money(result.refundAmount ?? 0)}` : `退款申请 ${result.requestNo} 已提交，等管理员审核`);
-      }}>
+      submitLabel={waits ? '提交退款申请' : value === null ? '确认已退款' : `确认已退 ¥${money(value)}`} onClose={onClose} onSubmit={submit}>
       <div className="membership-summary">
         <b>{batch.name}</b>
-        <p>原实付 ¥{money(batch.paidAmount)} ÷ {batch.fixedQty}{unitOf(batch.waterType)}；退剩余付费 {batch.remainingBuy}{unitOf(batch.waterType)}，收回赠送 {batch.remainingGift}{unitOf(batch.waterType)}</p>
-        <strong>{waits ? '预计退' : '应退'} ¥{money(batch.refundableAmount)}</strong>
+        <p>原实付 ¥{money(batch.paidAmount)} ÷ {batch.fixedQty}{unit}；退剩余付费 {batch.remainingBuy}{unit}，收回赠送 {batch.remainingGift}{unit}</p>
+        <strong>{waits ? '按账预计退' : '按账应退'} ¥{money(books)}</strong>
       </div>
+      <Field label={waits ? '申请退多少钱（元）' : '实退金额（元）'} htmlFor="refundAmount">
+        <div className="refund-amount">
+          <input id="refundAmount" className="input" type="number" inputMode="decimal" required min={0} max={paid} step={0.01} value={amount} onChange={e => setAmount(e.target.value)} />
+          {changed && <button type="button" className="text-btn" onClick={() => setAmount(money(books))}>改回应退 ¥{money(books)}</button>}
+        </div>
+      </Field>
+      <p className={`refund-amount-note${changed ? ' changed' : ''}`} role={value !== null && value > paid ? 'alert' : undefined}>
+        {value !== null && value > paid ? `最多只能退这笔充值的原实付 ¥${money(paid)}`
+          : changed ? `比按账${value! < books ? `少退 ¥${money(books - value!)}` : `多退 ¥${money(value! - books)}`}，以这里填的为准`
+          : `默认按应退填好；实际退的钱不一样就改这里，最多退原实付 ¥${money(paid)}`}
+      </p>
       <label id="refundPayLabel">退款方式</label>
       <PayButtons labelledBy="refundPayLabel" value={pay} onChange={setPay} />
       <Field label="退款原因（选填）" htmlFor="refundReason"><input id="refundReason" className="input" maxLength={500} value={reason} onChange={e => setReason(e.target.value)} /></Field>
       <ReasonChips options={RECHARGE_REFUND_REASONS} value={reason} onPick={setReason} />
-      <p className="membership-note">{waits ? '审核期间水票照常可用；通过时按当时剩余票数退款。' : ''}只登记线下退款，不发起支付平台转账；押金另行退。</p>
+      <p className="membership-note">{waits ? (changed ? '管理员审核时会看到你填的金额，以管理员确认的为准。' : '审核期间水票照常可用；通过时按当时剩余票数退款。') : ''}只登记线下退款，不发起支付平台转账；押金另行退，会员要全部结清请用「退款结算」。</p>
     </FormDialog>
   );
 }

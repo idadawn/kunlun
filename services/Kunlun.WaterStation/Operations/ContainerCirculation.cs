@@ -170,41 +170,55 @@ public static class ContainerCirculation
             return Results.Ok(JsonSerializer.Deserialize<JsonElement>(r.GetString(1)));
         }
         await LockMember(conn,tx,tid,req.MemberId,ct);
-        var held=await ProductContainers.Held(conn,tx,tid,req.MemberId,req.ContainerType,ct);
-        if(req.Quantity>held)throw new BusinessRuleException("破损归还数量超过会员当前持有数量");
-        var before=await ReadBalance(conn,tx,tid,req.ContainerType,ct);
-        if(before.MemberHeldQty<req.Quantity)throw new BusinessRuleException("会员持有汇总需要核对");
-        var lots=new List<DamageDepositLot>();var left=req.Quantity;var covered=0;
+        var damage=await RecordDamage(conn,tx,tid,req.MemberId,req.ContainerType,req.Quantity,req.Reason.Trim(),req.IdempotencyKey,hash,req.AcceptUncovered,note,user,ct);
+        await tx.CommitAsync(ct);return Results.Ok(damage.Receipt);
+    }
+
+    public sealed record DamageResult(Guid Id,string DamageNo,decimal DepositAmount,int UncoveredQty,object Receipt);
+
+    /// <summary>
+    /// Takes damaged containers back from a member: they leave the member and 客户手里 and wait in the store for scrapping, and the
+    /// deposit for them is held, oldest lots first. Containers the deposit does not cover are recorded only with acceptUncovered and a
+    /// note. The caller holds the member lock.
+    /// </summary>
+    internal static async Task<DamageResult> RecordDamage(NpgsqlConnection conn,NpgsqlTransaction tx,Guid tid,Guid mid,string type,int quantity,string reason,
+        string key,string hash,bool acceptUncovered,string note,ClaimsPrincipal user,CancellationToken ct)
+    {
+        var held=await ProductContainers.Held(conn,tx,tid,mid,type,ct);
+        if(quantity>held)throw new BusinessRuleException("破损归还数量超过会员当前持有数量");
+        var before=await ReadBalance(conn,tx,tid,type,ct);
+        if(before.MemberHeldQty<quantity)throw new BusinessRuleException("会员持有汇总需要核对");
+        var lots=new List<DamageDepositLot>();var left=quantity;var covered=0;
         await using(var cmd=Command(conn,tx,"""
             SELECT id,deposit_no,unit_price,remaining_qty-reserved_damage_qty FROM plugin_kunlun_waterstation.deposit_lots
             WHERE tenant_id=@tid AND member_id=@mid AND container_type=@type ORDER BY created_at,id FOR UPDATE
-            """,("tid",tid),("mid",req.MemberId),("type",req.ContainerType)))
+            """,("tid",tid),("mid",mid),("type",type)))
         await using(var r=await cmd.ExecuteReaderAsync(ct))while(await r.ReadAsync(ct))
         {
             var available=r.GetInt32(3);covered+=available;var take=Math.Min(left,available);
             if(take>0){lots.Add(new(r.GetGuid(0),r.GetString(1),take,r.GetDecimal(2)));left-=take;}
         }
         // Deposits pay for damage first; only what they cannot cover is left without a deposit, and that needs the counter's note.
-        if(left>0 && !req.AcceptUncovered)throw new BusinessRuleException($"该会员此类容器交过的押金只够扣 {req.Quantity-left} 个，还差 {left} 个没押金。请先让他补交押金；不交也可以登记，但要写清报废费用给没给");
+        if(left>0 && !acceptUncovered)throw new BusinessRuleException($"该会员此类容器交过的押金只够扣 {quantity-left} 个，还差 {left} 个没押金。请先让他补交押金；不交也可以登记，但要写清报废费用给没给");
         if(left>0 && note.Length==0)throw new BusinessRuleException("押金不够扣时必须写备注：报废了多少、是否给了报废费用");
         var uncovered=left;var uncoveredNote=left>0?note:"";
         foreach(var lot in lots)await Exec(conn,tx,"UPDATE plugin_kunlun_waterstation.deposit_lots SET reserved_damage_qty=reserved_damage_qty+@qty WHERE id=@id",ct,("id",lot.LotId),("qty",lot.Quantity));
         // The damaged ones are back in the store, so they leave 客户手里 (which stops at zero) along with the member's balance.
-        var after=before with{MemberHeldQty=before.MemberHeldQty-req.Quantity,WithCustomersQty=Math.Max(before.WithCustomersQty-req.Quantity,0),DamagedQty=checked(before.DamagedQty+req.Quantity)};
-        await SaveBalance(conn,tx,tid,req.ContainerType,after,ct);
-        await ProductContainers.SetHeld(conn,tx,tid,req.MemberId,req.ContainerType,held-req.Quantity,ct);
+        var after=before with{MemberHeldQty=before.MemberHeldQty-quantity,WithCustomersQty=Math.Max(before.WithCustomersQty-quantity,0),DamagedQty=checked(before.DamagedQty+quantity)};
+        await SaveBalance(conn,tx,tid,type,after,ct);
+        await ProductContainers.SetHeld(conn,tx,tid,mid,type,held-quantity,ct);
         var id=Guid.NewGuid();var no="PS"+id.ToString("N")[..28];var amount=lots.Sum(l=>l.Quantity*l.UnitPrice);
         // Older receipts have no uncovered fields; leaving them out when nothing is uncovered keeps replays identical.
         object receipt=uncovered>0
-            ?new{id,damageNo=no,req.MemberId,req.ContainerType,req.Quantity,depositAmount=amount,status="PENDING",lotBreakdown=lots,uncoveredQty=uncovered,uncoveredNote}
-            :new{id,damageNo=no,req.MemberId,req.ContainerType,req.Quantity,depositAmount=amount,status="PENDING",lotBreakdown=lots};
+            ?new{id,damageNo=no,MemberId=mid,ContainerType=type,Quantity=quantity,depositAmount=amount,status="PENDING",lotBreakdown=lots,uncoveredQty=uncovered,uncoveredNote}
+            :new{id,damageNo=no,MemberId=mid,ContainerType=type,Quantity=quantity,depositAmount=amount,status="PENDING",lotBreakdown=lots};
         await Exec(conn,tx,"""
             INSERT INTO plugin_kunlun_waterstation.container_damages(id,tenant_id,damage_no,idempotency_key,request_hash,member_id,container_type,quantity,deposit_amount,lot_breakdown,reason,operator_name,report_receipt,uncovered_qty,uncovered_note)
             VALUES(@id,@tid,@no,@key,@hash,@mid,@type,@qty,@amount,@lots::jsonb,@reason,@actor,@receipt::jsonb,@uncovered,@uncoveredNote)
-            """,ct,("id",id),("tid",tid),("no",no),("key",req.IdempotencyKey),("hash",hash),("mid",req.MemberId),("type",req.ContainerType),("qty",req.Quantity),("amount",amount),("lots",Json(lots)),("reason",req.Reason.Trim()),("actor",Actor(user)),("receipt",Json(receipt)),("uncovered",uncovered),("uncoveredNote",uncoveredNote));
-        var ledgerReason=uncovered>0?$"{req.Reason.Trim()}；没押金 {uncovered} 个：{uncoveredNote}":req.Reason.Trim();
-        await Ledger(conn,tx,tid,req.MemberId,req.ContainerType,no,"DAMAGE_RETURN",req.Quantity,0,held-req.Quantity,Math.Max(covered-(req.Quantity-uncovered),0),0,ledgerReason,user,ct);
-        await tx.CommitAsync(ct);return Results.Ok(receipt);
+            """,ct,("id",id),("tid",tid),("no",no),("key",key),("hash",hash),("mid",mid),("type",type),("qty",quantity),("amount",amount),("lots",Json(lots)),("reason",reason),("actor",Actor(user)),("receipt",Json(receipt)),("uncovered",uncovered),("uncoveredNote",uncoveredNote));
+        var ledgerReason=uncovered>0?$"{reason}；没押金 {uncovered} 个：{uncoveredNote}":reason;
+        await Ledger(conn,tx,tid,mid,type,no,"DAMAGE_RETURN",quantity,0,held-quantity,Math.Max(covered-(quantity-uncovered),0),0,ledgerReason,user,ct);
+        return new(id,no,amount,uncovered,receipt);
     }
 
     private static async Task<IResult> ScrapDamage(Guid id,ScrapContainerDamageRequest req,ClaimsPrincipal user,NpgsqlDataSource db,KunlunAuthRepository repo,CancellationToken ct)
@@ -226,6 +240,18 @@ public static class ContainerCirculation
         await using var find=Command(conn,tx,"SELECT member_id FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND id=@id",("tid",tid),("id",id));
         var memberValue=await find.ExecuteScalarAsync(ct);if(memberValue is null)throw new BusinessRuleException("破损记录不存在",404);
         var mid=(Guid)memberValue;await LockMember(conn,tx,tid,mid,ct);
+        var scrap=await Scrap(conn,tx,tid,mid,id,req.Reason.Trim(),waive,req.IdempotencyKey,hash,user,ct);
+        await tx.CommitAsync(ct);return Results.Ok(scrap.Receipt);
+    }
+
+    public sealed record ScrapResult(string ScrapNo,decimal DeductedAmount,object Receipt);
+
+    /// <summary>
+    /// Scraps a recorded damage. Deducting takes the held deposit for good (counted as 扣押金); waiving only releases it, so it stays
+    /// with the member and can be refunded or cover other containers. The caller holds the member lock.
+    /// </summary>
+    internal static async Task<ScrapResult> Scrap(NpgsqlConnection conn,NpgsqlTransaction tx,Guid tid,Guid mid,Guid id,string reason,bool waive,string key,string hash,ClaimsPrincipal user,CancellationToken ct)
+    {
         string type;int qty;decimal amount;List<DamageDepositLot> lots;
         await using(var read=Command(conn,tx,"SELECT container_type,quantity,deposit_amount,lot_breakdown::text,status FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND id=@id FOR UPDATE",("tid",tid),("id",id)))
         await using(var r=await read.ExecuteReaderAsync(ct))
@@ -246,18 +272,19 @@ public static class ContainerCirculation
             throw new BusinessRuleException("会员押金余额不足，未执行报废扣款",409);
         var after=before with{DamagedQty=before.DamagedQty-qty,ScrappedQty=checked(before.ScrappedQty+qty)};
         await SaveBalance(conn,tx,tid,type,after,ct);
-        var op=await RecordOperation(conn,tx,tid,"damage:"+id.ToString("N"),hash,type,"SCRAP","DAMAGED",qty,req.Reason.Trim(),mid,user,before,after,ct);
+        var op=await RecordOperation(conn,tx,tid,"damage:"+id.ToString("N"),hash,type,"SCRAP","DAMAGED",qty,reason,mid,user,before,after,ct);
         var no=op.GetProperty("operationNo").GetString()!;
         var held=await ProductContainers.Held(conn,tx,tid,mid,type,ct);
         await using var coverage=Command(conn,tx,"SELECT COALESCE(sum(remaining_qty-reserved_damage_qty),0) FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@type",("tid",tid),("mid",mid),("type",type));
+        // Deposits taken but not yet approved count too: the customer already paid them.
         var covered=Convert.ToInt32(await coverage.ExecuteScalarAsync(ct))+await RefundRequests.PendingCollectQty(conn,tx,tid,mid,type,ct);
-        await Ledger(conn,tx,tid,mid,type,no,waive?"SCRAP_WAIVED":"SCRAP",0,qty,held,covered,deducted,req.Reason.Trim(),user,ct);
+        await Ledger(conn,tx,tid,mid,type,no,waive?"SCRAP_WAIVED":"SCRAP",0,qty,held,covered,deducted,reason,user,ct);
         var receipt=new{id,scrapNo=no,memberId=mid,containerType=type,quantity=qty,deductedAmount=deducted,depositWaived=waive,lotBreakdown=lots,status="SCRAPPED"};
         await Exec(conn,tx,"""
             UPDATE plugin_kunlun_waterstation.container_damages SET status='SCRAPPED',deposit_waived=@waive,scrap_no=@no,scrap_key=@key,scrap_hash=@hash,scrap_reason=@reason,scrap_operator=@actor,scrapped_at=now(),scrap_receipt=@receipt::jsonb
             WHERE tenant_id=@tid AND id=@id
-            """,ct,("waive",waive),("no",no),("key",req.IdempotencyKey),("hash",hash),("reason",req.Reason.Trim()),("actor",Actor(user)),("receipt",Json(receipt)),("tid",tid),("id",id));
-        await tx.CommitAsync(ct);return Results.Ok(receipt);
+            """,ct,("waive",waive),("no",no),("key",key),("hash",hash),("reason",reason),("actor",Actor(user)),("receipt",Json(receipt)),("tid",tid),("id",id));
+        return new(no,deducted,receipt);
     }
 
     private static Task<int> Ledger(NpgsqlConnection conn,NpgsqlTransaction tx,Guid tid,Guid mid,string type,string reference,string business,int returned,int scrapped,int held,int covered,decimal amount,string reason,ClaimsPrincipal user,CancellationToken ct)=>Exec(conn,tx,"""
