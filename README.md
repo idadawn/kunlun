@@ -76,7 +76,7 @@ pnpm --filter @kunlun/mobile-h5 dev   # http://127.0.0.1:5174/member 与 /staff
 
 ## al 正式环境
 
-管理端：<https://kunlun.idalee.cn/admin>。使用独立生产数据库，每天 03:30 自动备份到服务器受限目录，失败时发邮件；HTTPS 由 Caddy 自动续期；al 通过 WireGuard 访问 k3s。部署、备份恢复、回退和验收说明见 [al 运维文档](deploy/al/README.md)。
+管理端：<https://kunlun.idalee.cn/admin>。使用独立生产数据库，每天 03:30 自动备份到服务器受限目录并复制一份到阿里云 OSS（北京），失败时发邮件；HTTPS 由 Caddy 自动续期；al 通过 WireGuard 访问 k3s。部署、备份恢复、回退和验收说明见 [al 运维文档](deploy/al/README.md)。
 
 
 ## 独立测试环境
