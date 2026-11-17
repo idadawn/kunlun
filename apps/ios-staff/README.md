@@ -31,7 +31,7 @@ xcodebuild -project apps/ios-staff/KunlunStaff.xcodeproj -scheme KunlunStaff -co
 # 连接其他 HTTPS 服务：追加 STAFF_ORIGIN=https://kunlun-test.idalee.cn
 ```
 
-正式 Bundle ID 为 `cn.idalee.kunlun.staff`。签名团队和发布证书尚未配置，TestFlight / App Store 分发前需要由发布人员设置。
+正式 Bundle ID 为 `cn.idalee.kunlun.staff`。上传 TestFlight 用 `KUNLUN_IOS_TEAM=<团队 ID> scripts/ios-release.sh staff`，签名方式、构建号和注意事项见 [iOS 会员端 · 上传 TestFlight / App Store](../ios-member/README.md#上传-testflight--app-store)。员工端只给店里员工用，建议走 TestFlight 内部测试：测试员要先加进 App Store Connect 团队，最多 100 人；测试版 90 天后过期，要定期上传新构建。
 
 ## 工作方式
 
