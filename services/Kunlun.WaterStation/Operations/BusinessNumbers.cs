@@ -51,6 +51,10 @@ public static class BusinessNumbers
         Daily(conn, tx, "refund-request", (day, n) => $"SQ{day}{n:D4}",
             "SELECT EXISTS(SELECT 1 FROM plugin_kunlun_waterstation.refund_requests WHERE request_no=@no)", ct);
 
+    public static Task<string> ExpenseNo(NpgsqlConnection conn, NpgsqlTransaction tx, CancellationToken ct) =>
+        Daily(conn, tx, "expense", (day, n) => $"ZC{day}{n:D4}",
+            "SELECT EXISTS(SELECT 1 FROM plugin_kunlun_waterstation.expenses WHERE expense_no=@no)", ct);
+
     public static Task<string> OrderNo(NpgsqlConnection conn, NpgsqlTransaction tx, CancellationToken ct) =>
         Daily(conn, tx, "order", (day, n) => $"ORD-{day}-{n:D6}",
             "SELECT EXISTS(SELECT 1 FROM plugin_kunlun_waterstation.water_orders WHERE order_no=@no)", ct);

@@ -8,8 +8,11 @@ using static Kunlun.WaterStation.Operations.TicketBatches;
 
 namespace Kunlun.WaterStation.Operations;
 
-/// <summary>Single stock changes kept for scripts and older clients: RECEIVE adds to the store, SCRAP moves store stock to scrapped.</summary>
-public sealed record InventoryRequest(string ContainerType, string Action, string Reason, string IdempotencyKey, int Quantity = 0);
+/// <summary>
+/// Single stock changes: RECEIVE (新购) adds to the store, SCRAP moves store stock to scrapped. A 新购 may say what the
+/// purchase cost (Cost, PayMethod); that records a 买桶袋 expense in the same transaction and needs expense:manage.
+/// </summary>
+public sealed record InventoryRequest(string ContainerType, string Action, string Reason, string IdempotencyKey, int Quantity = 0, decimal? Cost = null, string? PayMethod = null);
 /// <summary>
 /// 修改数量：店里、客户手里、累计报废直接填现在的数，没填（null）的不动；WarnThreshold 是店里少于多少个时提醒，0 表示不提醒。
 /// </summary>
@@ -156,12 +159,12 @@ public static class ContainerInventory
 
     internal static async Task<JsonElement> RecordOperation(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, string key, string hash,
         string type, string action, string source, int qty, string reason, Guid? memberId, ClaimsPrincipal user,
-        InventoryBalance before, InventoryBalance after, CancellationToken ct, object? warnThreshold = null)
+        InventoryBalance before, InventoryBalance after, CancellationToken ct, object? warnThreshold = null, object? expense = null)
     {
         var id = Guid.NewGuid(); var no = "CK" + id.ToString("N")[..28];
         var actor = user.FindFirstValue("display_name") ?? "管理员";
         var receipt = new { id, operationNo = no, containerType = type, action, sourceState = source, quantity = qty, deltaTotal = after.TotalQty - before.TotalQty,
-            memberId, reason, operatorName = actor, before, after, warnThreshold, createdAt = DateTimeOffset.UtcNow };
+            memberId, reason, operatorName = actor, before, after, warnThreshold, expense, createdAt = DateTimeOffset.UtcNow };
         var json = Json(receipt);
         await Exec(conn, tx, """
             INSERT INTO plugin_kunlun_waterstation.container_inventory_operations
@@ -180,6 +183,9 @@ public static class ContainerInventory
             throw new BusinessRuleException("库存只办理新购和报废；会员破损请到袋桶台账登记");
         if (string.IsNullOrWhiteSpace(req.Reason) || req.Reason.Length > 500 || req.Quantity is <= 0 or > MaxQty)
             throw new BusinessRuleException("请填写有效数量和不超过 500 字的原因");
+        if (req.Action == "SCRAP" && (req.Cost is not null || req.PayMethod is not null)) throw new BusinessRuleException("报废不记花费");
+        var cost = Expenses.ReceiveCost(req.Cost, req.PayMethod);
+        if (cost is not null && !Expenses.CanManage(user)) return Results.Json(new { error = "当前账号没有登记费用支出的权限，新购时不能填花费" }, statusCode: StatusCodes.Status403Forbidden);
         var hash = Hash(req with { Reason = req.Reason.Trim() }); var tid = repo.DefaultTenantId;
         await using var conn = await db.OpenConnectionAsync(ct); await using var tx = await conn.BeginTransactionAsync(ct);
         if (await Replay(conn, tx, tid, req.IdempotencyKey, hash, ct) is JsonElement replay) return Results.Ok(replay);
@@ -195,7 +201,20 @@ public static class ContainerInventory
             after = before with { InStationQty = before.InStationQty - req.Quantity, ScrappedQty = before.ScrappedQty + req.Quantity };
         }
         await SaveBalance(conn, tx, tid, req.ContainerType, after, ct);
-        var receipt = await RecordOperation(conn, tx, tid, req.IdempotencyKey, hash, req.ContainerType, req.Action, req.Action == "RECEIVE" ? "EXTERNAL" : "AVAILABLE", req.Quantity, req.Reason.Trim(), null, user, before, after, ct);
+        // The money for a 新购 goes to 费用支出 as 买桶袋, and each record carries the other's number.
+        (Guid Id, string No)? expense = null;
+        if (cost is { } paid)
+        {
+            await using var named = Command(conn, tx, "SELECT name,container_type FROM plugin_kunlun_waterstation.water_products WHERE tenant_id=@tid AND container_id=@id", ("tid", tid), ("id", req.ContainerType));
+            string item;
+            await using (var r = await named.ExecuteReaderAsync(ct))
+                item = await r.ReadAsync(ct) ? $"{r.GetString(0)} · 配套{(r.GetString(1) == "BAG" ? "水袋" : "桶")}" : req.ContainerType;
+            expense = await Expenses.RecordReceive(conn, tx, tid, req.IdempotencyKey,
+                new ExpenseOnReceive(item, req.ContainerType, req.Quantity, paid.Amount, paid.PayMethod, req.Reason.Trim()), user, ct);
+        }
+        var receipt = await RecordOperation(conn, tx, tid, req.IdempotencyKey, hash, req.ContainerType, req.Action, req.Action == "RECEIVE" ? "EXTERNAL" : "AVAILABLE", req.Quantity, req.Reason.Trim(), null, user, before, after, ct,
+            expense: expense is { } e ? new { expenseNo = e.No, amount = cost!.Value.Amount, payMethod = cost.Value.PayMethod } : null);
+        if (expense is { } linked) await Expenses.LinkOperation(conn, tx, linked.Id, receipt.GetProperty("operationNo").GetString()!);
         await tx.CommitAsync(ct); return Results.Ok(receipt);
     }
 

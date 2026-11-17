@@ -10,7 +10,7 @@ import { Stepper } from '../ordering';
 import { PlanChooser } from '../plan-picker';
 import { MemberPicker, PayButtons, ReasonChips, UnavailableDialog, errorText, usePickedMember, useReviewSettings, waitsForReview, type Done } from './common';
 
-/** 收水费、按套餐发水票，可手动加赠送；店员的赠送在后台要求审核时等管理员批准后才到账，付费的水票当场到账。 */
+/** 收水费、按套餐发水票，可手动加赠送；后台要求审核时，赠送（管理员账号填的也一样）等管理员在审核页批准后才到账，付费的水票当场到账。 */
 export function RechargeDialog({ memberId, onClose, onDone }: { memberId?: string; onClose: () => void; onDone?: Done }) {
   const { api, can } = useAuth();
   const toast = useToast();
@@ -35,14 +35,15 @@ export function RechargeDialog({ memberId, onClose, onDone }: { memberId?: strin
   if (catalog && !catalog.plans.some(p => p.status === 'ACTIVE')) return <UnavailableDialog title="水费充值" message="请先配置并启用充值套餐" onClose={onClose} />;
 
   const unit = plan ? unitOf(plan.waterType) : '桶';
-  const giftWaits = gift > 0 && waitsForReview(review, 'gift', can(P.RechargeRefund));
+  const reviewer = can(P.RechargeRefund);
+  const giftWaits = gift > 0 && waitsForReview(review, 'gift', reviewer);
   const submit = async () => {
     if (!member) throw new Error('请选择会员');
     if (!plan) throw new Error('请选择充值套餐');
     const result = await api.createRecharge({ memberId: member.id, planId: plan.id, payMethod: pay, giftQty: gift, idempotencyKey: key });
     await onDone?.();
     toast(result.pendingGiftQty > 0
-      ? `充值成功：到账 ${result.totalTickets}${unit}；赠送 ${result.pendingGiftQty}${unit}等管理员批准后到账`
+      ? `充值成功：到账 ${result.totalTickets}${unit}；赠送 ${result.pendingGiftQty}${unit}${reviewer ? '已送审，到「审核」页批准后到账' : '等管理员批准后到账'}`
       : `充值成功：到账 ${result.totalTickets}${unit}${result.giftQty ? `（含赠送 ${result.giftQty}${unit}）` : ''}`);
   };
   return (
@@ -58,7 +59,9 @@ export function RechargeDialog({ memberId, onClose, onDone }: { memberId?: strin
         <b>{plan ? `${plan.buyQty + gift} ${unit}` : '—'}</b>
         <small>{!plan ? '请选择充值套餐' : `付费 ${plan.buyQty}${unit}${gift ? ` + 赠送 ${gift}${unit}` : ''} · ${modeLabel(plan.fulfillMode)}票；收水费 ¥${money(plan.price)}，押金另收`}</small>
       </div>
-      {giftWaits && <p className="membership-note">赠送要管理员批准后才到账，付费的水票现在就到账。</p>}
+      {giftWaits && <p className="membership-note">{reviewer
+        ? '赠送要到「审核」页批准后才到账（管理员自己填的也一样），付费的水票现在就到账。'
+        : '赠送要管理员批准后才到账，付费的水票现在就到账。'}</p>}
     </FormDialog>
   );
 }

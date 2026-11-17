@@ -64,6 +64,11 @@
       "code": "kunlun.waterstation:container:inventory_manage",
       "title": "桶袋入库、破损、修复、报废与盘点",
       "risk": "high"
+    },
+    {
+      "code": "kunlun.waterstation:expense:manage",
+      "title": "登记与作废费用支出（买桶袋、配件等）",
+      "risk": "high"
     }
   ]
 }

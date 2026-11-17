@@ -148,6 +148,17 @@ public static class ReportEndpoints
             }
             var netDepositFromFlows = depositCollectedTotal - depositRefundedTotal - depositDeductedTotal;
 
+            // 费用支出：买桶袋、配件耗材、维修等花出去的钱，作废的不算；押金不是收入，所以结余只拿水费净收减支出。
+            decimal expenseTotal;
+            long expenseCount;
+            await using (var spent = TicketBatches.Command(conn, null, "SELECT count(*),COALESCE(sum(amount),0) FROM plugin_kunlun_waterstation.expenses WHERE tenant_id=@tid AND status='ACTIVE'", ("tid", tenantId)))
+            await using (var r = await spent.ExecuteReaderAsync(ct))
+            {
+                await r.ReadAsync(ct);
+                expenseCount = r.GetInt64(0);
+                expenseTotal = r.GetDecimal(1);
+            }
+
             return Results.Ok(new
             {
                 brand = "绿麒麟水站｜小分子团弱碱活性水",
@@ -175,6 +186,9 @@ public static class ReportEndpoints
                 // 押金和没用完的水费都是会员可以要回去的钱，不是收入；水费净收里扣掉没用完的，才是会员已经用掉的水费。
                 potentialRefundTotal = unrefundedDepositPoolFromLots + unusedRechargeValue,
                 rechargeEarnedTotal = rechargeRevenueTotal - rechargeRefundedTotal - unusedRechargeValue,
+                expenseTotal,
+                expenseCount,
+                rechargeNetAfterExpenses = rechargeRevenueTotal - rechargeRefundedTotal - expenseTotal,
                 completedOrderCount,
                 waterFulfilledTotalQty,
                 generatedAt = DateTimeOffset.UtcNow
@@ -275,7 +289,7 @@ public static class ReportEndpoints
                 }
                 case "orders":
                 {
-                    sb.AppendLine("订单号,会员ID,水种,履约方式,下单数量,实送数量,发出重桶N,收回空桶M,自提码,状态,差异原因,备注,创建时间");
+                    sb.AppendLine("订单号,会员ID,水种,履约方式,下单数量,实送数量,领出满桶/袋N,收回空桶/袋M,自提码,状态,差异原因,备注,创建时间");
                     await using var cmd = new NpgsqlCommand("""
                         SELECT order_no, member_id, water_type, fulfill_mode, order_qty,
                                COALESCE(actual_qty, 0), COALESCE(full_out_qty, 0), COALESCE(empty_in_qty, 0),
@@ -340,6 +354,22 @@ public static class ReportEndpoints
                         """, ("tid", tenantId));
                     await using var r = await cmd.ExecuteReaderAsync(ct);
                     while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{Csv(r.GetString(1))},{r.GetGuid(2)},{Csv(r.IsDBNull(3) ? "" : r.GetString(3))},{r.GetDecimal(4):F2},{r.GetInt32(5)},{r.GetInt32(6)},{r.GetString(7)},{Csv(r.GetString(8))},{Csv(r.GetString(9))},{r.GetDateTime(10):O}");
+                    break;
+                }
+                case "expenses":
+                {
+                    sb.AppendLine("支出单号,购买日期,类别,买了什么,数量,金额(元),付款方式,备注,桶袋,库存单号,状态,作废原因,作废人,经办人,登记时间");
+                    await using var cmd = TicketBatches.Command(conn, null, """
+                        SELECT expense_no,spent_on,category,item,quantity,amount,pay_method,remark,COALESCE(container_type,''),COALESCE(inventory_operation_no,''),
+                               status,COALESCE(void_reason,''),COALESCE(voided_by,''),operator_name,created_at
+                        FROM plugin_kunlun_waterstation.expenses WHERE tenant_id=@tid ORDER BY spent_on DESC,created_at DESC
+                        """, ("tid", tenantId));
+                    await using var r = await cmd.ExecuteReaderAsync(ct);
+                    while (await r.ReadAsync(ct))
+                    {
+                        var container = r.GetString(8);
+                        sb.AppendLine($"{Csv(r.GetString(0))},{r.GetFieldValue<DateOnly>(1):yyyy-MM-dd},{Expenses.Categories.GetValueOrDefault(r.GetString(2), r.GetString(2))},{Csv(r.GetString(3))},{r.GetInt32(4)},{r.GetDecimal(5):F2},{r.GetString(6)},{Csv(r.GetString(7))},{(container == "" ? "" : ContainerName(container))},{Csv(r.GetString(9))},{(r.GetString(10) == "VOIDED" ? "已作废" : "有效")},{Csv(r.GetString(11))},{Csv(r.GetString(12))},{Csv(r.GetString(13))},{r.GetDateTime(14):O}");
+                    }
                     break;
                 }
                 default:

@@ -8,8 +8,9 @@ namespace Kunlun.WaterStation.Operations;
 public sealed record SaveReviewSettingsRequest(bool GiftReview, bool RefundReview);
 
 /// <summary>
-/// 审核开关，管理员在管理端「审核」页设置：店员充值时手动赠送的水票、店员办理的退押金和退水费，要不要管理员审核。
-/// 默认都要审核；关掉后店员当场办完。管理员自己办理时总是直接生效。不管开不开，每笔业务都留有记录。
+/// 审核开关，管理员在管理端「审核」页设置：充值时手动赠送的水票、店员办理的退押金和退水费，要不要管理员审核。
+/// 默认都要审核；关掉后当场办完。赠送开关打开时，管理员账号填的赠送也要在审核页批准；管理员自己办理的退款直接生效。
+/// 不管开不开，每笔业务都留有记录。
 /// </summary>
 public static class ReviewSettings
 {

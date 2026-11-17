@@ -8,6 +8,7 @@ import type {
   ContainerLedgerRow,
   ContainerSummaryItem,
   ContainerType,
+  CreateExpenseRequest,
   CreateOrderRequest,
   ContainerLedgerQuery,
   CreateOrderResult,
@@ -15,6 +16,9 @@ import type {
   DepositLedgerQuery,
   DepositLedgerRow,
   DepositSummaryRow,
+  Expense,
+  ExpenseQuery,
+  ExpenseSummary,
   ExportDataset,
   FinanceSummaryReport,
   FulfillOrderRequest,
@@ -44,6 +48,7 @@ import type {
   SaveWaterProductRequest,
   StaffAccount,
   TicketBatch,
+  TimeRange,
   UpdateStockRequest,
   WaterOrder,
   WaterProduct,
@@ -274,6 +279,13 @@ export class KunlunApi {
   rechargeRefundLedger(query: RechargeLedgerQuery = {}) { return this.request<Paged<RechargeRefundLedgerRow>>('/api/ledgers/recharge-refunds' + paged(query)); }
   depositLedger(query: DepositLedgerQuery = {}) { return this.request<Paged<DepositLedgerRow>>('/api/ledgers/deposits' + paged(query)); }
   containerLedger(query: ContainerLedgerQuery = {}) { return this.request<Paged<ContainerLedgerRow>>('/api/ledgers/containers' + paged(query)); }
+
+  // Expenses: purchases such as buckets, bags and parts; a mistake is voided, never deleted
+  createExpense(body: CreateExpenseRequest) { return this.post<Expense>('/api/expenses', body); }
+  voidExpense(id: string, reason: string) { return this.post<Expense>(`/api/expenses/${id}/void`, { reason }); }
+  expenses(query: ExpenseQuery = {}) { return this.request<Paged<Expense>>('/api/expenses' + paged(query)); }
+  expenseSummary(range: TimeRange = {}) { return this.request<ExpenseSummary>('/api/expenses/summary' + queryString(range)); }
+
   async exportCsv(dataset: ExportDataset): Promise<Blob> {
     return (await this.send(`/api/exports/${dataset}`)).blob();
   }

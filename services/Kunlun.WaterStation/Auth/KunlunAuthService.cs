@@ -26,12 +26,13 @@ public static class KunlunPermissions
     public const string PlanManage = "kunlun.waterstation:plan:manage";
     public const string ReportExport = "kunlun.waterstation:report:export";
     public const string StaffManage = "kunlun.waterstation:staff:manage";
+    public const string ExpenseManage = "kunlun.waterstation:expense:manage";
 
     public static readonly string[] AdminAll =
     [
         MemberRead, MemberWrite, RechargeCreate, RechargeRefund, DepositCollect,
         DepositRefundApply, DepositRefundApprove, OrderCreate, OrderAccept,
-        OrderFulfill, PickupVerify, ContainerRegister, ContainerInventoryManage, PlanManage, ReportExport, StaffManage
+        OrderFulfill, PickupVerify, ContainerRegister, ContainerInventoryManage, PlanManage, ReportExport, StaffManage, ExpenseManage
     ];
 
     public static readonly string[] ClerkDefault =

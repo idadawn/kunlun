@@ -32,10 +32,14 @@ export function useReviewSettings() {
   return settings;
 }
 
-/** Whether a clerk's gift or refund waits for an administrator; reviewers never wait, and unknown settings count as reviewed. */
+/**
+ * Whether a hand-given gift or a refund waits for an administrator; unknown settings count as reviewed. A reviewer's own
+ * refund never waits, but a gift always does while gifts are reviewed: the counter shares one admin login.
+ */
 export function waitsForReview(settings: ReviewSettings | null, what: 'gift' | 'refund', reviewer: boolean) {
+  if (what === 'gift') return settings ? settings.giftReview : true;
   if (reviewer) return false;
-  return settings ? (what === 'gift' ? settings.giftReview : settings.refundReview) : true;
+  return settings ? settings.refundReview : true;
 }
 
 /** Shown instead of a form when a precondition (permission, configuration, data) is not met. */

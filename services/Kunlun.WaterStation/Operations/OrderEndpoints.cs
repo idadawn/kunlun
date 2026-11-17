@@ -587,7 +587,9 @@ public static class OrderEndpoints
             });
         }
 
-        var containerType = (await WaterProducts.Read(conn, tx, orderRepo.TenantId, waterType, ct)).ContainerId;
+        var product = await WaterProducts.Read(conn, tx, orderRepo.TenantId, waterType, ct);
+        var containerType = product.ContainerId;
+        var unit = product.Unit; // 桶 or 袋: messages name the container this water actually travels in
         var currentHeld = await ProductContainers.Held(conn, tx, orderRepo.TenantId, memberId, containerType, ct);
         await using var depositCmd = TicketBatches.Command(conn, tx, "SELECT deposit_amount FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND id=@mid", ("tid", orderRepo.TenantId), ("mid", memberId));
         var depositAmount = (decimal)(await depositCmd.ExecuteScalarAsync(ct))!;
@@ -615,7 +617,7 @@ public static class OrderEndpoints
             return Results.BadRequest(new
             {
                 error = "INVALID_CONTAINER_RETURN",
-                message = $"收回容器数 ({req.EmptyInM}) 超出会员当前持有与本次发出总和 ({currentHeld + req.FullOutN})"
+                message = $"收回空{unit}数 ({req.EmptyInM}) 超出会员当前持有与本次发出总和 ({currentHeld + req.FullOutN})"
             });
         }
 
@@ -639,7 +641,7 @@ public static class OrderEndpoints
             return Results.BadRequest(new
             {
                 error = "DEPOSIT_COVERAGE_INSUFFICIENT",
-                message = $"本次发出 {req.FullOutN} 桶、收回 {req.EmptyInM} 桶后，会员累计占桶将达 {newHeld} 桶，超出已缴押金覆盖额度（{coveredDepositQty} 桶），需补交 {uncoveredGap} 桶押金（AC-09）",
+                message = $"{product.Name}本次发出 {req.FullOutN} {unit}、收回 {req.EmptyInM} {unit}后，会员手里将有 {newHeld} 个{unit}，超出已交押金覆盖的 {coveredDepositQty} 个，需补交 {uncoveredGap} 个{unit}的押金（AC-09）",
                 currentHeld,
                 fullOutN = req.FullOutN,
                 emptyInM = req.EmptyInM,

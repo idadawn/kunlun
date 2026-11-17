@@ -328,6 +328,9 @@ a{color:var(--brand-600);text-decoration:none}
 .deposit-due b{font-size:13.5px}.deposit-due small{font-size:12px;color:var(--muted);line-height:1.5}
 .deposit-due.owing{background:var(--gold-50);color:var(--gold-600);border:1px solid var(--gold-100)}
 .deposit-due .select{width:auto}
+/* 交付弹窗：这单是哪种水、配套桶还是水袋、押金标准和会员手里的数量 */
+.fulfill-container{display:flex;flex-direction:column;gap:2px;margin:0;padding:9px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.fulfill-container b{font-size:13.5px}.fulfill-container small{font-size:12px;color:var(--muted);line-height:1.5}
 .seg-switch{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;padding:4px;border-radius:12px;background:var(--line-soft)}
 .seg-switch button{height:34px;border:0;border-radius:9px;background:none;color:var(--muted);font-size:13.5px;font-weight:600;cursor:pointer}
 .seg-switch button[aria-pressed=true]{background:#fff;color:var(--brand-700);box-shadow:var(--shadow-sm)}

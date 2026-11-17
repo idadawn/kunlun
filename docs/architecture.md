@@ -176,7 +176,7 @@ kunlun/
 - `GET /api/settings/review`：员工可读，弹窗据此显示“申请”还是“当场办理”。
 - `PUT /api/settings/review`：需 `staff:manage`，记录修改人和时间。
 
-审核规则：有对应审核权限的账号（押金 `deposit:refund_approve`，水费与赠送 `recharge:refund`）自己办理时总是直接生效；其他账号在开关打开时提交申请、关闭时直接生效。直接生效的也写一条 `APPROVED` 申请，备注“管理员直接办理”或“无需审核，直接退款”。
+审核规则：退款时，有对应审核权限的账号（押金 `deposit:refund_approve`，水费 `recharge:refund`）自己办理总是直接生效；其他账号在开关打开时提交申请、关闭时直接生效。直接生效的也写一条 `APPROVED` 申请，备注“管理员直接办理”或“无需审核，直接退款”。手动赠送（2026-11-17 起）不看账号：`gift_review` 打开时一律记为 `GIFT` 待审核申请，管理员账号填的也一样，可由同一管理员批准（门店共用一个管理员账号收银）；关闭时当场到账。
 
 - `POST /api/recharges` 增加 `giftQty`（0–1000，手动赠送）。需审核时付费票当场到账，赠送记为 `GIFT` 待审核申请，响应带 `pendingGiftQty`、`giftRequestNo`；否则赠送与付费票一起到账。`recharge_orders.manual_gift_qty` 记录店员填的赠送数，`gift_qty` 只记已到账的；同一幂等键改了赠送数返回 409。
 - `POST /api/refund-requests`：提交退款（带幂等键）。押金需 `deposit:refund_apply` 或 `deposit:refund_approve`，申请数量不得超过 已交未退 − 持有 − 待报废 − 其他待审核数量；水费需 `recharge:create` 或 `recharge:refund`，批次须属于该会员且可退；原因选填。需审核时只写申请、不动账，否则在同一事务内退款并记为已通过，响应带 `status`、`refundNo`、`refundAmount`。
@@ -329,6 +329,20 @@ kunlun/
   - 在 Caddy 写入的地址前面塞别的地址，不会多出次数。
   - 公网对端带任意 `X-Forwarded-For`，都按它自己的地址计数。
   - TestServer 请求默认没有对端地址，这时中间件会无条件采用转发头，所以测试必须显式设置对端。
+
+## 18. 费用支出与交付按容器说明（2026-11-17）
+
+- 表 `expenses`（`Operations/Expenses.cs`）：`expense_no`（`ZCyyyyMMddNNNN`，北京时间日期，计数器 `expense`）、`category`（`CONTAINER` 买桶袋 / `PARTS` 配件耗材 / `REPAIR` 维修 / `OTHER` 其他）、`item`、`quantity`、`amount`（NUMERIC(12,2) > 0）、`pay_method`、`spent_on`（购买日期，统计口径）、`remark`、随新购记的 `container_type` 与 `inventory_operation_no`、`status`（`ACTIVE` / `VOIDED`）、经办人、作废人 / 时间 / 原因；`(tenant_id, idempotency_key)` 唯一。启动时给已有管理员补上 `expense:manage`，不加 `token_version`：权限每次请求都从员工行重新读取。
+- 接口：
+  - `POST /api/expenses`（`expense:manage`）：幂等键加请求哈希，重放返回原记录，改了内容返回 409。购买日期不能晚于今天（北京时间）。
+  - `GET /api/expenses?q&category&status&from&to&page&pageSize`（`expense:manage` 或 `report:export`）：总是分页；`from`/`to` 是时刻，按 `(@from AT TIME ZONE 'Asia/Shanghai')::date` 与 `spent_on` 比较。
+  - `GET /api/expenses/summary?from&to`：同一窗口的支出合计、笔数、作废笔数、分类合计（不含作废），同期 `recharge_orders` 实收与 `recharge_refunds` 退款（按创建时刻），`rechargeNet`、`balance = rechargeNet − expenseTotal`。押金不在内。
+  - `POST /api/expenses/{id}/void`：原因必填，已作废的再作废返回原记录。
+  - `GET /api/reports/finance-summary` 增加 `expenseTotal`、`expenseCount`、`rechargeNetAfterExpenses`；`GET /api/exports/expenses` 导出 CSV。
+- 新购记花费：`POST /api/containers/inventory` 的 `InventoryRequest` 增加可选 `Cost`、`PayMethod`，只用于 `RECEIVE` 且需 `expense:manage`。同一事务里先写支出（幂等键 `inventory:{请求键}`），再写库存记录（收据带 `expense: { expenseNo, amount, payMethod }`），最后把库存单号写回支出。重放库存请求直接返回原收据，不会再记一笔。
+- 赠送审核：`CreateRecharge` 的待审核赠送 = `gift_review ? giftQty : 0`，不再看 `recharge:refund`。前端 `waitsForReview(settings, 'gift', …)` 同样只看开关。
+- 交付弹窗（`packages/ui/src/operations/orders.tsx`）的数量标签和押金说明取水单 `productSnapshot.containerId` 对应的桶 / 袋；押金位置未加载或加载失败时拒绝提交。后台 `DEPOSIT_COVERAGE_INSUFFICIENT`、`INVALID_CONTAINER_RETURN` 的提示语也按水品的桶 / 袋说。订单导出列名改为“领出满桶/袋N、收回空桶/袋M”。
+- 测试：`ExpenseTests` 覆盖登记、重放与冲突、补登日期与时间窗口、作废不计入、导出、权限，以及新购带花费只记一次、店员有库存权限也不能填花费；`ReviewSettingsTests.Admins_Own_Gift_Waits_For_Approval_But_Their_Refunds_Do_Not` 改为管理员赠送也进待审核。
 
 ## 独立测试服务（2026-10-30，2026-11-01 更新）
 

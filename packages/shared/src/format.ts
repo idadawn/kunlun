@@ -1,4 +1,4 @@
-import type { ContainerType, FulfillMode, MemberProfile, MemberTicket, OrderStatus, PayMethod, WaterOrder, WaterProduct, WaterType } from './types';
+import type { ContainerType, ExpenseCategory, FulfillMode, MemberProfile, MemberTicket, OrderStatus, PayMethod, WaterOrder, WaterProduct, WaterType } from './types';
 
 // Name and container of every water product by code. Each app passes the product lists it loads to rememberProducts;
 // the two original products are known before the first load.
@@ -62,6 +62,15 @@ export const PAY_METHODS: ReadonlyArray<{ value: PayMethod; label: string }> = [
   { value: 'BANK', label: '银行转账' },
 ];
 export const payMethodLabel = (value: string) => PAY_METHODS.find(p => p.value === value)?.label ?? value;
+
+/** 费用支出类别，与后台 Expenses.Categories 一致。 */
+export const EXPENSE_CATEGORIES: ReadonlyArray<{ value: ExpenseCategory; label: string; hint: string }> = [
+  { value: 'CONTAINER', label: '买桶袋', hint: '空桶、水袋；在袋桶库存「新购」时填花费会自动记在这里' },
+  { value: 'PARTS', label: '配件耗材', hint: '桶盖、压水器、饮水机配件、滤芯、清洁用品等' },
+  { value: 'REPAIR', label: '维修', hint: '设备、车辆维修保养' },
+  { value: 'OTHER', label: '其他', hint: '水电、杂费等' },
+];
+export const expenseCategoryLabel = (value: string) => EXPENSE_CATEGORIES.find(c => c.value === value)?.label ?? value;
 
 export function orderStatusLabel(order: Pick<WaterOrder, 'status' | 'fulfillMode'>): string {
   const labels: Record<OrderStatus, string> = {
