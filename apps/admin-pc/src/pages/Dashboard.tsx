@@ -1,5 +1,8 @@
-import { KUNLUN_BRAND, containerKind, containerOf, money, waterFallbackLabel, type ContainerSummaryItem, type ContainerType, type FinanceSummaryReport, type OverviewReport, type WaterOrder } from '@kunlun/shared';
-import { Icon, useAuth } from '@kunlun/ui';
+import {
+  KUNLUN_BRAND, KUNLUN_PERMISSIONS as P, containerKind, containerOf, dateFilterFrom, expenseCategoryLabel, money, waterFallbackLabel,
+  type ContainerSummaryItem, type ContainerType, type FinanceSummaryReport, type OverviewReport, type WaterOrder,
+} from '@kunlun/shared';
+import { Icon, useAuth, useLoader } from '@kunlun/ui';
 import { useExport, useGo, useOperations } from '../common';
 import { useAdminData } from '../data';
 
@@ -69,6 +72,7 @@ export function Dashboard() {
       </div>
     </div>
 
+    <MonthCashflow />
     {finance && <Liabilities finance={finance} overview={overview} />}
 
     <div className="dashboard-grid">
@@ -84,7 +88,7 @@ export function Dashboard() {
         <div className="todo-list">
           <div className="todo-item"><div className="todo-symbol"><Icon name="truck" /></div><div className="todo-text"><b>待接单配送</b><small>请及时指派或提醒送水员接单</small></div><span className="todo-num">{pendingDelivery}</span><button type="button" className="text-btn" onClick={() => go('orders')}>处理</button></div>
           <div className="todo-item"><div className="todo-symbol green"><Icon name="store" /></div><div className="todo-text"><b>待确认自提</b><small>会员到店出示取水码后核销</small></div><span className="todo-num">{pendingPickup}</span><button type="button" className="text-btn" onClick={() => go('orders')}>处理</button></div>
-          <div className="todo-item"><div className="todo-symbol blue"><Icon name="check" /></div><div className="todo-text"><b>待审核</b><small>店员的手动赠送和退款，按审核开关等管理员处理</small></div><span className="todo-num">{pendingRefunds ?? '—'}</span><button type="button" className="text-btn" onClick={() => go('refunds')}>审核</button></div>
+          <div className="todo-item"><div className="todo-symbol blue"><Icon name="check" /></div><div className="todo-text"><b>待审核</b><small>手动赠送和店员的退款，按审核开关等管理员处理</small></div><span className="todo-num">{pendingRefunds ?? '—'}</span><button type="button" className="text-btn" onClick={() => go('refunds')}>审核</button></div>
           <div className="todo-item"><div className="todo-symbol"><Icon name="box" /></div><div className="todo-text"><b>店里的桶{bucket.lowStockWarning ? '偏少' : ''}</b><small>{`店里能用 ${bucket.inStationQty} 个${bucket.warnThreshold > 0 ? `，少于 ${bucket.warnThreshold} 个时提醒` : ''}`}</small></div><button type="button" className="text-btn" onClick={() => go('inventory')}>看库存</button></div>
         </div>
       </div>
@@ -116,6 +120,52 @@ export function Dashboard() {
       </div>
     </div>
   </>;
+}
+
+/**
+ * 本月收支：本月水费净收（实收 − 退款）减去本月费用支出（买桶袋、配件耗材、维修等，作废的不算）就是结余。
+ * 押金是会员的钱，不算收入也不算支出；明细和按时间筛选在「费用支出」页。
+ */
+function MonthCashflow() {
+  const { api, can } = useAuth();
+  const { version } = useAdminData();
+  const go = useGo();
+  const readable = can(P.ExpenseManage) || can(P.ReportExport);
+  const month = useLoader(() => readable ? api.expenseSummary({ from: dateFilterFrom('MONTH') }) : Promise.resolve(null), [api, readable, version]);
+  if (!readable) return null;
+  const s = month.data;
+  const top = s?.categories.slice(0, 3).map(c => `${expenseCategoryLabel(c.category)} ¥${money(c.total)}`).join(' · ');
+  return (
+    <div className="card liability-card">
+      <div className="card-head">
+        <div className="card-title">本月收支 <small>水费净收减去买桶袋、配件等费用支出；押金是会员的钱，不算收入也不算支出</small></div>
+        <div className="liability-links"><button type="button" className="text-btn" onClick={() => go('expenses')}>费用明细 ›</button></div>
+      </div>
+      <div className="liability-body">
+        {month.error ? <p className="account-error" role="alert">{month.error}</p> : (
+          <div className="liability-sum">
+            <div className="liability-item">
+              <span><Icon name="wallet" size="sm" />本月水费净收</span>
+              <b>{s ? `¥ ${money(s.rechargeNet)}` : '—'}</b>
+              <small>{s ? `实收 ¥${money(s.rechargeRevenue)} − 退款 ¥${money(s.rechargeRefunded)}` : '正在统计…'}</small>
+            </div>
+            <i className="liability-op" aria-hidden="true">−</i>
+            <div className="liability-item">
+              <span><Icon name="chart" size="sm" />本月费用支出</span>
+              <b className={s?.expenseTotal ? 'amount-out' : undefined}>{s ? `¥ ${money(s.expenseTotal)}` : '—'}</b>
+              <small>{!s ? '正在统计…' : s.expenseCount ? `${s.expenseCount} 笔：${top}` : '本月还没有登记支出'}</small>
+            </div>
+            <i className="liability-op" aria-hidden="true">=</i>
+            <div className="liability-item total">
+              <span><Icon name="refund" size="sm" />本月结余</span>
+              <b>{s ? `¥ ${money(s.balance)}` : '—'}</b>
+              <small>其中有会员还没用完的水费，会员退水费时要退回去</small>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /**

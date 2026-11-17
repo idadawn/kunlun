@@ -11,7 +11,7 @@ import {
 import { useAdminData } from './data';
 
 export const PAGE_NAMES: Record<string, string> = {
-  dashboard: '经营总览', members: '会员管理', orders: '水单管理', recharges: '水费充值', deposits: '押金管理', refunds: '审核', inventory: '袋桶库存', assets: '袋桶台账',
+  dashboard: '经营总览', members: '会员管理', orders: '水单管理', recharges: '水费充值', deposits: '押金管理', refunds: '审核', expenses: '费用支出', inventory: '袋桶库存', assets: '袋桶台账',
   products: '水品与押金标准', plans: '充值套餐', 'staff-accounts': '员工账号', mobile: '移动端配置',
 };
 

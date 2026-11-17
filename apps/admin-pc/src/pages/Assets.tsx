@@ -3,7 +3,7 @@ import {
   KUNLUN_PERMISSIONS as P, containerKind, containerLabel, money,
   type CirculationBusinessType, type CirculationRow, type ContainerDamageRow, type ContainerHoldingRow, type ContainerType, type Paged,
 } from '@kunlun/shared';
-import { Field, FormDialog, MemberPicker, ReasonChips, Stepper, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
+import { DepositDialog, Field, FormDialog, MemberPicker, ReasonChips, Stepper, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
 import { EmptyRow, Pager, useExport, useOperations } from '../common';
 import { useAdminData } from '../data';
 
@@ -119,7 +119,11 @@ export function Assets() {
         <td>{containerLabel(r.containerType)} × {r.quantity}</td>
         <td>¥{money(r.depositAmount)}<br /><small>{r.status === 'PENDING' ? '报废时决定是否扣除' : r.depositWaived ? '未扣，已退回可用押金' : '已扣除'}</small></td>
         <td><span className={`tag ${r.status === 'PENDING' ? 'orange' : 'gray'}`}>{r.status === 'PENDING' ? '待报废' : r.depositWaived ? '已报废 · 未扣押金' : '已报废 · 已扣押金'}</span></td>
-        <td className="inventory-reason">{r.reason}{r.scrapReason && <><br /><small>报废：{r.scrapReason}</small></>}</td>
+        <td className="inventory-reason">
+          {r.reason}
+          {r.uncoveredQty > 0 && <><br /><small className="amount-out">没押金 {r.uncoveredQty} 个：{r.uncoveredNote}</small></>}
+          {r.scrapReason && <><br /><small>报废：{r.scrapReason}</small></>}
+        </td>
         <td>{r.status === 'PENDING'
           ? <button type="button" className="text-btn danger" disabled={!canScrap} onClick={() => confirmScrap(r)}>确认报废</button>
           : <small className="container-reference" title={r.scrapNo}>{r.scrapNo}</small>}</td>
@@ -170,23 +174,50 @@ export function Assets() {
   </>;
 }
 
+/**
+ * 登记破损归还。交过的押金先用来扣破损；不够扣的（比如欠着押金）先请他补交押金，不交也能登记，
+ * 但必须写清报废费用给没给、为什么没交，这几个报废时没有押金可扣。
+ */
 function DamageDialog({ member, onClose, onDone }: { member?: Member; onClose: (reported?: boolean) => void; onDone: () => Promise<void> }) {
   const api = useApi();
   const toast = useToast();
+  const dialogs = useDialogs();
   const key = useIdempotencyKey();
-  const { products } = useAdminData();
+  const { products, containers, refresh } = useAdminData();
   const [selected, setSelected] = useState<Member | null>(member ?? null);
   const [type, setType] = useState<ContainerType>(member && member.heldBags === 0 ? 'BUCKET' : 'BAG');
   const summary = useLoader(() => selected ? api.depositSummary(selected.id) : Promise.resolve([]), [api, selected?.id]);
-  const held = summary.data?.find(r => r.containerType === type)?.heldQty;
+  const row = summary.data?.find(r => r.containerType === type);
+  const held = row?.heldQty;
+  // Deposit that can still pay for damage: paid and not refunded, less what earlier damage already holds.
+  const coverable = row ? Math.max(0, row.paidQty - row.pendingDamageQty) : undefined;
   const [quantity, setQuantity] = useState(1);
   const [reason, setReason] = useState('');
+  const [fee, setFee] = useState<'paid' | 'unpaid' | null>(null);
+  const [why, setWhy] = useState('');
+  const uncovered = coverable === undefined ? 0 : Math.max(0, quantity - coverable);
 
+  const collect = async () => {
+    if (!selected) return;
+    await dialogs.open(close => <DepositDialog containers={containers} memberId={selected.id} action="collect" onClose={close} onDone={refresh} />);
+    await summary.reload();
+  };
   const submit = async () => {
     if (!selected) throw new Error('请选择会员');
-    await api.reportDamage({ memberId: selected.id, containerType: type, quantity, reason: reason.trim(), idempotencyKey: key });
+    if (uncovered > 0 && !fee) throw new Error('押金不够扣：请选报废费用给没给');
+    if (uncovered > 0 && !why.trim()) throw new Error('押金不够扣：请写一句为什么没交押金');
+    try {
+      await api.reportDamage({
+        memberId: selected.id, containerType: type, quantity, reason: reason.trim(), idempotencyKey: key,
+        ...(uncovered > 0 && { acceptUncovered: true, uncoveredNote: `报废费用${fee === 'paid' ? '给了' : '没给'}；说明：${why.trim()}` }),
+      });
+    } catch (e) {
+      // The deposit may have changed meanwhile; show the current figures with the error.
+      await summary.reload();
+      throw e;
+    }
     await onDone();
-    toast('破损已登记，押金尚未扣除');
+    toast(uncovered > 0 ? `破损已登记，其中 ${uncovered} 个没押金，备注已记下` : '破损已登记，押金尚未扣除');
     onClose(true);
   };
   return (
@@ -198,10 +229,25 @@ function DamageDialog({ member, onClose, onDone }: { member?: Member; onClose: (
           {products.map(p => <option key={p.containerId} value={p.containerId}>{containerLabel(p.containerId)}</option>)}
         </select>
       </Field>
-      <p className="membership-note">{selected ? `${containerLabel(type)}：持有 ${held ?? '…'} 个 · 押金余额 ¥${money(selected.depositAmount)}` : '请选择会员'}</p>
+      <p className="membership-note">{selected ? `${containerLabel(type)}：持有 ${held ?? '…'} 个 · 交过的押金够扣 ${coverable ?? '…'} 个 · 押金余额 ¥${money(selected.depositAmount)}` : '请选择会员'}</p>
       <Field label="已收回破损数量（个）" htmlFor="damageQuantity">
         <Stepper id="damageQuantity" label="破损数量" value={quantity} onChange={setQuantity} min={1} max={10000} />
       </Field>
+      {uncovered > 0 && (
+        <section className="owed-note" aria-label="押金不够扣">
+          <h5>押金不够扣<em>必填</em></h5>
+          <p className="membership-note">
+            他交过的押金只够扣 {coverable} 个，这次登记 {quantity} 个，还差 {uncovered} 个没押金。
+            先让他补交押金（<button type="button" className="link" onClick={() => { void collect(); }}>去收押金</button>）；不交也能登记，但要写清报废费用给没给。
+          </p>
+          <div className="seg-switch" role="group" aria-label="报废费用">
+            <button type="button" aria-pressed={fee === 'paid'} onClick={() => setFee('paid')}>报废费用给了</button>
+            <button type="button" aria-pressed={fee === 'unpaid'} onClick={() => setFee('unpaid')}>报废费用没给</button>
+          </div>
+          <label htmlFor="damageNoDeposit">为什么没交押金</label>
+          <input id="damageNoDeposit" className="input" maxLength={300} placeholder="如：顾客说下次一起交" value={why} onChange={e => setWhy(e.target.value)} />
+        </section>
+      )}
       <ReasonField value={reason} onChange={setReason} placeholder="如：桶身开裂漏水" />
       <ReasonChips options={DAMAGE_REASONS[containerKind(type)]} value={reason} onPick={setReason} />
     </FormDialog>
@@ -231,12 +277,13 @@ function ScrapDialog({ row, onClose, onDone }: { row: ContainerDamageRow; onClos
         {deduct
           ? <>
             <p>本次扣除押金 <strong>¥{money(row.depositAmount)}</strong></p>
-            <small>按原实收批次结算：{row.lotBreakdown.map(l => `${l.quantity} 个 × ¥${money(l.unitPrice)}`).join(' + ')}</small>
+            {row.lotBreakdown.length > 0 && <small>按原实收批次结算：{row.lotBreakdown.map(l => `${l.quantity} 个 × ¥${money(l.unitPrice)}`).join(' + ')}</small>}
           </>
           : <>
             <p>不扣押金 <strong>¥0.00</strong></p>
             <small>占用的 ¥{money(row.depositAmount)} 押金退回会员可用余额，会员可申请退还或用于新领用。</small>
           </>}
+        {row.uncoveredQty > 0 && <p className="scrap-uncovered">其中 {row.uncoveredQty} 个登记时押金不够，没有押金可扣。登记备注：{row.uncoveredNote}</p>}
       </div>
       <p className="membership-note">确认后袋桶库存的合计减掉、已报废加上；{deduct ? '并扣除会员押金余额' : '不动会员押金余额，也不计入报废扣押金'}。会员手里的数量不再变。</p>
       <ReasonField value={reason} onChange={setReason} />

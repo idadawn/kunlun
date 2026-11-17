@@ -8,6 +8,17 @@ namespace Kunlun.WaterStation.Operations;
 
 public static class FinanceEndpoints
 {
+    /// <summary>Who already has the phone. A disabled member is enabled again rather than created twice.</summary>
+    private static async Task<string> PhoneTaken(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, string phone, CancellationToken ct)
+    {
+        await using var cmd = TicketBatches.Command(conn, tx, "SELECT name, member_no, status FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND phone=@phone",
+            ("tid", tid), ("phone", phone));
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        return await r.ReadAsync(ct) && r.GetString(2) != "ACTIVE"
+            ? $"该手机号是已停用的会员{r.GetString(0)}（{r.GetString(1)}）的，请在会员管理里找到这位会员重新启用"
+            : "该手机号已存在会员档案";
+    }
+
     public static void MapFinanceEndpoints(this WebApplication app)
     {
         // 1. 新建会员 (AC-01)
@@ -46,7 +57,7 @@ public static class FinanceEndpoints
                 cmd.Parameters.AddWithValue("phone", phone);
                 cmd.Parameters.AddWithValue("remark", (object?)remark ?? DBNull.Value);
                 if (await cmd.ExecuteNonQueryAsync(ct) == 0)
-                    return Results.Conflict(new { error = "该手机号已存在会员档案" });
+                    return Results.Conflict(new { error = await PhoneTaken(conn, tx, finRepo.TenantId, phone, ct) });
             }
             // 首个收货地址的联系人和手机号默认取会员本人。
             if (!string.IsNullOrWhiteSpace(req.DefaultAddress))
@@ -75,7 +86,8 @@ public static class FinanceEndpoints
             // water: BUCKET / BAG — members holding usable tickets of any water carried in that container.
             return await Paging.From(page, pageSize, legacyLimit: 50).Query(conn, $"""
                 m.id, m.member_no, m.name, m.phone, COALESCE(m.default_address, ''),
-                m.deposit_amount, m.held_buckets, m.held_bags, m.status, m.created_at, m.remark, {MemberTickets.JsonOf("m")}
+                m.deposit_amount, m.held_buckets, m.held_bags, m.status, m.created_at, m.remark, {MemberTickets.JsonOf("m")},
+                m.disabled_at, m.disabled_by, m.disable_reason
                 """, """
                 plugin_kunlun_waterstation.members m
                 WHERE m.tenant_id = @tid
@@ -104,7 +116,10 @@ public static class FinanceEndpoints
                 status = r.GetString(8),
                 createdAt = r.GetDateTime(9),
                 remark = r.IsDBNull(10) ? null : r.GetString(10),
-                tickets = JsonSerializer.Deserialize<JsonElement>(r.GetString(11))
+                tickets = JsonSerializer.Deserialize<JsonElement>(r.GetString(11)),
+                disabledAt = r.IsDBNull(12) ? (DateTime?)null : r.GetDateTime(12),
+                disabledBy = r.IsDBNull(13) ? null : r.GetString(13),
+                disableReason = r.IsDBNull(14) ? null : r.GetString(14)
             }, ct);
         }).RequireAuthorization();
 

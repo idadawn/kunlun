@@ -20,6 +20,7 @@ export function Inventory() {
   const dialogs = useDialogs();
   const run = useRun();
   const exportCsv = useExport();
+  const go = useGo();
   const permitted = can(P.ContainerInventoryManage);
   const [filter, setFilter] = useState<ContainerType | ''>('');
   const history = useLoader(() => permitted ? api.inventoryOperations(filter || undefined) : Promise.resolve([]), [api, permitted, filter, version]);
@@ -61,7 +62,8 @@ export function Inventory() {
                     <td>{shortDateTime(o.createdAt)}<br /><small title={o.operationNo}>{o.operationNo.slice(0, 10)}</small></td>
                     <td>{containerLabel(o.containerType)}</td>
                     <td><OperationChanges operation={o} /></td>
-                    <td className="inventory-reason">{memberName && <><b>{memberName}</b><br /></>}{PLAIN_REASONS.includes(o.reason) ? <span className="stock-muted">—</span> : o.reason}</td>
+                    <td className="inventory-reason">{memberName && <><b>{memberName}</b><br /></>}{PLAIN_REASONS.includes(o.reason) ? <span className="stock-muted">—</span> : o.reason}
+                      {o.expense && <><br /><button type="button" className="link" onClick={() => go('expenses')} title={o.expense.expenseNo}>花费 ¥{money(o.expense.amount)} · 已记支出</button></>}</td>
                     <td>{o.operatorName}</td>
                   </tr>
                 ))}

@@ -151,7 +151,7 @@ kunlun/
 
 - 会员端不再下单（2026-11-01）：`/member/order` 旧链接落到会员首页，服务端拒绝会员创建或取消水单（`MEMBER_READ_ONLY`）。
 - 门店点单：员工端 `/staff/order` 与管理端「门店点单」弹窗共用 `CounterOrder`（查找或新建顾客 + `OrderMenu`）。顾客在店选「到店取水」时，提交即依次创建水单、收取需补押金、按「满桶领出 N / 换回空桶 M」交付；配送则生成待送水单。原「代开水单」表单已移除。
-- 押金按 `calcDepositGap` 计算：需补个数 = max(0, 当前持有 + N − M − 押金覆盖)，押金覆盖 = 已交未退 − 待报废占用，与交付时服务端校验一致。下单时默认按「有多少空桶换多少」估算并提示；配送交付弹窗按实际换回数量计算，不足时可选收款方式先收押金再交付，交付时服务端仍会拦截押金不足。
+- 押金按 `calcDepositGap` 计算：需补个数 = max(0, 当前持有 + N − M − 押金覆盖)，押金覆盖 = 已交未退 − 待报废占用，与交付时服务端校验一致。下单时默认按「有多少空桶换多少」估算并提示；配送交付弹窗按实际换回数量计算，不足时可选收款方式先收押金再交付，交付时服务端仍会拦截押金不足。交付时押金区分应付、实付、欠押金（`DepositSettle`）：实付默认收齐，顾客没给够就往下调，差额以 `forceCreditOverride` + `overrideReason` 交给 `POST /api/orders/{id}/fulfill` 记欠押金。服务端要求收押金权限和非空备注（≤500 字），备注存入 `water_orders.override_reason` 与袋桶台账备注；欠的押金不单独记账，就是会员持有超出押金覆盖的个数，下次交付并入应付。备注由 `OwedNoteFields` 收集：有没有报废、报废几个、报废费用给没给、为什么没交。实付大于 0 时先弹「押金真的收到了吗？」（`useConfirmDepositReceived`），只有点「已收到」才收押金并交付。登记破损时交过的押金先扣；不够扣的部分带 `acceptUncovered` + `uncoveredNote` 登记，记入 `container_damages.uncovered_qty / uncovered_note`，报废时只扣已占用的押金批次。
 
 ## 5.3 列表分页与筛选
 
@@ -177,7 +177,7 @@ kunlun/
 - `GET /api/settings/review`：员工可读，弹窗据此显示“申请”还是“当场办理”。
 - `PUT /api/settings/review`：需 `staff:manage`，记录修改人和时间。
 
-审核规则：有对应审核权限的账号（押金 `deposit:refund_approve`，水费与赠送 `recharge:refund`）自己办理时总是直接生效；其他账号在开关打开时提交申请、关闭时直接生效。直接生效的也写一条 `APPROVED` 申请，备注“管理员直接办理”或“无需审核，直接退款”。
+审核规则：退款时，有对应审核权限的账号（押金 `deposit:refund_approve`，水费 `recharge:refund`）自己办理总是直接生效；其他账号在开关打开时提交申请、关闭时直接生效。直接生效的也写一条 `APPROVED` 申请，备注“管理员直接办理”或“无需审核，直接退款”。手动赠送（2026-11-17 起）不看账号：`gift_review` 打开时一律记为 `GIFT` 待审核申请，管理员账号填的也一样，可由同一管理员批准（门店共用一个管理员账号收银）；关闭时当场到账。
 
 - `POST /api/recharges` 增加 `giftQty`（0–1000，手动赠送）。需审核时付费票当场到账，赠送记为 `GIFT` 待审核申请，响应带 `pendingGiftQty`、`giftRequestNo`；否则赠送与付费票一起到账。`recharge_orders.manual_gift_qty` 记录店员填的赠送数，`gift_qty` 只记已到账的；同一幂等键改了赠送数返回 409。
 - `POST /api/refund-requests`：提交退款（带幂等键）。押金需 `deposit:refund_apply` 或 `deposit:refund_approve`，申请数量不得超过 已交未退 − 持有 − 待报废 − 其他待审核数量；水费需 `recharge:create` 或 `recharge:refund`，批次须属于该会员且可退；原因选填。需审核时只写申请、不动账，否则在同一事务内退款并记为已通过，响应带 `status`、`refundNo`、`refundAmount`。
@@ -386,6 +386,69 @@ kunlun/
 - 服务器地址在打包时写进包内的 `package.json`，只接受 HTTPS；`KUNLUN_DESKTOP_ORIGIN` 只在从源码运行时有效，此时可以用本机 `http://127.0.0.1`。连别的服务器打出的包名字带「（测试）」、App ID 加 `.test`，能和正式版装在同一台电脑上。
 - 安装包是当前用户一键安装的 NSIS（x64，不需要管理员权限），约 113 MB；macOS 上也能打包。还没有代码签名，首次运行会出现 SmartScreen 提示。CI 新增 `windows` 任务，测试网址规则、打包并上传 `windows-admin-installer`。
 - 本机验证：在 macOS 上从源码运行，连临时搭的本机服务，登录、切换页面、刷新后保持登录、拦截员工端/会员端/外部/本地文件地址、导出触发下载、快捷键缩放并在重启后保留、断网和 502 的重试页及恢复后自动回到管理端都实测过。安装包的 exe 图标、版本信息和包内服务器地址也核对过。还没在真的 Windows 电脑上安装运行。
+
+## 21. Windows 管理端自动登录（2026-11-17）
+
+- 门店反馈装了 Windows 管理端后每次都要输入密码：浏览器有密码管理器，Electron 没有；登录状态和网页一样存在 sessionStorage 里，令牌 12 小时过期，只保留令牌第二天照样要输密码。所以 1.1.0 起外壳在本机记住密码并默认自动登录：登录页有「自动登录（在这台电脑上记住密码）」，默认勾上。
+- 只改外壳，不改网页，也不需要发布线上。`src/preload.cjs` 在登录页（`.login-admin form.login-card` 里的 `#loginUsername`、`#loginPassword`）插入勾选框：
+  - 有保存的密码时填好，并在允许时用 `requestSubmit()` 自动提交；每个页面只自动试一次，登录成功后才重置，所以密码失效时不会反复尝试。
+  - 提交时记下填写内容，登录页消失（说明登录成功）后才报告主进程：勾着就保存，没勾就删除；登录失败不保存。取消勾选立即删除。
+  - 令牌过期或被强制下线时，`onUnauthorized` 会回到登录页，外壳随即自动登录，地址不变，用户回到原来的页面。
+- 主进程用 `webRequest.onSendHeaders` 看本服务器的 `POST /api/auth/logout` 和 `POST /api/auth/change-password`（`authPause`）：
+  - 主动退出后只填表、不自动提交；
+  - 改密码后只填用户名（保存的密码已经不对）；
+  - 下一次登录成功或 App 重启后恢复自动登录。
+  - 因为看的是请求发出时，而登录页要等请求返回后才出现，所以没有先后竞争。
+  - 返回给登录页的内容由 `loginOffer` 决定。
+- 安全：
+  - preload 运行在隔离环境里，页面脚本拿不到 `ipcRenderer`（实测页面里 `require`、`process` 都不存在）。
+  - 主进程只回应本窗口主框架、且地址是这台服务器 `/admin` 页面的请求，用户名和密码按登录表单的长度上限校验（`normalizeLogin`）。
+  - 密码保存在 `userData/saved-login.bin`，用 `safeStorage` 的异步接口加密（Windows 上是 DPAPI），内容带服务器地址，换了服务器就不用。
+  - 勾选状态存在 `login-settings.json`，取消勾选后以后也不再默认勾上。
+  - 卸载时删除（`deleteAppDataOnUninstall`），覆盖升级时保留。
+- 本机验证（macOS 从源码运行，临时本机服务，CDP 驱动）：
+  - 首次打开时默认勾上、没有填写，输入密码登录后加密保存（文件里查不到明文）；
+  - 重启 App 后不用任何操作就自动登录；
+  - 在数据库里把令牌作废后点菜单，自动重新登录，仍停在会员管理页，换了新令牌；
+  - 点退出确认后，登录页已填好但不自动登录，点登录可以进入；
+  - 在 App 里改密码后只填用户名、不自动登录，输入新密码登录后保存了新密码，重启后自动登录；
+  - 从别处用接口改掉密码后，自动登录失败一次、停在提示上，7 秒内没有再试，输入新密码后恢复；
+  - 取消勾选后保存的密码立即删除，重启后不再勾选、不再填写。
+  - 还没在真的 Windows 电脑上试过。
+
+## 22. 费用支出与交付按容器说明（2026-11-17）
+
+- 表 `expenses`（`Operations/Expenses.cs`）：`expense_no`（`ZCyyyyMMddNNNN`，北京时间日期，计数器 `expense`）、`category`（`CONTAINER` 买桶袋 / `PARTS` 配件耗材 / `REPAIR` 维修 / `OTHER` 其他）、`item`、`quantity`、`amount`（NUMERIC(12,2) > 0）、`pay_method`、`spent_on`（购买日期，统计口径）、`remark`、随新购记的 `container_type` 与 `inventory_operation_no`、`status`（`ACTIVE` / `VOIDED`）、经办人、作废人 / 时间 / 原因；`(tenant_id, idempotency_key)` 唯一。启动时给已有管理员补上 `expense:manage`，不加 `token_version`：权限每次请求都从员工行重新读取。
+- 接口：
+  - `POST /api/expenses`（`expense:manage`）：幂等键加请求哈希，重放返回原记录，改了内容返回 409。购买日期不能晚于今天（北京时间）。
+  - `GET /api/expenses?q&category&status&from&to&page&pageSize`（`expense:manage` 或 `report:export`）：总是分页；`from`/`to` 是时刻，按 `(@from AT TIME ZONE 'Asia/Shanghai')::date` 与 `spent_on` 比较。
+  - `GET /api/expenses/summary?from&to`：同一窗口的支出合计、笔数、作废笔数、分类合计（不含作废），同期 `recharge_orders` 实收与 `recharge_refunds` 退款（按创建时刻；退上系统前套餐的钱也是付出去的，照样算退款），`rechargeNet`、`balance = rechargeNet − expenseTotal`。押金不在内。
+  - `POST /api/expenses/{id}/void`：原因必填，已作废的再作废返回原记录。
+  - `GET /api/reports/finance-summary` 增加 `expenseTotal`、`expenseCount`、`rechargeNetAfterExpenses`（= `rechargeNetReceived − expenseTotal`）；`GET /api/exports/expenses` 导出 CSV。
+- 新购记花费：`POST /api/containers/inventory` 的 `InventoryRequest` 增加可选 `Cost`、`PayMethod`，只用于 `RECEIVE` 且需 `expense:manage`。同一事务里先写支出（幂等键 `inventory:{请求键}`），再写库存记录（收据带 `expense: { expenseNo, amount, payMethod }`），最后把库存单号写回支出。重放库存请求直接返回原收据，不会再记一笔。
+- 赠送审核：`CreateRecharge` 的待审核赠送 = `gift_review ? giftQty : 0`，不再看 `recharge:refund`。前端 `waitsForReview(settings, 'gift', …)` 同样只看开关。
+- 交付弹窗（`packages/ui/src/operations/orders.tsx`）的数量标签和押金说明取水单 `productSnapshot.containerId` 对应的桶 / 袋；押金位置未加载或加载失败时拒绝提交。后台 `DEPOSIT_COVERAGE_INSUFFICIENT`、`INVALID_CONTAINER_RETURN` 的提示语也按水品的桶 / 袋说。订单导出列名改为“领出满桶/袋N、收回空桶/袋M”。
+- 测试：`ExpenseTests` 覆盖登记、重放与冲突、补登日期与时间窗口、作废不计入、导出、权限，以及新购带花费只记一次、店员有库存权限也不能填花费；`ReviewSettingsTests.Admins_Own_Gift_Waits_For_Approval_But_Their_Refunds_Do_Not` 改为管理员赠送也进待审核。
+
+## 23. 停用和删除会员（2026-11-17）
+
+- 权限 `member:manage`（`KunlunPermissions.MemberManage`，`metadata/permissions.json` 标高风险）：在 `AdminAll` 里，`MemberStatus.EnsureSchema` 启动时给已有管理员补上；不属于任何手机端功能。
+- 列：`members` 原有 `status`（`ACTIVE` / `DISABLED`），新增 `disabled_at`、`disabled_by`、`disable_reason`。会员档案和会员列表接口都返回这三项。
+- 接口（`Operations/MemberStatus.cs`）：
+  - `PATCH /api/members/{id}/status`（`{ status, reason }`）：停用要写原因（100 字以内）。先锁会员行，再查未完成的水单（`PENDING` / `DISPATCHED`）、`PENDING` 的 `refund_requests`（赠送和退款审核）和 `PENDING` 的 `container_damages`，有任何一项就返回 409 并列出。停用时 `token_version + 1`；状态没变时直接返回现状。
+  - `DELETE /api/members/{id}`：先锁会员行，统计充值单、水单、押金批次、桶袋流水、补录单、退款申请和报损；这些都没有时，还有水票批次或水票、押金、桶袋余额的也不能删。不能删时返回 409 并列出。能删时删掉地址和空的 `member_tickets`、`member_container_holdings` 行，再删会员。漏算的表由外键兜底：外键冲突同样返回 409。
+  - 两个接口都写 `auth_audit_logs`（`MEMBER_DISABLE` / `MEMBER_ENABLE` / `MEMBER_DELETE`）。`detail` 是 JSON，中文不转义。
+- 停用后的拦截原来就有，这次没改：登录和 `OnTokenValidated` 只认 `ACTIVE`；`TicketBatches.LockMember`（充值、收退押金、退款申请和审核、领还和报损、补录）和下单都拒绝非 `ACTIVE` 的会员，提示“会员已停用”。取消水单不查状态。
+- 新建会员撞到已停用会员的手机号时，409 的提示改为让员工去重新启用。
+- 前端：
+  - `MemberPicker` 只搜 `status=ACTIVE`，`usePickedMember` 忽略已停用的预选会员。
+  - 管理端会员档案：已停用时显示停用横幅（时间、经办人、原因和「重新启用」），收起所有办理按钮；「基础资料」卡片加「停用会员 / 重新启用」「删除」（需 `member:manage`）。会员列表名字旁标「已停用」。
+  - 员工手机端：会员列表标「已停用」；会员办理弹窗显示停用说明，收起办理按钮。
+- 测试：新增 `MemberStatusTests` 4 个：
+  - 停用后会员端退出且登录不了，员工办不了业务，余额不变，重新启用后恢复；
+  - 停用要权限和原因，有未完成的水单时拒绝，已停用会员的手机号不能重复建档；
+  - 只有没记录的会员能删，停用和删除都写审计；
+  - 已有管理员启动后自动获得权限。
 
 ## 独立测试服务（2026-10-30，2026-11-01 更新）
 
