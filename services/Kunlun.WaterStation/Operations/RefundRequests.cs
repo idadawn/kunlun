@@ -12,7 +12,8 @@ public sealed record RejectRefundRequest(string Note);
 /// <summary>
 /// 审核申请：押金退款、水费退款（退清剩余权益）和充值时的手动赠送（kind=GIFT）都记在这张表里。
 /// 后台「审核开关」决定店员办理时要不要等管理员：要审核时先登记为申请，管理员通过时才在同一事务里退款或让赠票到账，驳回不动任何账目；
-/// 不要审核时店员当场办完，同样记一条已通过的申请。管理员自己办理总是直接生效，也记为已通过，保证每笔退款和赠送都有记录。
+/// 不要审核时店员当场办完，同样记一条已通过的申请。管理员自己办理的退款直接生效，也记为已通过，保证每笔退款都有记录；
+/// 手动赠送不分谁填的，开关打开时一律等管理员在审核页批准（门店共用一个管理员账号登记，赠送要再看一眼）。
 /// 提交退款：押金需 deposit:refund_apply，水费需 recharge:create；审核：押金需 deposit:refund_approve，水费和赠送需 recharge:refund。
 /// </summary>
 public static class RefundRequests

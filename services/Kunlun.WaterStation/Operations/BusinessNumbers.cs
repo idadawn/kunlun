@@ -51,6 +51,10 @@ public static class BusinessNumbers
         Daily(conn, tx, "refund-request", (day, n) => $"SQ{day}{n:D4}",
             "SELECT EXISTS(SELECT 1 FROM plugin_kunlun_waterstation.refund_requests WHERE request_no=@no)", ct);
 
+    public static Task<string> ExpenseNo(NpgsqlConnection conn, NpgsqlTransaction tx, CancellationToken ct) =>
+        Daily(conn, tx, "expense", (day, n) => $"ZC{day}{n:D4}",
+            "SELECT EXISTS(SELECT 1 FROM plugin_kunlun_waterstation.expenses WHERE expense_no=@no)", ct);
+
     /// <summary>补录（期初）单号：一次补录一个号，水票批次、押金批次和桶袋流水都引用它。</summary>
     public static Task<string> OpeningNo(NpgsqlConnection conn, NpgsqlTransaction tx, CancellationToken ct) =>
         Daily(conn, tx, "member-opening", (day, n) => $"QC{day}{n:D4}",

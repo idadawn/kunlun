@@ -152,9 +152,10 @@ public static class MembershipEndpoints
             if (r.GetString(6) != "ACTIVE") throw new BusinessRuleException("套餐已停用");
             name = r.GetString(0); water = r.GetString(1); mode = r.GetString(2); price = r.GetDecimal(3); qty = r.GetInt32(4); planGift = r.GetInt32(5);
         }
-        // A gift typed in by a clerk waits for an admin while the station reviews gifts; an admin's own gift arrives at once.
+        // While the station reviews gifts, every hand-given gift waits for an administrator, whoever typed it in: the station
+        // shares one admin login at the counter, so an admin's own gift is checked on the 审核 page too. Paid tickets arrive at once.
         var settings = await ReviewSettings.Read(conn, tx, tid, ct);
-        var pendingGift = settings.GiftReview && !Can(user, KunlunPermissions.RechargeRefund) ? req.GiftQty : 0;
+        var pendingGift = settings.GiftReview ? req.GiftQty : 0;
         var gift = planGift + req.GiftQty - pendingGift;
         var id = Guid.NewGuid(); var no = Number("CZ");
         var product = await WaterProducts.Read(conn, tx, tid, water, ct);

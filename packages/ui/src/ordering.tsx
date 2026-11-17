@@ -357,6 +357,8 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
     }];
   });
   const count = lines.reduce((sum, l) => sum + l.qty, 0);
+  // 桶, 袋 or 桶/袋: the containers this cart actually hands over, so deposit notes name the right one.
+  const units = [...new Set(lines.map(l => l.unit))].join('/') || '桶';
   const depositTotal = lines.reduce((sum, l) => sum + l.deposit, 0);
   const priceOf = (l: Line) => l.position?.unitDeposit ?? 0;
   const paidTotal = lines.reduce((sum, l) => sum + l.paid * priceOf(l), 0);
@@ -522,7 +524,7 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
           </div>
         )}
         {handOver && owing && <OwedNoteFields id="counterOwedNote" value={owedNote} onChange={setOwedNote} unit={owedUnit || lines.find(l => l.uncoveredAfter)?.unit || '桶'} />}
-        {!handOver && depositTotal > 0 && <p className="membership-note">押金{delivery ? '送达时交给送水员' : '取水时在门店支付'}；多换回空桶可少交，退桶后可退押金。</p>}
+        {!handOver && depositTotal > 0 && <p className="membership-note">押金{delivery ? '送达时交给送水员' : '取水时在门店支付'}；多换回空{units}可少交，还回{units}后可退押金。</p>}
       </section>
       <section className="checkout-card">
         <label htmlFor="orderRemark"><h4><Icon name="edit" />备注</h4></label>
