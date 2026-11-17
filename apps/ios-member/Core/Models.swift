@@ -105,7 +105,9 @@ public struct TicketBatch: Decodable, Identifiable, Sendable {
     public let id: String
     public let name: String
     public let source: String
+    /// Empty for legacy balances, which have no recharge snapshot; `waterType` then names the product.
     public let waterLabel: String
+    public let waterType: String?
     public let fulfillMode: String
     public let paidAmount: Decimal
     public let fixedQty: Int
@@ -120,6 +122,14 @@ public struct TicketBatch: Decodable, Identifiable, Sendable {
     public let refundedAmount: Decimal
     public let pendingRequestNo: String?
     public let pendingGiftQty: Int?
+}
+
+extension TicketBatch {
+    /// The recharge snapshot's water name. A legacy balance has no snapshot, so it takes the name from the member's tickets.
+    public func waterName(in tickets: [MemberTicket]) -> String {
+        if !waterLabel.isEmpty { return waterLabel }
+        return tickets.first { $0.waterType == waterType }?.name ?? ""
+    }
 }
 
 public struct DepositSummary: Decodable, Identifiable, Sendable {

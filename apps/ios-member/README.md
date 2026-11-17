@@ -19,6 +19,8 @@ SwiftUI 原生会员客户端，最低 iOS 17，支持 iPhone / iPad。使用 Xc
 
 默认连接 `https://kunlun.idalee.cn`，登录页右上角可选择独立测试环境 `https://kunlun-test.idalee.cn`。会员用户名和密码由门店设置，没有内置真实账号。接口与 `packages/shared/src/types.ts`、`api.ts` 对齐，会员 ID 取自服务端认证身份。
 
+连本机后端联调（仅 Debug）：`xcrun simctl launch booted cn.idalee.kunlun.member -MemberOrigin http://127.0.0.1:5188`。只接受本机回环地址（`127.0.0.1` 或 `localhost`）；登录页右上角、业务页顶部和「我的」页的当前服务都标出本机后端地址，不能切换环境，从「体验演示」返回也回到这个地址；令牌存在单独的钥匙串项 `cn.idalee.kunlun.member.local`，不影响正式和测试环境已保存的登录。演示数据库里的会员用户名是小写会员编号（如 `no.008621`），密码为后端的 `Kunlun__SeedPassword`。
+
 令牌按环境保存在设备钥匙串（`WhenUnlockedThisDeviceOnly`），密码不保存，`UserDefaults` 仅记录环境选择。网络使用 HTTPS、临时 URLSession、禁用缓存与 Cookie，不跟随重定向。401 清理会话和所有已加载会员数据；退出和修改密码调用真实后端失效接口。离线退出须由用户选择“仅清除本机登录”，不宣称已撤销服务端会话。App 后台快照遮盖会员信息。
 
 ## 演示与验证
@@ -34,7 +36,7 @@ xcodebuild -project apps/ios-member/KunlunMember.xcodeproj \
 
 将模拟器名称替换为本机已安装的 iPhone。CI 自动选择可用设备。Swift Testing 覆盖接口契约、会员身份限制、分页、错误语义、会话撤销、临时网络故障、退出后迟到响应隔离；XCUITest 验证登录门禁、只读会员流程和 App Intent 的 `perform()` 到导航的交接。`--intent-records` 仅 Debug 可用，测试实际调用 Intent 的 `perform()`，不代表已通过 Siri 语音识别验收。另有 `--ui-keychain` 测试模式，使用演示网络和独立的 `cn.idalee.kunlun.member.ui-tests` 钥匙串服务，验证真实钥匙串写入、跨进程恢复与退出删除；只写入虚构测试令牌，不触碰正式登录项。
 
-本次模拟器验收使用演示传输。真实会员凭据下的全链路联调、真机签名、Siri 语音调用和 TestFlight / App Store 发布需要后续验收；没有创建会员或更改生产数据。
+2026-11-17 用 `-MemberOrigin` 在模拟器上连本机临时后端（演示数据）走通了会员全链路：登录、水票、记录、押金、地址、退出、改密码和离线提示，结果见架构说明第 14 节。真机签名、Siri 语音调用和 TestFlight / App Store 发布仍需后续验收；没有创建会员或更改生产数据。
 
 ## 维护入口
 

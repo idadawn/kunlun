@@ -47,15 +47,18 @@ struct RechargeView: View {
                     ForEach(batches) { batch in
                         Card {
                             HStack(alignment: .top) { Text(batch.name).font(.headline); Spacer(); Text(batch.paidAmount.yuan).font(.headline).foregroundStyle(Brand.green) }
-                            Text("\(batch.waterLabel) · \(modeTitle(batch.fulfillMode))").font(.subheadline).foregroundStyle(.secondary)
+                            Text([batch.waterName(in: store.profile.value?.tickets ?? []), modeTitle(batch.fulfillMode)]
+                                .filter { !$0.isEmpty }.joined(separator: " · "))
+                                .font(.subheadline).foregroundStyle(.secondary)
                             DetailLine(title: "购票 / 赠票", value: "\(batch.fixedQty) / \(batch.giftQty) 份")
                             DetailLine(title: "剩余购票 / 赠票", value: "\(batch.remainingBuy) / \(batch.remainingGift) 份")
                             if batch.reservedBuy + batch.reservedGift > 0 { DetailLine(title: "其中已预留", value: "\(batch.reservedBuy + batch.reservedGift) 份") }
                             if let quantity = batch.pendingGiftQty, quantity > 0 { Text("赠票 \(quantity) 份待审核").font(.footnote).foregroundStyle(.orange) }
                             if batch.pendingRequestNo != nil { Text("水费退款申请审核中").font(.footnote).foregroundStyle(.orange) }
                             if batch.status == "REFUNDED" { DetailLine(title: "已退款", value: batch.refundedAmount.yuan) }
+                            // Legacy balances carry a placeholder date (2000-01-01), so they show the note instead.
                             if batch.source == "LEGACY" { Text("历史余额，详情请向门店核对").font(.footnote).foregroundStyle(.secondary) }
-                            Text(displayDate(batch.createdAt)).font(.caption).foregroundStyle(.secondary)
+                            else { Text(displayDate(batch.createdAt)).font(.caption).foregroundStyle(.secondary) }
                             if !batch.rechargeNo.isEmpty { Text(batch.rechargeNo).font(.caption2.monospaced()).foregroundStyle(.secondary).textSelection(.enabled) }
                         }
                     }

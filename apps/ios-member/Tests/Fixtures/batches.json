@@ -4,6 +4,7 @@
     "source": "PURCHASE",
     "name": "桶装配送套餐",
     "waterLabel": "桶装水 15L",
+    "waterType": "BUCKET_18_9L",
     "fulfillMode": "DELIVERY",
     "paidAmount": 499,
     "fixedQty": 40,
@@ -18,5 +19,26 @@
     "refundedAmount": 0,
     "pendingRequestNo": null,
     "pendingGiftQty": 3
+  },
+  {
+    "id": "legacy-1",
+    "source": "LEGACY",
+    "name": "历史余额待核对",
+    "waterLabel": "",
+    "waterType": "BAG_7_5L",
+    "fulfillMode": "PICKUP",
+    "paidAmount": 0,
+    "fixedQty": 12,
+    "giftQty": 0,
+    "remainingBuy": 12,
+    "remainingGift": 0,
+    "reservedBuy": 0,
+    "reservedGift": 0,
+    "status": "ACTIVE",
+    "createdAt": "2000-01-01T00:00:00Z",
+    "rechargeNo": "",
+    "refundedAmount": 0,
+    "pendingRequestNo": null,
+    "pendingGiftQty": 0
   }
 ]

@@ -52,6 +52,10 @@ import XCTest
         XCTAssertTrue(app.staticTexts["SD-DEMO-001"].waitForExistence(timeout: 5))
         app.buttons["充值记录"].tap()
         XCTAssertTrue(app.staticTexts["赠票 3 份待审核"].waitForExistence(timeout: 5))
+        // A legacy balance names its water from the member's tickets and hides its placeholder 2000-01-01 date.
+        app.swipeUp()
+        XCTAssertTrue(app.staticTexts["袋装水 5L · 到店取水"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "2000年")).count, 0)
         app.tabBars.buttons["押金与桶"].tap()
         XCTAssertTrue(app.staticTexts["我的押金余额"].waitForExistence(timeout: 5))
         app.tabBars.buttons["我的"].tap()
