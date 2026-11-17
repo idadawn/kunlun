@@ -52,7 +52,7 @@ export function Orders() {
 
   return <>
     <div className="page-head">
-      <div><h2>水单管理</h2><p>下单预占水票与地址快照，交付时同步登记满桶领出与空桶收回</p></div>
+      <div><h2>水单管理</h2><p>下单预占水票与地址快照，交付时按水品同步登记领出的满桶（袋）和收回的空桶（袋）</p></div>
       <div className="head-actions">
         <button type="button" className="btn" onClick={() => exportCsv('orders')}><Icon name="export" />导出汇总</button>
         <button type="button" className="btn primary" onClick={() => ops.order()}><Icon name="plus" />门店点单</button>
@@ -128,7 +128,7 @@ function OrderDetailDialog({ order: o, onClose }: { order: WaterOrder; onClose: 
         {o.fulfillMode === 'DELIVERY' && <p>收货地址：{s?.address || '未设置配送地址'}</p>}
         {o.pickupCode && <p>取水码：{o.pickupCode}</p>}
         {o.remark && <p>备注：{o.remark}</p>}
-        <p>实际交付 {o.actualQty ?? '—'} · 满桶领出 {o.fullOutQty ?? '—'} · 空桶收回 {o.emptyInQty ?? '—'}</p>
+        <p>实际交付 {o.actualQty ?? '—'} · 满{unitOf(o.waterType)}领出 {o.fullOutQty ?? '—'} · 空{unitOf(o.waterType)}收回 {o.emptyInQty ?? '—'}</p>
         {(o.diffReason || o.cancelReason) && <p>{o.diffReason || o.cancelReason}</p>}
         {o.overrideReason && <p style={{ color: 'var(--red-600)' }}>{o.overrideReason}</p>}
         <small>{new Date(o.createdAt).toLocaleString('zh-CN')}</small>

@@ -19,6 +19,7 @@ export const KUNLUN_PERMISSIONS = {
   PlanManage: 'kunlun.waterstation:plan:manage',
   ReportExport: 'kunlun.waterstation:report:export',
   StaffManage: 'kunlun.waterstation:staff:manage',
+  ExpenseManage: 'kunlun.waterstation:expense:manage',
 } as const;
 
 export type PermissionCode = (typeof KUNLUN_PERMISSIONS)[keyof typeof KUNLUN_PERMISSIONS];
@@ -45,4 +46,5 @@ export const PERMISSION_TITLES: Readonly<Record<PermissionCode, string>> = {
   [P.PlanManage]: '水品与套餐设置',
   [P.ReportExport]: '经营报表与导出',
   [P.StaffManage]: '员工与权限管理',
+  [P.ExpenseManage]: '登记费用支出',
 };

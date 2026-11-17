@@ -1,10 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { containerLabel, containerUnit, type ContainerSummaryItem, type InventoryAction, type UpdateStockRequest } from '@kunlun/shared';
+import { KUNLUN_PERMISSIONS as P, containerLabel, containerUnit, money, type ContainerSummaryItem, type InventoryAction, type PayMethod, type UpdateStockRequest } from '@kunlun/shared';
 import { useAuth } from '../auth';
 import { FormDialog, NumberInput, useToast } from '../feedback';
 import { useIdempotencyKey } from '../hooks';
 import { Stepper } from '../ordering';
-import { ReasonChips, type Done } from './common';
+import { PayButtons, ReasonChips, type Done } from './common';
 
 /*
  * 袋桶库存的三个数：「新购」「报废」一步登记，「修改数量」直接填现在的数。管理端库存页和员工手机端共用。
@@ -83,9 +83,12 @@ export function StockEditDialog({ config: c, focus = 'inStationQty', onClose, on
   );
 }
 
-/** 新购 / 报废：一步登记一个数量。新购加到店里；报废从店里拿出来、加到已报废，最多报废店里现有的。 */
+/**
+ * 新购 / 报废：一步登记一个数量。新购加到店里；报废从店里拿出来、加到已报废，最多报废店里现有的。
+ * 新购时能登记费用支出的账号可以顺手填花了多少钱，同时记一笔「买桶袋」支出，进费用统计。
+ */
 export function StockQuickDialog({ config: c, action, onClose, onDone }: { config: ContainerSummaryItem; action: InventoryAction; onClose: () => void; onDone?: Done }) {
-  const { api } = useAuth();
+  const { api, can } = useAuth();
   const toast = useToast();
   const key = useIdempotencyKey();
   const unit = containerUnit(c.containerType);
@@ -94,16 +97,24 @@ export function StockQuickDialog({ config: c, action, onClose, onDone }: { confi
   const max = scrap ? c.inStationQty : MAX - c.inStationQty;
   const [qty, setQty] = useState(1);
   const [reason, setReason] = useState('');
+  const [cost, setCost] = useState('');
+  const [pay, setPay] = useState<PayMethod>('WECHAT');
   useEffect(() => {
     const input = document.getElementById('quickQty') as HTMLInputElement | null;
     input?.focus(); input?.select();
   }, []);
   const delta = scrap ? -qty : qty;
+  const costed = !scrap && can(P.ExpenseManage);
+  const paid = costed && cost.trim() !== '' ? Number(cost) : null;
 
   const submit = async () => {
-    await api.inventory({ containerType: c.containerType, action, quantity: qty, reason: reason.trim() || verb, idempotencyKey: key });
+    if (paid !== null && (!(paid > 0) || Math.round(paid * 100) !== paid * 100)) throw new Error('花费要大于 0，精确到分；没花钱就空着');
+    const receipt = await api.inventory({
+      containerType: c.containerType, action, quantity: qty, reason: reason.trim() || verb, idempotencyKey: key,
+      ...(paid !== null && { cost: paid, payMethod: pay }),
+    });
     await onDone?.();
-    toast(`已${verb} ${qty} 个${unit}，店里现在 ${c.inStationQty + delta} 个`);
+    toast(`已${verb} ${qty} 个${unit}，店里现在 ${c.inStationQty + delta} 个${receipt.expense ? `；已记支出 ¥${money(receipt.expense.amount)}` : ''}`);
   };
 
   return (
@@ -123,6 +134,15 @@ export function StockQuickDialog({ config: c, action, onClose, onDone }: { confi
         <Stepper id="quickQty" label={`${verb}数量`} value={qty} onChange={setQty} min={1} max={max} />
         {scrap && qty >= max && <p className="stock-field-hint">店里只有 {max} 个，最多报废这么多。</p>}
       </div>
+      {costed && <>
+        <label htmlFor="quickCost">花了多少钱（元，选填）</label>
+        <input id="quickCost" className="input" type="number" inputMode="decimal" min={0.01} step={0.01} placeholder="填了就同时记一笔买桶袋支出；供应商送的空着" value={cost} onChange={e => setCost(e.target.value)} />
+        {paid !== null && <>
+          <label id="quickPayLabel">付款方式</label>
+          <PayButtons labelledBy="quickPayLabel" value={pay} onChange={setPay} />
+          {paid > 0 && <p className="stock-field-hint">记一笔「买桶袋」支出 ¥{money(paid)}{qty > 1 ? `，单价约 ¥${money(paid / qty)}` : ''}，在「费用支出」里能看到。</p>}
+        </>}
+      </>}
       <label htmlFor="quickReason">{scrap ? '原因' : '备注'}（选填）</label>
       <input id="quickReason" className="input" maxLength={500} placeholder={scrap ? '如：破了' : '如：新买了一批'} value={reason} onChange={e => setReason(e.target.value)} />
       <ReasonChips label={scrap ? '常用原因' : '常用备注'} options={scrap ? SCRAP_REASONS : RECEIVE_REASONS} value={reason} onPick={setReason} />

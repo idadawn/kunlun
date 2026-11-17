@@ -46,7 +46,7 @@ pnpm test:web                              # 包含：管理端每个页面都�
 pnpm --filter @kunlun/windows-admin package:win
 ```
 
-产物在 `apps/windows-admin/release/kunlun-admin-setup-<版本>.exe`（约 110 MB，自带浏览器内核，不依赖电脑上的浏览器）。在 macOS、Linux 和 Windows 上都能打包，第一次要下载 Windows 版 Electron 和 NSIS。CI 的 `windows` 任务在每次提交时打包并上传为 `windows-admin-installer`。
+产物在 `apps/windows-admin/release/kunlun-admin-setup-<版本>.exe`（约 110 MB，自带浏览器内核，不依赖电脑上的浏览器）。在 macOS、Linux 和 Windows 上都能打包，第一次要下载 Windows 版 Electron 和 NSIS。CI 的 `windows` 任务在 PR 的每个提交和 main 的每次更新时打包，上传为 `windows-admin-installer`；没开 PR 的分支不会自动跑，要在 GitHub 的 Actions 页面选 CI，点「Run workflow」手动跑。
 
 - 连别的服务器：`KUNLUN_DESKTOP_ORIGIN=https://kunlun-test.idalee.cn pnpm --filter @kunlun/windows-admin package:win`。打包时只接受 `https://` 地址；这样打出的是「绿麒麟水站管理端（测试）」（`kunlun-admin-test-setup-*.exe`），可以和正式版装在同一台电脑上。
 - 只要解包目录不要安装包：在命令末尾加 `--unpacked`，结果在 `release/win-unpacked`。

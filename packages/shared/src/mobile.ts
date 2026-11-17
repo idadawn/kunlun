@@ -52,7 +52,7 @@ export const MOBILE_FEATURES: readonly MobileFeature[] = [
   },
   {
     key: 'orders', label: '水单履约', tab: '水单', icon: 'truck', tone: 'orange', group: '日常业务', page: 'orders',
-    summary: '接单配送、确认交付并登记满桶出 / 空桶回；首页列出待办水单',
+    summary: '接单配送、确认交付并登记领出的满桶（袋）和收回的空桶（袋）；首页列出待办水单',
     permissions: [P.MemberRead, P.OrderAccept, P.OrderFulfill, P.DepositCollect],
   },
   {
