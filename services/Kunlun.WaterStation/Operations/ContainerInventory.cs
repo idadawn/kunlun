@@ -11,6 +11,7 @@ namespace Kunlun.WaterStation.Operations;
 /// <summary>
 /// Single stock changes: RECEIVE (新购) adds to the store, SCRAP moves store stock to scrapped. A 新购 may say what the
 /// purchase cost (Cost, PayMethod); that records a 买桶袋 expense in the same transaction and needs expense:manage.
+/// The other way round, a 买桶袋 expense that names its container adds a 新购 here (<see cref="ContainerInventory.ReceiveForExpense"/>).
 /// </summary>
 public sealed record InventoryRequest(string ContainerType, string Action, string Reason, string IdempotencyKey, int Quantity = 0, decimal? Cost = null, string? PayMethod = null);
 /// <summary>
@@ -31,7 +32,7 @@ public static class ContainerInventory
 {
     private const int MaxQty = 1_000_000;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private static bool Authorized(ClaimsPrincipal user) => user.FindFirstValue("subject_type") == "STAFF" && user.HasClaim("perm", KunlunPermissions.ContainerInventoryManage);
+    internal static bool Authorized(ClaimsPrincipal user) => user.FindFirstValue("subject_type") == "STAFF" && user.HasClaim("perm", KunlunPermissions.ContainerInventoryManage);
 
     public static async Task EnsureSchema(NpgsqlDataSource db, Guid tid, CancellationToken ct = default)
     {
@@ -216,6 +217,20 @@ public static class ContainerInventory
             expense: expense is { } e ? new { expenseNo = e.No, amount = cost!.Value.Amount, payMethod = cost.Value.PayMethod } : null);
         if (expense is { } linked) await Expenses.LinkOperation(conn, tx, linked.Id, receipt.GetProperty("operationNo").GetString()!);
         await tx.CommitAsync(ct); return Results.Ok(receipt);
+    }
+
+    /// <summary>
+    /// 费用支出登记「买桶袋」并选了哪种桶袋：买的个数加到店里，记一笔「新购」，收据带上支出单号。在登记支出的事务里执行，调用方已核对
+    /// 费用支出和袋桶库存两项权限。库存记录的请求键由支出 ID 派生：重放的支出直接返回原记录，走不到这里，所以不会重复入库。
+    /// </summary>
+    internal static async Task<JsonElement> ReceiveForExpense(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid expenseId, string hash,
+        string type, int qty, string reason, object expense, ClaimsPrincipal user, CancellationToken ct)
+    {
+        var before = await ReadBalance(conn, tx, tid, type, ct);
+        if (before.InStationQty + qty > MaxQty) throw new BusinessRuleException("库存数量超出允许范围");
+        var after = before with { InStationQty = before.InStationQty + qty };
+        await SaveBalance(conn, tx, tid, type, after, ct);
+        return await RecordOperation(conn, tx, tid, "expense:" + expenseId.ToString("N"), hash, type, "RECEIVE", "EXTERNAL", qty, reason, null, user, before, after, ct, expense: expense);
     }
 
     // Locks the request key; a retry with the same payload gets the first receipt back.

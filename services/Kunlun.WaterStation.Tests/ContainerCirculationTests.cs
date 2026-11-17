@@ -114,6 +114,33 @@ public sealed class ContainerCirculationTests(TestHost host)
     }
 
     [Fact]
+    public async Task The_Stores_Own_Purchases_And_Scraps_Are_In_The_Ledger_But_Member_Scraps_Only_Once()
+    {
+        using var c=await Client();var marker="台账"+Key()[..8];
+        var received=await Ok(await c.PostAsJsonAsync("/api/containers/inventory",new InventoryRequest("BAG","RECEIVE",marker+"新到",Key(),7)));
+        var scrapped=await Ok(await c.PostAsJsonAsync("/api/containers/inventory",new InventoryRequest("BAG","SCRAP",marker+"漏水",Key(),2)));
+        var rows=(await c.GetFromJsonAsync<JsonElement>("/api/containers/circulation?q="+Uri.EscapeDataString(marker))).GetProperty("rows").EnumerateArray().ToList();
+        Assert.Equal(2,rows.Count);
+        // Newest first: the scrap, then the purchase; neither has a member, and each says how the store's count moved.
+        Assert.Equal(scrapped.GetProperty("operationNo").GetString(),rows[0].GetProperty("ledgerNo").GetString());
+        Assert.Equal("STORE_SCRAP",rows[0].GetProperty("businessType").GetString());Assert.Equal(2,Q(rows[0],"scrappedQty"));Assert.Equal(0,Q(rows[0],"receivedQty"));
+        Assert.Equal(Q(scrapped.GetProperty("before"),"inStationQty"),Q(rows[0],"storeBefore"));Assert.Equal(Q(scrapped.GetProperty("after"),"inStationQty"),Q(rows[0],"storeAfter"));
+        Assert.Equal("RECEIVE",rows[1].GetProperty("businessType").GetString());Assert.Equal(7,Q(rows[1],"receivedQty"));Assert.Equal("",rows[1].GetProperty("memberNo").GetString());
+        Assert.Equal("",rows[1].GetProperty("referenceNo").GetString());Assert.Equal(marker+"新到",rows[1].GetProperty("remark").GetString());
+        Assert.Equal(Q(received.GetProperty("after"),"inStationQty")-7,Q(rows[1],"storeBefore"));
+        Assert.Equal(0,Q(await c.GetFromJsonAsync<JsonElement>("/api/containers/circulation?q="+Uri.EscapeDataString(marker)+"&containerType=BUCKET"),"total"));
+        // With no search the newest flows come first, the store's included.
+        Assert.Equal(scrapped.GetProperty("operationNo").GetString(),(await c.GetFromJsonAsync<JsonElement>("/api/containers/circulation")).GetProperty("rows")[0].GetProperty("ledgerNo").GetString());
+        var csv=await c.GetStringAsync("/api/exports/container-ledgers");
+        Assert.Contains($"{received.GetProperty("operationNo").GetString()},,",csv);Assert.Contains($",STORE_SCRAP,0.00,,{marker}漏水,2,0",csv);
+
+        // A member's damaged bag scrapped from the ledger is one member row, not a store scrap as well.
+        var mid=(await Member(c)).GetProperty("id").GetGuid();await Prepare(c,mid);var damage=await Report(c,mid);var scrap=await Scrap(c,damage.GetProperty("id").GetGuid());
+        var flow=Assert.Single((await c.GetFromJsonAsync<JsonElement>("/api/containers/circulation?q="+scrap.GetProperty("scrapNo").GetString())).GetProperty("rows").EnumerateArray());
+        Assert.Equal("SCRAP",flow.GetProperty("businessType").GetString());Assert.Equal(JsonValueKind.Null,flow.GetProperty("storeAfter").ValueKind);
+    }
+
+    [Fact]
     public async Task Circulation_Is_Searchable_And_Paged_Without_Losing_Older_Records()
     {
         using var c=await Client();var m=await Member(c);var mid=m.GetProperty("id").GetGuid();

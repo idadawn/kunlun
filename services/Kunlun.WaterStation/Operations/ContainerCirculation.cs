@@ -15,6 +15,35 @@ public sealed record DamageDepositLot(Guid LotId, string LotNo, int Quantity, de
 
 public static class ContainerCirculation
 {
+    /// <summary>
+    /// 台账里店里自己的进出：新购（袋桶库存「新购」或费用支出登记的买桶袋）和门店报废，不涉及会员，取自库存记录 o。
+    /// 会员破损的报废已经记在会员流水里（库存记录带 member_id），不再重复；修改数量是更正，不算进出。
+    /// </summary>
+    internal const string StoreFlows = "o.member_id IS NULL AND (o.action='RECEIVE' OR o.action='SCRAP' AND o.source_state<>'DAMAGED')";
+    internal const string StoreBusiness = "CASE o.action WHEN 'RECEIVE' THEN 'RECEIVE' ELSE 'STORE_SCRAP' END";
+    /// <summary>The 买桶袋 expense a 新购 came with, if any.</summary>
+    internal const string StoreExpenseNo = "COALESCE(o.receipt->'expense'->>'expenseNo','')";
+
+    /// <summary>
+    /// 流转记录：会员流水（领还、破损还回、报废、上系统前）和店里的新购、门店报废按时间排在一起。店里的行没有会员，
+    /// receivedQty / scrappedQty 是进出的个数，storeBefore → storeAfter 是店里的数；会员的行这两个数为 null。
+    /// </summary>
+    private const string Flows = $"""
+        SELECT c.ledger_no AS no,m.name AS member_name,m.member_no,c.container_type,c.full_out_qty,c.empty_in_qty,c.delta_held,c.held_after,
+          c.operator_name,c.created_at,COALESCE(c.order_no,'') AS reference_no,c.business_type,c.deposit_deducted_amount,COALESCE(c.remark,'') AS remark,
+          c.scrapped_qty,0 AS received_qty,NULL::int AS store_before,NULL::int AS store_after,c.id AS seq
+        FROM plugin_kunlun_waterstation.container_ledgers c JOIN plugin_kunlun_waterstation.members m ON m.id=c.member_id AND m.tenant_id=c.tenant_id
+        WHERE c.tenant_id=@tid AND (@type='' OR c.container_type=@type)
+          AND (@q='' OR m.name ILIKE @search OR m.phone ILIKE @search OR m.member_no ILIKE @search OR c.ledger_no ILIKE @search OR c.order_no ILIKE @search)
+        UNION ALL
+        SELECT o.operation_no,'','',o.container_type,0,0,0,0,o.operator_name,o.created_at,{StoreExpenseNo},{StoreBusiness},0,o.reason,
+          CASE o.action WHEN 'SCRAP' THEN o.quantity ELSE 0 END,CASE o.action WHEN 'RECEIVE' THEN o.quantity ELSE 0 END,
+          (o.before_state->>'inStationQty')::int,(o.after_state->>'inStationQty')::int,0
+        FROM plugin_kunlun_waterstation.container_inventory_operations o
+        WHERE o.tenant_id=@tid AND {StoreFlows} AND (@type='' OR o.container_type=@type)
+          AND (@q='' OR o.operation_no ILIKE @search OR o.reason ILIKE @search OR o.receipt->'expense'->>'expenseNo' ILIKE @search)
+        """;
+
     private static bool CanRead(ClaimsPrincipal u) => u.FindFirstValue("subject_type")=="STAFF" && u.HasClaim("perm",KunlunPermissions.MemberRead);
     private static bool CanManage(ClaimsPrincipal u) => CanRead(u) && u.HasClaim("perm",KunlunPermissions.ContainerInventoryManage);
     private static string Actor(ClaimsPrincipal u) => u.FindFirstValue("display_name")??"管理员";
@@ -63,19 +92,19 @@ public static class ContainerCirculation
         {
             if(!CanRead(user))return Results.Forbid();
             ValidateFilter(containerType,page);
-            var filter="c.tenant_id=@tid AND (@type='' OR c.container_type=@type) AND (@q='' OR m.name ILIKE @search OR m.phone ILIKE @search OR m.member_no ILIKE @search OR c.ledger_no ILIKE @search OR c.order_no ILIKE @search)";
             await using var conn=await db.OpenConnectionAsync(ct);
             var args=FilterArgs(repo.DefaultTenantId,q,containerType,page);
-            await using var count=Command(conn,null,$"SELECT count(*) FROM plugin_kunlun_waterstation.container_ledgers c JOIN plugin_kunlun_waterstation.members m ON m.id=c.member_id AND m.tenant_id=c.tenant_id WHERE {filter}",args);
+            await using var count=Command(conn,null,$"WITH flows AS ({Flows}) SELECT count(*) FROM flows",args);
             var total=Convert.ToInt64(await count.ExecuteScalarAsync(ct));
             await using var cmd=Command(conn,null,$"""
-                SELECT c.ledger_no,m.name,m.member_no,c.container_type,c.full_out_qty,c.empty_in_qty,c.delta_held,c.held_after,
-                c.operator_name,c.created_at,COALESCE(c.order_no,''),c.business_type,c.deposit_deducted_amount,COALESCE(c.remark,''),c.scrapped_qty
-                FROM plugin_kunlun_waterstation.container_ledgers c JOIN plugin_kunlun_waterstation.members m ON m.id=c.member_id AND m.tenant_id=c.tenant_id
-                WHERE {filter} ORDER BY c.created_at DESC,c.id DESC LIMIT 20 OFFSET @offset
+                WITH flows AS ({Flows})
+                SELECT no,member_name,member_no,container_type,full_out_qty,empty_in_qty,delta_held,held_after,operator_name,created_at,
+                  reference_no,business_type,deposit_deducted_amount,remark,scrapped_qty,received_qty,store_before,store_after
+                FROM flows ORDER BY created_at DESC,seq DESC,no DESC LIMIT 20 OFFSET @offset
                 """,args);
             var rows=new List<object>();await using var r=await cmd.ExecuteReaderAsync(ct);
-            while(await r.ReadAsync(ct))rows.Add(new{ledgerNo=r.GetString(0),memberName=r.GetString(1),memberNo=r.GetString(2),containerType=r.GetString(3),fullOutQty=r.GetInt32(4),emptyInQty=r.GetInt32(5),deltaHeld=r.GetInt32(6),heldAfter=r.GetInt32(7),operatorName=r.GetString(8),createdAt=r.GetDateTime(9),referenceNo=r.GetString(10),businessType=r.GetString(11),depositDeductedAmount=r.GetDecimal(12),remark=r.GetString(13),scrappedQty=r.GetInt32(14)});
+            while(await r.ReadAsync(ct))rows.Add(new{ledgerNo=r.GetString(0),memberName=r.GetString(1),memberNo=r.GetString(2),containerType=r.GetString(3),fullOutQty=r.GetInt32(4),emptyInQty=r.GetInt32(5),deltaHeld=r.GetInt32(6),heldAfter=r.GetInt32(7),operatorName=r.GetString(8),createdAt=r.GetDateTime(9),referenceNo=r.GetString(10),businessType=r.GetString(11),depositDeductedAmount=r.GetDecimal(12),remark=r.GetString(13),scrappedQty=r.GetInt32(14),
+                receivedQty=r.GetInt32(15),storeBefore=r.IsDBNull(16)?(int?)null:r.GetInt32(16),storeAfter=r.IsDBNull(17)?(int?)null:r.GetInt32(17)});
             return Results.Ok(new{rows,total,page=page??1,pageSize=20});
         }).RequireAuthorization();
         app.MapGet("/api/containers/holdings",async(string? q,int? page,ClaimsPrincipal user,NpgsqlDataSource db,KunlunAuthRepository repo,CancellationToken ct)=>

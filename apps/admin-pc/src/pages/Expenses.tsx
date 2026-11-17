@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
-  EXPENSE_CATEGORIES, KUNLUN_PERMISSIONS as P, containerLabel, dateFilterFrom, expenseCategoryLabel, money, payMethodLabel, shortDateTime, stationDay,
-  type DateFilter, type Expense, type ExpenseCategory, type ExpenseQuery, type ExpenseStatus, type PayMethod,
+  EXPENSE_CATEGORIES, KUNLUN_PERMISSIONS as P, containerLabel, containerUnit, dateFilterFrom, expenseCategoryLabel, money, payMethodLabel, shortDateTime, stationDay,
+  type ContainerType, type DateFilter, type Expense, type ExpenseCategory, type ExpenseQuery, type ExpenseStatus, type PayMethod,
 } from '@kunlun/shared';
 import { Field, FormDialog, Icon, PayButtons, ReasonChips, Stepper, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
 import { DateFilterSelect, EmptyRow, Pager, StatCard, emptyPage, ledgerEmptyText, useDebounced, useExport, useGo, usePagedTable, PAGE_SIZE } from '../common';
@@ -96,7 +96,9 @@ function ExpenseRow({ row: e, manage, onInventory }: { row: Expense; manage: boo
       <td><span className="order-no">{e.expenseNo}</span><br /><small>{e.spentOn}{e.spentOn !== stationDay(new Date(e.createdAt)) ? ` · ${shortDateTime(e.createdAt)} 登记` : ''}</small></td>
       <td><span className="tag">{expenseCategoryLabel(e.category)}</span></td>
       <td><b>{e.item}</b>{e.quantity > 1 && <small> × {e.quantity}</small>}
-        {e.containerType && <><br /><button type="button" className="link" onClick={onInventory} title={e.inventoryOperationNo ?? undefined}>随「新购」入库 · {containerLabel(e.containerType)}</button></>}</td>
+        {e.containerType && <><br /><button type="button" className="link" onClick={onInventory} title={e.inventoryOperationNo ?? undefined}>
+          已加到店里库存{e.item === containerLabel(e.containerType) ? '' : ` · ${containerLabel(e.containerType)}`}
+        </button></>}</td>
       <td>{voided ? <s>¥ {money(e.amount)}</s> : <b className="amount-out">¥ {money(e.amount)}</b>}{e.quantity > 1 && <><br /><small>单价约 ¥{money(e.amount / e.quantity)}</small></>}</td>
       <td>{payMethodLabel(e.payMethod)}</td>
       <td className="ledger-reason">{e.remark || '—'}</td>
@@ -109,21 +111,25 @@ function ExpenseRow({ row: e, manage, onInventory }: { row: Expense; manage: boo
   );
 }
 
-/** Common things bought in each category: a tap fills 买了什么, which can still be edited. */
+/** Common things bought in each category: a tap fills 买了什么, which can still be edited. 买桶袋 picks its container instead. */
 const ITEM_CHIPS: Record<ExpenseCategory, readonly string[]> = {
-  CONTAINER: ['15L 空桶', '5L 水袋'],
+  CONTAINER: [],
   PARTS: ['桶盖', '压水器', '饮水机配件', '滤芯', '清洁用品'],
   REPAIR: ['送水车维修', '设备维修'],
   OTHER: ['水电费', '杂费'],
 };
 
-/** 登记一笔支出：选类别、填买了什么、花了多少钱和付款方式；购买日期默认今天，可以补登以前的。 */
+/**
+ * 登记一笔支出：选类别、填买了什么、花了多少钱和付款方式；购买日期默认今天，可以补登以前的。
+ * 买桶袋要选买的哪种：确认后买的个数加到店里，袋桶库存和袋桶台账都记一笔「新购」。已经在袋桶库存「新购」过的选「只记钱」，免得多算。
+ */
 function ExpenseDialog({ onClose, onDone }: { onClose: () => void; onDone: () => Promise<void> }) {
-  const { api } = useAuth();
+  const { api, can } = useAuth();
+  const { containers } = useAdminData();
   const toast = useToast();
-  const go = useGo();
   const key = useIdempotencyKey();
   const today = stationDay();
+  const canStock = can(P.ContainerInventoryManage);
   const [category, setCategory] = useState<ExpenseCategory>('PARTS');
   const [item, setItem] = useState('');
   const [quantity, setQuantity] = useState(1);
@@ -131,15 +137,30 @@ function ExpenseDialog({ onClose, onDone }: { onClose: () => void; onDone: () =>
   const [pay, setPay] = useState<PayMethod>('WECHAT');
   const [spentOn, setSpentOn] = useState(today);
   const [remark, setRemark] = useState('');
+  // 买桶袋: the container the purchase goes into, or only the money (already in stock, or no stock permission).
+  const [stockTo, setStockTo] = useState<ContainerType | null>(null);
+  const [moneyOnly, setMoneyOnly] = useState(!canStock);
   const value = Number(amount);
   const valid = amount !== '' && value > 0;
+  const buying = category === 'CONTAINER';
+  const stock = buying && !moneyOnly ? containers.find(c => c.containerType === stockTo) : undefined;
+  const pickContainer = (type: ContainerType) => {
+    setStockTo(type);
+    setMoneyOnly(false);
+    // 买了什么 takes the container's name unless something else was typed.
+    setItem(current => !current.trim() || containers.some(c => containerLabel(c.containerType) === current.trim()) ? containerLabel(type) : current);
+  };
   const submit = async () => {
+    if (buying && !moneyOnly && !stock) throw new Error('请选买的哪种桶袋；已经在袋桶库存「新购」过的，选「只记钱」');
     if (!item.trim()) throw new Error('请填写买了什么');
     if (!valid || Math.round(value * 100) !== value * 100) throw new Error('请填写花了多少钱，精确到分');
     if (spentOn > today) throw new Error('购买日期不能晚于今天');
-    const saved = await api.createExpense({ category, item: item.trim(), quantity, amount: value, payMethod: pay, spentOn, remark: remark.trim() || undefined, idempotencyKey: key });
+    const saved = await api.createExpense({
+      category, item: item.trim(), quantity, amount: value, payMethod: pay, spentOn, remark: remark.trim() || undefined, idempotencyKey: key,
+      containerType: stock?.containerType,
+    });
     await onDone();
-    toast(`已登记支出 ¥${money(saved.amount)}（${saved.expenseNo}）`);
+    toast(`已登记支出 ¥${money(saved.amount)}（${saved.expenseNo}）${stock ? `，店里加了 ${quantity} 个${containerUnit(stock.containerType)}，现在 ${stock.inStationQty + quantity} 个` : ''}`);
   };
   return (
     <FormDialog title="登记支出" description="平时买桶袋、配件，修东西花的钱都记在这里，进费用统计" submitLabel={valid ? `确认登记 ¥${money(value)}` : '确认登记'} onClose={onClose} onSubmit={submit}>
@@ -151,13 +172,31 @@ function ExpenseDialog({ onClose, onDone }: { onClose: () => void; onDone: () =>
           </button>
         ))}
       </div>
-      {category === 'CONTAINER' && (
-        <p className="membership-note">买回来的桶袋要加到库存的，请到 <button type="button" className="link" onClick={() => { onClose(); go('inventory'); }}>袋桶库存</button> 点「新购」并填花费，会自动记一笔，这里就不用再登记了。</p>
-      )}
-      <Field label="买了什么" htmlFor="expenseItem"><input id="expenseItem" className="input" required maxLength={80} placeholder="如：桶盖" value={item} onChange={e => setItem(e.target.value)} /></Field>
-      <ReasonChips label="常买的" options={ITEM_CHIPS[category]} value={item} onPick={setItem} />
+      {buying && <>
+        <label id="expenseStockLabel">买的哪种桶袋</label>
+        <div className="mode-switch" role="group" aria-labelledby="expenseStockLabel">
+          {canStock && containers.map(c => {
+            const active = !moneyOnly && stockTo === c.containerType;
+            return (
+              <button key={c.containerType} type="button" className={active ? 'active' : ''} aria-pressed={active} onClick={() => pickContainer(c.containerType)}>
+                <span><b>{containerLabel(c.containerType)}</b><small>店里现在 {c.inStationQty} 个</small></span>
+              </button>
+            );
+          })}
+          <button type="button" className={moneyOnly ? 'active' : ''} aria-pressed={moneyOnly} onClick={() => setMoneyOnly(true)}>
+            <span><b>只记钱，不加库存</b><small>{canStock ? '已经在袋桶库存「新购」过的选这个' : '这个账号没有袋桶库存权限'}</small></span>
+          </button>
+        </div>
+        <p className="membership-note">{stock
+          ? `确认后店里的${containerUnit(stock.containerType)}从 ${stock.inStationQty} 个加到 ${stock.inStationQty + quantity} 个，袋桶库存的修改记录和袋桶台账都记一笔「新购」。`
+          : moneyOnly
+            ? canStock ? '只记这笔钱，店里库存不变。买回来还没加到库存的，请选上面买的哪种。' : '只记这笔钱，店里库存不变；买回来的桶袋请管理员到袋桶库存点「新购」。'
+            : '选好买的哪种，买的个数会同时加到店里，袋桶库存和袋桶台账都能看到。'}</p>
+      </>}
+      <Field label="买了什么" htmlFor="expenseItem"><input id="expenseItem" className="input" required maxLength={80} placeholder={buying ? '如：15L 空桶' : '如：桶盖'} value={item} onChange={e => setItem(e.target.value)} /></Field>
+      {ITEM_CHIPS[category].length > 0 && <ReasonChips label="常买的" options={ITEM_CHIPS[category]} value={item} onPick={setItem} />}
       <div className="movement-counts">
-        <div><Field label="数量" htmlFor="expenseQty"><Stepper id="expenseQty" label="数量" value={quantity} onChange={setQuantity} min={1} max={1000000} /></Field></div>
+        <div><Field label={stock ? '买了几个' : '数量'} htmlFor="expenseQty"><Stepper id="expenseQty" label="数量" value={quantity} onChange={setQuantity} min={1} max={1000000} /></Field></div>
         <div><Field label="一共花了多少钱（元）" htmlFor="expenseAmount">
           <input id="expenseAmount" className="input" type="number" inputMode="decimal" required min={0.01} max={10000000} step={0.01} placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} />
         </Field></div>
@@ -169,7 +208,7 @@ function ExpenseDialog({ onClose, onDone }: { onClose: () => void; onDone: () =>
       <div className="deposit-total">
         <span>这笔支出</span>
         <b>{valid ? `¥ ${money(value)}` : '—'}</b>
-        <small>{expenseCategoryLabel(category)}{item.trim() ? ` · ${item.trim()}` : ''}{quantity > 1 && valid ? ` · ${quantity} 个，单价约 ¥${money(value / quantity)}` : ''} · {spentOn === today ? '今天' : spentOn} · {payMethodLabel(pay)}</small>
+        <small>{expenseCategoryLabel(category)}{item.trim() ? ` · ${item.trim()}` : ''}{quantity > 1 && valid ? ` · ${quantity} 个，单价约 ¥${money(value / quantity)}` : ''} · {spentOn === today ? '今天' : spentOn} · {payMethodLabel(pay)}{stock ? ` · 店里 ${stock.inStationQty} → ${stock.inStationQty + quantity} 个` : ''}</small>
       </div>
     </FormDialog>
   );
@@ -177,7 +216,7 @@ function ExpenseDialog({ onClose, onDone }: { onClose: () => void; onDone: () =>
 
 const VOID_REASONS = ['记错了', '重复登记', '退货退款了'] as const;
 
-/** 作废：记错的支出不删除，写明原因后不再计入合计；随「新购」记的支出作废后，库存不跟着改。 */
+/** 作废：记错的支出不删除，写明原因后不再计入合计；买的桶袋已经加到库存的，作废后库存不跟着改。 */
 function VoidDialog({ row: e, onClose, onDone }: { row: Expense; onClose: () => void; onDone: () => Promise<void> }) {
   const { api } = useAuth();
   const toast = useToast();
@@ -191,7 +230,7 @@ function VoidDialog({ row: e, onClose, onDone }: { row: Expense; onClose: () => 
     }}>
       <Field label="作废原因" htmlFor="voidReason"><input id="voidReason" className="input" required maxLength={500} value={reason} onChange={ev => setReason(ev.target.value)} /></Field>
       <ReasonChips options={VOID_REASONS} value={reason} onPick={setReason} />
-      <p className="membership-note">作废后这笔记录还在，只是不再计入合计。{e.inventoryOperationNo ? '这笔是随「新购」记的，库存不会跟着减，买的数量不对请到袋桶库存改。' : ''}</p>
+      <p className="membership-note">作废后这笔记录还在，只是不再计入合计。{e.inventoryOperationNo ? '这笔买的桶袋已经加到店里库存，作废不会减库存；数量不对或其实没买到，请到袋桶库存改数量。' : ''}</p>
     </FormDialog>
   );
 }

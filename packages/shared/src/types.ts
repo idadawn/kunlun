@@ -696,11 +696,16 @@ export interface ContainerHoldingRow {
   pendingDamageAmount: number;
 }
 
-/** OPENING: containers a member already had before the system, written down (or corrected) by an opening entry. */
-export type CirculationBusinessType = 'TURNOVER' | 'DAMAGE_RETURN' | 'SCRAP' | 'SCRAP_WAIVED' | 'OPENING';
+/**
+ * OPENING: containers a member already had before the system, written down (or corrected) by an opening entry.
+ * RECEIVE / STORE_SCRAP: the store's own 新购 and 门店报废, from the stock records; no member is involved.
+ */
+export type CirculationBusinessType = 'TURNOVER' | 'DAMAGE_RETURN' | 'SCRAP' | 'SCRAP_WAIVED' | 'OPENING' | 'RECEIVE' | 'STORE_SCRAP';
 
 export interface CirculationRow {
+  /** The ledger number, or the stock record's number for RECEIVE / STORE_SCRAP. */
   ledgerNo: string;
+  /** Empty for the store's own RECEIVE / STORE_SCRAP. */
   memberName: string;
   memberNo: string;
   containerType: ContainerType;
@@ -715,6 +720,11 @@ export interface CirculationRow {
   depositDeductedAmount: number;
   remark: string;
   scrappedQty: number;
+  /** How many a RECEIVE added to the store; 0 otherwise. */
+  receivedQty: number;
+  /** 店里 before → after a RECEIVE / STORE_SCRAP; null on member rows. */
+  storeBefore: number | null;
+  storeAfter: number | null;
 }
 
 export type DamageStatus = 'PENDING' | 'SCRAPPED';
@@ -815,7 +825,7 @@ export interface Expense {
   /** The purchase date (YYYY-MM-DD, Beijing), which decides the period it counts in. */
   spentOn: string;
   remark: string;
-  /** Set when recorded with a 新购: which container account it bought, and that stock record's number. */
+  /** Set when the containers went into stock (a 新购 with a cost, or a 买桶袋 expense that named them): which container, and that 新购's number. */
   containerType: ContainerType | null;
   inventoryOperationNo: string | null;
   status: ExpenseStatus;
@@ -841,6 +851,8 @@ export interface CreateExpenseRequest {
   /** YYYY-MM-DD; today when omitted. */
   spentOn?: string;
   remark?: string;
+  /** 买桶袋 only: which container was bought. `quantity` is added to the store as a 新购 (needs the inventory permission too); left out, only the money is recorded. */
+  containerType?: ContainerType;
 }
 
 /** 一段时间的收支：费用支出与分类（不含作废的），同期水费实收、退款、净收，结余 = 水费净收 − 费用支出。押金不算在内。 */

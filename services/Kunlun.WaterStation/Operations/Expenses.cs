@@ -14,7 +14,10 @@ public sealed record CreateExpenseRequest(
     string IdempotencyKey,
     int Quantity = 1,
     DateOnly? SpentOn = null, // the day it was bought; today in Beijing when omitted
-    string? Remark = null);
+    string? Remark = null,
+    // 买桶袋 only: which product's container was bought. The Quantity is added to the store as a 新购 in the same transaction
+    // and needs container:inventory_manage too. Left out, the expense records only the money (e.g. the 新购 is already in stock).
+    string? ContainerType = null);
 
 public sealed record VoidExpenseRequest(string Reason);
 
@@ -23,8 +26,9 @@ public sealed record ExpenseOnReceive(string Item, string ContainerType, int Qua
 
 /// <summary>
 /// 费用支出：水站平时花出去的钱——买桶买袋、配件耗材、维修和其他杂费，一笔一条，与水费、押金分开记账。
-/// 登记错了不删除，作废并写明原因，作废的不计入统计。在袋桶库存「新购」时填了花费，会同时记一笔「买桶袋」支出，
-/// 与库存记录互相带单号；作废这笔支出不改库存。登记、作废需 expense:manage，查看还可用报表权限 report:export。
+/// 登记错了不删除，作废并写明原因，作废的不计入统计。在袋桶库存「新购」时填了花费，会同时记一笔「买桶袋」支出；
+/// 反过来在这里登记「买桶袋」并选了哪种桶袋，买的个数同时加到店里，记一笔「新购」。两边互相带单号，袋桶库存的修改记录和袋桶台账都能看到；
+/// 作废支出不改库存。登记、作废需 expense:manage，查看还可用报表权限 report:export。
 /// </summary>
 public static class Expenses
 {
@@ -100,9 +104,19 @@ public static class Expenses
         if (string.IsNullOrWhiteSpace(req.IdempotencyKey) || req.IdempotencyKey.Length > 80) throw new BusinessRuleException("请求标识无效");
         var spentOn = req.SpentOn ?? StationToday();
         if (spentOn > StationToday() || spentOn < Earliest) throw new BusinessRuleException("购买日期不能晚于今天");
+        var containerType = string.IsNullOrWhiteSpace(req.ContainerType) ? null : req.ContainerType.Trim();
+        if (containerType is not null)
+        {
+            if (req.Category != "CONTAINER") throw new BusinessRuleException("只有买桶袋才能加到袋桶库存");
+            if (!ProductContainers.ValidId(containerType)) throw new BusinessRuleException("请选择买的哪种桶袋");
+            if (!ContainerInventory.Authorized(user)) return Denied("当前账号没有袋桶库存权限，买的桶袋加不到库存；可以只记钱，桶袋请到袋桶库存「新购」");
+        }
 
         var tid = repo.DefaultTenantId;
-        var hash = ContainerInventory.Hash(new { req.Category, item, req.Amount, req.PayMethod, req.Quantity, spentOn, remark });
+        // Money-only requests keep the original hash shape, so a retry sent before stocking existed still matches.
+        var hash = containerType is null
+            ? ContainerInventory.Hash(new { req.Category, item, req.Amount, req.PayMethod, req.Quantity, spentOn, remark })
+            : ContainerInventory.Hash(new { req.Category, item, req.Amount, req.PayMethod, req.Quantity, spentOn, remark, containerType });
         await using var conn = await db.OpenConnectionAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         await LockRequest(conn, tx, tid, "expense", req.IdempotencyKey, ct);
@@ -115,7 +129,14 @@ public static class Expenses
             if (seen.Hash != hash) throw new BusinessRuleException("请求标识已用于其他支出", 409);
             return Results.Ok(await Read(conn, tx, tid, seen.Id, ct));
         }
-        var id = await Insert(conn, tx, tid, req.IdempotencyKey, hash, req.Category!, item, req.Quantity, req.Amount, req.PayMethod, spentOn, remark, null, null, user, ct);
+        var id = await Insert(conn, tx, tid, req.IdempotencyKey, hash, req.Category!, item, req.Quantity, req.Amount, req.PayMethod, spentOn, remark, containerType, null, user, ct);
+        if (containerType is not null)
+        {
+            // The containers arrive with the money: a 新购 for the store carrying this expense's number, and the expense takes its number back.
+            var receipt = await ContainerInventory.ReceiveForExpense(conn, tx, tid, id, hash, containerType, req.Quantity, remark.Length > 0 ? remark : "新购",
+                new { expenseNo = await NumberOf(conn, tx, id, ct), amount = req.Amount, payMethod = req.PayMethod }, user, ct);
+            await LinkOperation(conn, tx, id, receipt.GetProperty("operationNo").GetString()!);
+        }
         var row = await Read(conn, tx, tid, id, ct);
         await tx.CommitAsync(ct);
         return Results.Ok(row);
@@ -131,8 +152,13 @@ public static class Expenses
         var key = "inventory:" + inventoryKey;
         var hash = ContainerInventory.Hash(new { e.ContainerType, e.Quantity, e.Amount, e.PayMethod });
         var id = await Insert(conn, tx, tid, key, hash, "CONTAINER", e.Item, e.Quantity, e.Amount, e.PayMethod, StationToday(), e.Remark, e.ContainerType, null, user, ct);
+        return (id, await NumberOf(conn, tx, id, ct));
+    }
+
+    private static async Task<string> NumberOf(NpgsqlConnection conn, NpgsqlTransaction tx, Guid id, CancellationToken ct)
+    {
         await using var cmd = Command(conn, tx, "SELECT expense_no FROM plugin_kunlun_waterstation.expenses WHERE id=@id", ("id", id));
-        return (id, (string)(await cmd.ExecuteScalarAsync(ct))!);
+        return (string)(await cmd.ExecuteScalarAsync(ct))!;
     }
 
     internal static Task<int> LinkOperation(NpgsqlConnection conn, NpgsqlTransaction tx, Guid id, string operationNo) =>
