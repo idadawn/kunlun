@@ -59,7 +59,9 @@ services:
       - ${RELEASE_DIR}/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     ports: ['127.0.0.1:18085:8080']
     healthcheck:
-      test: [CMD-SHELL, 'wget -q -O - http://127.0.0.1:8080/healthz | grep -q ''"status":"healthy"''']
+      # Match the database name, not just "healthy": nginx resolves "api" on every network it shares, and another
+      # stack's API answering here would otherwise pass.
+      test: [CMD-SHELL, 'wget -q -O - http://127.0.0.1:8080/healthz | grep -q ''"database":"kunlun_prod"''']
       interval: 15s
       timeout: 5s
       retries: 5
