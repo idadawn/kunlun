@@ -52,7 +52,7 @@ ssh al 'curl -fsS http://10.78.1.201/api/v2.0/ping'
 - 本目录的 `kunlun-db-backup.sh` 安装为 `/usr/local/sbin/kunlun-db-backup`，`kunlun-db-backup@.service` 和 `kunlun-db-backup@.timer` 放在 `/etc/systemd/system/`，启用 `kunlun-db-backup@prod.timer` 与 `kunlun-db-backup@test.timer`。服务器关机错过的运行会在开机后补跑。
 - 每次运行先 `umask 077`；根分区剩余不足 1 GiB 时拒绝运行（磁盘与其他站点共用）。`docker compose exec -T database pg_dump -Fc` 写入临时文件，在容器内用 `pg_restore -f /dev/null` 完整读回后才改名为 `kunlun_prod-YYYYmmdd-HHMMSS.dump`。备份成功后才删除超过保留期的旧文件，连续失败也不会删掉最后的好备份。
 - 备份目录 `/var/backups/kunlun/{prod,test}` 为 700、文件为 600，仅 root 可读。备份只含业务库：角色由 `init-database.sh` 按 `.env` 创建，`.env` 不在备份内。
-- 每次结果在 `/var/log/kunlun-db-backup.log` 记一行（`OK`、`FAILED`、`pruned`、`RESTORE-CHECK`），详细输出在 journal，失败的单元会出现在 `systemctl --failed`。
+- 每次结果在 `/var/log/kunlun-db-backup.log` 记一行（`OK`、`FAILED`、`pruned`、`RESTORE-CHECK`、`NOTIFY`），详细输出在 journal。失败的单元会出现在 `systemctl --failed`，并发邮件通知，见「备份失败邮件」。
 
 ```sh
 ssh al 'systemctl list-timers "kunlun-db-backup@*"; tail -n 20 /var/log/kunlun-db-backup.log'
@@ -66,7 +66,27 @@ ssh al 'systemctl start kunlun-db-backup@prod && tail -n 1 /var/log/kunlun-db-ba
 ssh al 'install -d -m 700 /var/backups/kunlun/prod/keep && cp -p /var/backups/kunlun/prod/kunlun_prod-<时间>.dump /var/backups/kunlun/prod/keep/'
 ```
 
-更新脚本或单元时，把这四个文件传到 al 上仅 root 可读的临时目录，两个脚本去掉 `.sh` 后 `install -m 700` 到 `/usr/local/sbin/`，两个单元 `install -m 644` 到 `/etc/systemd/system/`，再 `systemctl daemon-reload`；首次安装还需 `systemctl enable --now kunlun-db-backup@prod.timer kunlun-db-backup@test.timer`。
+更新脚本或单元时，把本目录的三个脚本和三个单元传到 al 上仅 root 可读的临时目录：脚本去掉 `.sh`、`.py` 后 `install -m 700` 到 `/usr/local/sbin/`，单元 `install -m 644` 到 `/etc/systemd/system/`，再 `systemctl daemon-reload`。首次安装还需 `systemctl enable --now kunlun-db-backup@prod.timer kunlun-db-backup@test.timer`，并按「备份失败邮件」建好配置文件；`kunlun-db-backup-notify@.service` 不需要 enable。
+
+### 备份失败邮件
+
+`kunlun-db-backup@.service` 设了 `OnFailure=kunlun-db-backup-notify@%n.service`。生产或测试备份以非零退出或超时后（手动 `systemctl start` 也算），systemd 会启动 `kunlun-db-backup-notify@kunlun-db-backup@prod.service.service` 这样的实例，由本目录的 `kunlun-db-backup-notify.py`（安装为 `/usr/local/sbin/kunlun-db-backup-notify`）发一封邮件；备份成功不会启动它。al 没有本地 MTA（`/usr/sbin/sendmail` 是 `lsb-invalid-mta` 占位），阿里云又封了出站 25 端口，所以脚本用系统自带 python3 的 smtplib 直接连邮箱服务商的 465（SSL）或 587（STARTTLS），不需要装软件包。
+
+- 标题含失败的单元名和主机名。正文有单元的 `Result` 和退出码、`/var/log/kunlun-db-backup.log` 最后 10 行、该单元 journal 最后 20 行，以及排查和重跑命令。
+- SMTP 服务器、账号、授权码和收件人只写在 al 的 `/etc/kunlun-db-backup-notify.conf`（root、600），格式见本目录 `kunlun-db-backup-notify.conf.example`。这些值不进仓库，也不要贴到聊天里。用 `ssh -t al nano /etc/kunlun-db-backup-notify.conf` 修改；文件权限被放宽或缺少必填项时，脚本拒绝发送。
+- 网络错误重试两次（间隔 30 秒、60 秒）；用户名或授权码错误、收件人被拒等 5xx 回复不重试。结果记入日志（`NOTIFY sent` 或 `NOTIFY FAILED`）。发信也失败时，`systemctl --failed` 会同时列出备份单元和 `kunlun-db-backup-notify@…` 单元，`NOTIFY FAILED` 行末附有该通知单元的 journal 命令。
+- al 的 journal 约 3G，查询时写完整单元名。`journalctl -u 'kunlun-db-backup-notify@*'` 这类通配符要扫描全部 journal，几分钟都出不了结果。
+
+改了配置或收件人后演练一次：起一个必然失败、挂同样 `OnFailure=` 的临时单元（对这个单元名，`%n` 展开后就是下面的值），不碰真实备份：
+
+```sh
+ssh al 'systemd-run --wait --unit=kunlun-db-backup-drill -p OnFailure=kunlun-db-backup-notify@kunlun-db-backup-drill.service.service /bin/sh -c "echo drill: simulated backup failure >&2; exit 1"'
+ssh al 'sleep 5; while [ "$(systemctl show -p ActiveState --value kunlun-db-backup-notify@kunlun-db-backup-drill.service.service)" = activating ]; do sleep 5; done; tail -n 1 /var/log/kunlun-db-backup.log; systemctl reset-failed kunlun-db-backup-drill.service'
+```
+
+日志最后一行应为 `… NOTIFY sent unit=kunlun-db-backup-drill.service …`，收件人会收到标题为「数据库备份失败：kunlun-db-backup-drill.service（主机 jhs）」的邮件。如果是 `NOTIFY FAILED`，按行末命令查原因，修好后先 `systemctl reset-failed kunlun-db-backup-notify@kunlun-db-backup-drill.service.service` 再演练。
+
+2026-11-17 部署时 SMTP 配置还没填，已验证触发路径：失败的临时单元启动了通知单元，参数是正确的单元名，并记下 `NOTIFY FAILED … has no value for SMTP_HOST, …`；挂同样 `OnFailure=` 的成功临时单元，以及一次手动测试库备份（`kunlun_test-20261117-091133.dump`），都没有启动通知单元。邮件能否送达，要等配置填好后按上面的命令演练。
 
 ### 恢复演练
 

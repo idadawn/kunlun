@@ -2,6 +2,8 @@
 [Unit]
 Description=Back up the Kunlun %i PostgreSQL database
 After=docker.service
+# A failed or timed-out run emails the failure (kunlun-db-backup-notify@.service); a successful run sends nothing.
+OnFailure=kunlun-db-backup-notify@%n.service
 
 [Service]
 Type=oneshot
