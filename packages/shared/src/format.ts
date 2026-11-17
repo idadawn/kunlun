@@ -62,7 +62,7 @@ export const PAY_METHODS: ReadonlyArray<{ value: PayMethod; label: string }> = [
   { value: 'BANK', label: '银行转账' },
 ];
 /** OPENING marks a deposit paid before the station used the system, recorded later; it was not taken in that day. */
-export const payMethodLabel = (value: string) => value === 'OPENING' ? '上系统前已收' : PAY_METHODS.find(p => p.value === value)?.label ?? value;
+export const payMethodLabel = (value: string) => value === 'OPENING' ? '上系统前已收' : value === 'TRANSFER' ? '水费转入' : PAY_METHODS.find(p => p.value === value)?.label ?? value;
 
 /**
  * A batch with a known original price: a recharge, or a package from before the system recorded with what was paid.

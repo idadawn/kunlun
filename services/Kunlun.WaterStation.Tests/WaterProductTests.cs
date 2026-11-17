@@ -57,7 +57,6 @@ public sealed class WaterProductTests(TestHost host)
         Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsJsonAsync("/api/orders", new CreateWaterOrderRequest(m, type, "DELIVERY", 2, Key()))).StatusCode);
         await Ok(await c.PostAsJsonAsync("/api/deposits/collect", new CollectDepositRequest(m, "BUCKET", 2, "CASH", Key())));
         var order = await Ok(await c.PostAsJsonAsync("/api/orders", new CreateWaterOrderRequest(m, type, "PICKUP", 2, Key())));
-        Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsJsonAsync($"/api/orders/{order.GetProperty("id").GetGuid()}/fulfill", new FulfillWaterOrderRequest(2, 2, 0, order.GetProperty("pickupCode").GetString()))).StatusCode);
         await Ok(await c.PostAsJsonAsync("/api/deposits/collect", new CollectDepositRequest(m, container, 2, "CASH", Key())));
         var done = await Ok(await c.PostAsJsonAsync($"/api/orders/{order.GetProperty("id").GetGuid()}/fulfill", new FulfillWaterOrderRequest(2, 2, 0, order.GetProperty("pickupCode").GetString())));
         Assert.Equal(3, done.GetProperty("availableTicketsAfter").GetInt32()); Assert.Equal(2, done.GetProperty("heldAfter").GetInt32());
@@ -113,8 +112,8 @@ public sealed class WaterProductTests(TestHost host)
         await Ok(await c.PostAsJsonAsync("/api/containers/movements", new RegisterContainerMovementRequest(m, b, 1, 0, null, Key())));
         var bRow = (await c.GetFromJsonAsync<JsonElement[]>("/api/containers/summary"))!.Single(x => x.GetProperty("containerType").GetString() == b);
         Assert.Equal(0, bRow.GetProperty("inStationQty").GetInt32()); Assert.Equal(1, bRow.GetProperty("withCustomersQty").GetInt32()); Assert.Equal(1, bRow.GetProperty("totalQty").GetInt32());
-        // b's deposit does not cover a's bags.
-        Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsJsonAsync("/api/containers/movements", new RegisterContainerMovementRequest(m, a, 1, 0, null, Key()))).StatusCode);
+        // Both products count against the same deposit balance.
+        Assert.Equal(HttpStatusCode.OK, (await c.PostAsJsonAsync("/api/containers/movements", new RegisterContainerMovementRequest(m, a, 1, 0, null, Key()))).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await c.DeleteAsync($"/api/products/{first.GetProperty("waterType").GetString()}")).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await c.DeleteAsync($"/api/products/{second.GetProperty("waterType").GetString()}")).StatusCode);
     }

@@ -203,19 +203,19 @@ public sealed class SettlementTests(TestHost host)
             deposits: [new("BAG", 1, Amount: 5m)], holdings: [new("BAG", 2)]);
         var bagDeposit = M(await Deposit(admin, mid, "BAG"), "unitDeposit");
 
-        var all = await Ok(await Preview(admin, mid));
+        var all = await Ok(await Preview(admin, mid, new SettlementContainerInput("BAG", 2)));
         Assert.Empty(all.GetProperty("blockers").EnumerateArray());
         Assert.Equal(80m, M(all.GetProperty("slip"), "computedAmount"));
-        Assert.Equal((1, 5m), (I(Line(all.GetProperty("slip"), "BAG"), "refundQty"), M(Line(all.GetProperty("slip"), "BAG"), "refundValue")));
+        Assert.Equal(5m, M(all.GetProperty("slip").GetProperty("pool"), "refund"));
 
         var one = (await Ok(await Preview(admin, mid, new SettlementContainerInput("BAG", 1)))).GetProperty("slip");
         Assert.Equal(75m, M(one, "computedAmount"));
-        Assert.Equal((0, 5m, 0, 1), (I(Line(one, "BAG"), "offsetQty"), M(Line(one, "BAG"), "chargeDeducted"), I(Line(one, "BAG"), "refundQty"), I(Line(one, "BAG"), "unreturned")));
+        Assert.Equal((5m, 1), (M(Line(one, "BAG"), "chargeDeducted"), I(Line(one, "BAG"), "unreturned")));
 
         // Keeping both: the bag without a deposit is charged at the standard deposit.
         var none = (await Ok(await Preview(admin, mid, new SettlementContainerInput("BAG", 0)))).GetProperty("slip");
         Assert.Equal(75m - bagDeposit, M(none, "computedAmount"));
-        Assert.Equal((1, bagDeposit), (I(Line(none, "BAG"), "offsetQty"), M(Line(none, "BAG"), "offsetAmount")));
+        Assert.Equal(bagDeposit, M(none.GetProperty("pool"), "transfer"));
 
         var tooMuch = await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement/preview", new SettlementPreviewRequest([new("BAG", 1)], 1000m)));
         Assert.Equal(JsonValueKind.String, tooMuch.GetProperty("amountError").ValueKind);
@@ -261,17 +261,16 @@ public sealed class SettlementTests(TestHost host)
         // One back good, one broken (deposit kept), one staying out on the other deposit: nothing to refund on the deposit.
         var deduct = (await Ok(await Preview(admin, mid, new SettlementContainerInput("BUCKET", 1, 1, false, "KEEP")))).GetProperty("slip");
         var bucket = Line(deduct, "BUCKET");
-        Assert.Equal((30m, 1, 30m, 0, 0), (M(bucket, "damageDeducted"), I(bucket, "keptQty"), M(bucket, "keptDeposit"), I(bucket, "refundQty"), I(bucket, "offsetQty")));
-        Assert.Equal(100m, M(deduct, "computedAmount"));
+        var standard = M(bucket, "unitDeposit");
+        Assert.Equal((standard, standard), (M(bucket, "damageDeducted"), M(bucket, "keptDeposit")));
+        Assert.Equal(160m - 2 * standard, M(deduct, "computedAmount"));
 
-        // The station bears the broken one: its deposit comes back.
         var waived = (await Ok(await Preview(admin, mid, new SettlementContainerInput("BUCKET", 1, 1, true, "KEEP")))).GetProperty("slip");
-        Assert.Equal((1, 30m), (I(Line(waived, "BUCKET"), "refundQty"), M(Line(waived, "BUCKET"), "refundValue")));
-        Assert.Equal(130m, M(waived, "computedAmount"));
+        Assert.Equal(160m - standard, M(waived, "computedAmount"));
         await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement",
-            new SettlementRequest(Key(), "WECHAT", [new("BUCKET", 1, 1, true, "KEEP")], ExpectedAmount: 130m)));
+            new SettlementRequest(Key(), "WECHAT", [new("BUCKET", 1, 1, true, "KEEP")], ExpectedAmount: 160m - standard)));
         var after = await Deposit(admin, mid, "BUCKET");
-        Assert.Equal((1, 1, 0), (I(after, "heldQty"), I(after, "paidQty"), I(after, "refundableQty")));
+        Assert.Equal((1, standard), (I(after, "heldQty"), M(after.GetProperty("pool"), "total")));
         await Reconciled(admin);
 
         // Owed deposit for containers kept out is taken from the refund and becomes deposit, refundable once they come back.
@@ -284,7 +283,103 @@ public sealed class SettlementTests(TestHost host)
         await Ok(await admin.PostAsJsonAsync($"/api/members/{owing}/settlement",
             new SettlementRequest(Key(), "CASH", [new("BUCKET", 0, 0, false, "KEEP")], ExpectedAmount: 100m - 2 * unit)));
         var covered = await Deposit(admin, owing, "BUCKET");
-        Assert.Equal((2, 2, 2 * unit), (I(covered, "heldQty"), I(covered, "paidQty"), M(covered, "paidAmount")));
+        Assert.Equal((2, 2 * unit), (I(covered, "heldQty"), M(covered.GetProperty("pool"), "total")));
+        await Reconciled(admin);
+    }
+
+    [Fact]
+    public async Task Seventy_Yuan_Leaves_Ten_In_The_Pool_Until_The_Two_Bags_Come_Back()
+    {
+        using var admin = await Login();
+        var (mid, memberNo) = await Member(admin);
+        await Opening(admin, mid,
+            tickets: [new(WaterType: Bag, FulfillMode: "DELIVERY", PlanId: WaterProducts.PlanId("107"), PaidAmount: 100, PackageQty: 40, Remaining: 28)],
+            holdings: [new("BAG", 2)]);
+        var slip = (await Ok(await Preview(admin, mid))).GetProperty("slip");
+        Assert.Equal((60m, 10m), (M(slip, "computedAmount"), M(slip.GetProperty("pool"), "transfer")));
+        var request = new SettlementRequest(Key(), "WECHAT", ExpectedAmount: 60, ExpectedRevision: slip.GetProperty("revision").GetString());
+        var booked = await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement", request));
+        Assert.False(string.IsNullOrEmpty(booked.GetProperty("pool").GetProperty("transferNo").GetString()));
+        var water = Assert.Single((await admin.GetFromJsonAsync<JsonElement>($"/api/ledgers/recharge-refunds?q={memberNo}&page=1")).GetProperty("rows").EnumerateArray());
+        Assert.Equal((60m, 10m), (M(water,"amount"), M(water,"transferredAmount")));
+        var flows = await admin.GetFromJsonAsync<JsonElement>($"/api/ledgers/deposits?q={memberNo}&page=1");
+        Assert.Contains(flows.GetProperty("rows").EnumerateArray(), r => r.GetProperty("flowType").GetString() == "TRANSFER" && M(r,"amount") == 10);
+        Assert.Equal((2, 10m), (I(await Deposit(admin, mid, "BAG"), "heldQty"), M((await Deposit(admin, mid, "BAG")).GetProperty("pool"), "total")));
+        await Ok(await admin.PostAsJsonAsync("/api/containers/movements", new RegisterContainerMovementRequest(mid, "BAG", 0, 2, IdempotencyKey: Key())));
+        await Ok(await admin.PostAsJsonAsync("/api/refund-requests", new { kind="DEPOSIT", memberId=mid, amount=6.37m, payMethod="WECHAT", idempotencyKey=Key() }));
+        Assert.Equal(3.63m, M((await Deposit(admin, mid, "BAG")).GetProperty("pool"), "total"));
+        await Reconciled(admin);
+    }
+
+    [Fact]
+    public async Task Pool_Refund_Reserves_Money_And_Preserves_The_Change_From_An_Old_Lot()
+    {
+        using var admin = await Login();
+        using var clerk = await Login("YG0012");
+        await ReviewSwitches(admin, true);
+        var (mid, _) = await Member(admin);
+        await Opening(admin, mid, deposits:[new("BUCKET", 1, Amount:30)], holdings:[new("BAG", 7)]);
+        var collection = new { memberId=mid, amount=2.37m, payMethod="CASH", idempotencyKey=Key() };
+        await Ok(await admin.PostAsJsonAsync("/api/deposits/collect", collection));
+        await Ok(await admin.PostAsJsonAsync("/api/deposits/collect", collection));
+        Assert.Equal(2.63m, M((await Deposit(admin, mid, "BAG")).GetProperty("pool"), "shortfall"));
+        var refund = new ApplyRefundRequest("DEPOSIT",mid,null,null,null,"CASH","",Key(),10.17m);
+        var pending = await Ok(await clerk.PostAsJsonAsync("/api/refund-requests",refund));
+        Assert.Equal(22.20m, M((await Deposit(admin, mid, "BAG")).GetProperty("pool"), "available"));
+        await Fails(await admin.PostAsJsonAsync("/api/refund-requests",refund with { IdempotencyKey=Key(), Amount=22.21m }), HttpStatusCode.BadRequest);
+        var approval = await Ok(await admin.PostAsJsonAsync($"/api/refund-requests/{pending.GetProperty("id")}/approve", new ApproveRefundRequest(null,null,10.17m)));
+        Assert.Equal(10.17m, M(approval,"refundAmount"));
+        Assert.Equal(22.20m, M((await Deposit(admin, mid, "BAG")).GetProperty("pool"), "total"));
+        await Reconciled(admin);
+    }
+
+    [Fact]
+    public async Task Amount_Only_Collect_Is_Approved_Once_And_Concurrent_Refunds_Cannot_Overdraw()
+    {
+        using var admin = await Login();
+        var (mid, _) = await Member(admin);
+        await Ok(await admin.PutAsJsonAsync("/api/settings/review", new SaveReviewSettingsRequest(true,true,true,false)));
+        try
+        {
+            var req = new { memberId=mid, amount=23.41m, payMethod="CASH", idempotencyKey=Key() };
+            var pending = await Ok(await admin.PostAsJsonAsync("/api/deposits/collect",req));
+            var pendingPool = (await Deposit(admin,mid,"BAG")).GetProperty("pool");
+            Assert.Equal((0m,23.41m), (M(pendingPool,"total"),M(pendingPool,"pendingCollect")));
+            await Ok(await admin.PostAsJsonAsync($"/api/refund-requests/{pending.GetProperty("requestId")}/approve", new ApproveRefundRequest(null,null)));
+            await Ok(await admin.PostAsJsonAsync("/api/deposits/collect",req));
+            var refunds = await Task.WhenAll(Enumerable.Range(0,2).Select(_ =>
+                admin.PostAsJsonAsync("/api/deposits/refund",new {memberId=mid, amount=15.07m, payMethod="CASH", idempotencyKey=Key()})));
+            Assert.Single(refunds, r => r.IsSuccessStatusCode);
+            Assert.Single(refunds, r => r.StatusCode == HttpStatusCode.BadRequest);
+            Assert.Equal(8.34m, M((await Deposit(admin,mid,"BUCKET")).GetProperty("pool"),"total"));
+            await Reconciled(admin);
+        }
+        finally { await Ok(await admin.PutAsJsonAsync("/api/settings/review",new SaveReviewSettingsRequest(true,true,false,false))); }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Each_Unpaid_Scrap_Is_Decided_Once_And_Paid_Damage_Is_Excluded(bool charge)
+    {
+        using var admin = await Login();
+        var (mid, _) = await Member(admin);
+        await Recharge(admin, mid);
+        await Opening(admin, mid, holdings:[new("BAG",2)]);
+        foreach (var paid in new[] {true,false})
+        {
+            var damage = await Ok(await admin.PostAsJsonAsync("/api/containers/damages", new ReportContainerDamageRequest(mid,"BAG",1,"袋破了",Key(), FeePaid:paid)));
+            await Ok(await admin.PostAsJsonAsync($"/api/containers/damages/{damage.GetProperty("id")}/scrap", new ScrapContainerDamageRequest("报废",Key(),false)));
+        }
+        var slip = (await Ok(await Preview(admin,mid))).GetProperty("slip");
+        var damageLine = Assert.Single(slip.GetProperty("damages").EnumerateArray());
+        var request = new SettlementRequest(Key(),"CASH");
+        await Fails(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement",request), HttpStatusCode.BadRequest);
+        request = request with { DamageDecisions=[new(damageLine.GetProperty("reference").GetString()!,charge)] };
+        var receipt = await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement",request));
+        Assert.Equal(charge ? 95m : 100m, M(receipt,"amount"));
+        Assert.Equal(receipt.GetProperty("id").GetGuid(), (await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement",request))).GetProperty("id").GetGuid());
+        Assert.Empty((await Ok(await Preview(admin,mid))).GetProperty("slip").GetProperty("damages").EnumerateArray());
         await Reconciled(admin);
     }
 

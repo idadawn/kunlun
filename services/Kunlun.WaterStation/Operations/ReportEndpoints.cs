@@ -58,15 +58,16 @@ public static class ReportEndpoints
 
             // Deposits recorded from before the system (source OPENING) were not collected here: they count in the pool and in
             // the reconciliation, but not as collections.
-            decimal depositCollectedTotal, unrefundedDepositPoolFromLots, depositOpeningTotal;
+            decimal depositCollectedTotal, unrefundedDepositPoolFromLots, depositOpeningTotal, depositTransferTotal;
             long depositCollectCount, unrefundedDepositQty, depositOpeningCount;
             await using (var depCmd = new NpgsqlCommand("""
-                SELECT COUNT(*) FILTER (WHERE source <> 'OPENING'),
-                       COALESCE(SUM(total_amount) FILTER (WHERE source <> 'OPENING'), 0.00),
-                       COALESCE(SUM(remaining_qty * unit_price), 0.00),
+                SELECT COUNT(*) FILTER (WHERE source NOT IN ('OPENING','TRANSFER')),
+                       COALESCE(SUM(total_amount) FILTER (WHERE source NOT IN ('OPENING','TRANSFER')), 0.00),
+                       COALESCE(SUM(remaining_qty * COALESCE(unit_price,0) + free_amount), 0.00),
                        COALESCE(SUM(remaining_qty), 0),
                        COUNT(*) FILTER (WHERE source = 'OPENING'),
-                       COALESCE(SUM(total_amount) FILTER (WHERE source = 'OPENING'), 0.00)
+                       COALESCE(SUM(total_amount) FILTER (WHERE source = 'OPENING'), 0.00),
+                       COALESCE(SUM(total_amount) FILTER (WHERE source = 'TRANSFER'), 0.00)
                 FROM plugin_kunlun_waterstation.deposit_lots
                 WHERE tenant_id = @tid
                 """, conn))
@@ -80,6 +81,7 @@ public static class ReportEndpoints
                 unrefundedDepositQty = r.GetInt64(3);
                 depositOpeningCount = r.GetInt64(4);
                 depositOpeningTotal = r.GetDecimal(5);
+                depositTransferTotal = r.GetDecimal(6);
             }
 
             // 会员还没用完的水费：在用充值批次的剩余付费票按原实付单价折算，与退清单个批次同一口径
@@ -140,10 +142,10 @@ public static class ReportEndpoints
             }
 
             // Refunds of packages from before the system are money paid out here too, but they never came in as recharges.
-            decimal rechargeRefundedTotal, openingRefundedTotal;
+            decimal rechargeRefundedTotal, openingRefundedTotal, openingTransferred;
             long rechargeRefundCount, openingRefundCount;
             await using (var refunds = TicketBatches.Command(conn, null, """
-                SELECT count(*),COALESCE(sum(f.amount),0),count(*) FILTER (WHERE b.source='OPENING'),COALESCE(sum(f.amount) FILTER (WHERE b.source='OPENING'),0)
+                SELECT count(*),COALESCE(sum(f.amount),0),count(*) FILTER (WHERE b.source='OPENING'),COALESCE(sum(f.amount) FILTER (WHERE b.source='OPENING'),0),COALESCE(sum(f.transferred_amount) FILTER (WHERE b.source='OPENING'),0)
                 FROM plugin_kunlun_waterstation.recharge_refunds f JOIN plugin_kunlun_waterstation.ticket_batches b ON b.id=f.batch_id
                 WHERE f.tenant_id=@tid
                 """, ("tid", tenantId)))
@@ -154,6 +156,7 @@ public static class ReportEndpoints
                 rechargeRefundedTotal = r.GetDecimal(1);
                 openingRefundCount = r.GetInt64(2);
                 openingRefundedTotal = r.GetDecimal(3);
+                openingTransferred = r.GetDecimal(4);
             }
             decimal depositDeductedTotal;
             long depositDeductCount;
@@ -170,7 +173,7 @@ public static class ReportEndpoints
                 depositDeductCount = r.GetInt64(0);
                 depositDeductedTotal = r.GetDecimal(1);
             }
-            var netDepositFromFlows = depositOpeningTotal + depositCollectedTotal - depositRefundedTotal - depositDeductedTotal;
+            var netDepositFromFlows = depositOpeningTotal + depositTransferTotal + depositCollectedTotal - depositRefundedTotal - depositDeductedTotal;
 
             // 费用支出：买桶袋、配件耗材、维修等花出去的钱，作废的不算；押金不是收入，所以结余只拿水费净收减支出。
             decimal expenseTotal;
@@ -189,7 +192,7 @@ public static class ReportEndpoints
                 rechargeRevenueTotal,
                 rechargeRefundedTotal,
                 rechargeRefundCount,
-                rechargeNetReceived = rechargeRevenueTotal - rechargeRefundedTotal,
+                rechargeNetReceived = rechargeRevenueTotal - depositTransferTotal - rechargeRefundedTotal,
                 rechargeOrderCount,
                 ticketsSoldBuyQty,
                 ticketsGiftedQty,
@@ -200,6 +203,7 @@ public static class ReportEndpoints
                 depositDeductedTotal,
                 depositDeductCount,
                 // 上系统前已收、补录进来的押金：在池押金 = 上系统前 + 累计收押 − 累计退押 − 累计扣押。
+                depositTransferTotal,
                 depositOpeningTotal,
                 depositOpeningCount,
                 unrefundedDepositPoolTotal = unrefundedDepositPoolFromLots,
@@ -213,14 +217,15 @@ public static class ReportEndpoints
                 openingUnusedValue,
                 openingPaidTicketQty,
                 openingRefundedTotal,
+                openingTransferred,
                 openingRefundCount,
                 // 押金和没用完的水费（含上系统前买的）都是会员可以要回去的钱，不是收入；水费净收里扣掉系统里充值没用完的，
                 // 再加回退给上系统前套餐的钱（那笔钱当初没进系统），才是会员在系统里已经用掉的水费。
                 potentialRefundTotal = unrefundedDepositPoolFromLots + unusedRechargeValue + openingUnusedValue,
-                rechargeEarnedTotal = rechargeRevenueTotal - (rechargeRefundedTotal - openingRefundedTotal) - unusedRechargeValue,
+                rechargeEarnedTotal = rechargeRevenueTotal - (depositTransferTotal - openingTransferred) - (rechargeRefundedTotal - openingRefundedTotal) - unusedRechargeValue,
                 expenseTotal,
                 expenseCount,
-                rechargeNetAfterExpenses = rechargeRevenueTotal - rechargeRefundedTotal - expenseTotal,
+                rechargeNetAfterExpenses = rechargeRevenueTotal - depositTransferTotal - rechargeRefundedTotal - expenseTotal,
                 completedOrderCount,
                 waterFulfilledTotalQty,
                 generatedAt = DateTimeOffset.UtcNow
@@ -297,13 +302,13 @@ public static class ReportEndpoints
                     // OPENING: a deposit paid before the system and recorded later, not collected on that day.
                     sb.AppendLine("单据号,流转类型,会员ID,容器类型,数量,批次单价(元),金额(元),剩余未退数量,操作人,时间,收付方式");
                     await using var cmd = new NpgsqlCommand("""
-                        SELECT deposit_no AS doc_no, CASE WHEN source = 'OPENING' THEN 'OPENING' ELSE 'COLLECT' END AS flow_type, member_id, container_type, paid_qty AS qty,
-                               unit_price, total_amount AS amount, remaining_qty, operator_name, created_at, pay_method
+                        SELECT deposit_no AS doc_no, CASE WHEN source IN ('OPENING','TRANSFER') THEN source ELSE 'COLLECT' END AS flow_type, member_id, COALESCE(container_type,'') AS container_type, COALESCE(paid_qty,0) AS qty,
+                               COALESCE(unit_price,0), total_amount AS amount, remaining_qty, operator_name, created_at, pay_method
                         FROM plugin_kunlun_waterstation.deposit_lots
                         WHERE tenant_id = @tid
                         UNION ALL
-                        SELECT refund_no AS doc_no, 'REFUND' AS flow_type, member_id, container_type, refund_qty AS qty,
-                               ROUND(refund_amount / refund_qty, 2) AS unit_price, refund_amount AS amount, 0 AS remaining_qty, operator_name, created_at, pay_method
+                        SELECT refund_no AS doc_no, 'REFUND' AS flow_type, member_id, COALESCE(container_type,''), COALESCE(refund_qty,0) AS qty,
+                               COALESCE(ROUND(refund_amount / refund_qty, 2),0) AS unit_price, refund_amount AS amount, 0 AS remaining_qty, operator_name, created_at, pay_method
                         FROM plugin_kunlun_waterstation.deposit_refunds
                         WHERE tenant_id = @tid
                         UNION ALL
@@ -311,8 +316,8 @@ public static class ReportEndpoints
                                ROUND(deposit_amount/quantity,2) AS unit_price,deposit_amount AS amount,0 AS remaining_qty,scrap_operator AS operator_name,scrapped_at AS created_at,NULL
                         FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND status='SCRAPPED' AND NOT deposit_waived
                         UNION ALL
-                        SELECT refund_no,'DEDUCT',member_id,container_type,refund_qty,
-                               ROUND(deducted_amount/refund_qty,2),deducted_amount,0,operator_name,created_at,NULL
+                        SELECT refund_no,'DEDUCT',member_id,COALESCE(container_type,''),COALESCE(refund_qty,0),
+                               COALESCE(ROUND(deducted_amount/refund_qty,2),0),deducted_amount,0,operator_name,created_at,NULL
                         FROM plugin_kunlun_waterstation.deposit_refunds WHERE tenant_id=@tid AND deducted_amount>0
                         ORDER BY created_at DESC
                         """, conn);
@@ -391,16 +396,16 @@ public static class ReportEndpoints
                 }
                 case "recharge-refunds":
                 {
-                    sb.AppendLine("退款单号,原充值单号,会员ID,原套餐名称,退款金额,退付费票,收回赠票,退款方式,退款原因,操作人,时间");
+                    sb.AppendLine("退款单号,原充值单号,会员ID,原套餐名称,退款金额,退付费票,收回赠票,退款方式,退款原因,操作人,时间,水费转押金");
                     await using var cmd = TicketBatches.Command(conn, null, """
-                        SELECT rf.refund_no,COALESCE(ro.recharge_no,''),rf.member_id,COALESCE(ro.plan_snapshot->>'name',b.opening_snapshot->>'name'),rf.amount,rf.refund_buy_qty,rf.revoked_gift_qty,rf.pay_method,rf.reason,rf.operator_name,rf.created_at
+                        SELECT rf.refund_no,COALESCE(ro.recharge_no,''),rf.member_id,COALESCE(ro.plan_snapshot->>'name',b.opening_snapshot->>'name'),rf.amount,rf.refund_buy_qty,rf.revoked_gift_qty,rf.pay_method,rf.reason,rf.operator_name,rf.created_at,rf.transferred_amount
                         FROM plugin_kunlun_waterstation.recharge_refunds rf
                         JOIN plugin_kunlun_waterstation.ticket_batches b ON b.id=rf.batch_id
                         LEFT JOIN plugin_kunlun_waterstation.recharge_orders ro ON ro.id=b.recharge_id
                         WHERE rf.tenant_id=@tid ORDER BY rf.created_at DESC
                         """, ("tid", tenantId));
                     await using var r = await cmd.ExecuteReaderAsync(ct);
-                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{Csv(r.GetString(1))},{r.GetGuid(2)},{Csv(r.IsDBNull(3) ? "" : r.GetString(3))},{r.GetDecimal(4):F2},{r.GetInt32(5)},{r.GetInt32(6)},{r.GetString(7)},{Csv(r.GetString(8))},{Csv(r.GetString(9))},{r.GetDateTime(10):O}");
+                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{Csv(r.GetString(1))},{r.GetGuid(2)},{Csv(r.IsDBNull(3) ? "" : r.GetString(3))},{r.GetDecimal(4):F2},{r.GetInt32(5)},{r.GetInt32(6)},{r.GetString(7)},{Csv(r.GetString(8))},{Csv(r.GetString(9))},{r.GetDateTime(10):O},{r.GetDecimal(11):F2}");
                     break;
                 }
                 case "expenses":
@@ -491,7 +496,7 @@ public static class ReportEndpoints
             await using var conn = await db.OpenConnectionAsync(ct);
             return await Paging.From(page, pageSize, legacyLimit: 30).Query(conn, """
                 rf.refund_no, COALESCE(ro.recharge_no, ''), m.name, m.member_no, COALESCE(ro.plan_snapshot->>'name', b.opening_snapshot->>'name'), b.water_type, b.fulfill_mode,
-                rf.amount, rf.refund_buy_qty, rf.revoked_gift_qty, rf.pay_method, rf.reason, rf.operator_name, rf.created_at, q.applicant_name
+                rf.amount, rf.refund_buy_qty, rf.revoked_gift_qty, rf.pay_method, rf.reason, rf.operator_name, rf.created_at, q.applicant_name, rf.transferred_amount
                 """, """
                 plugin_kunlun_waterstation.recharge_refunds rf
                 JOIN plugin_kunlun_waterstation.members m ON m.id = rf.member_id
@@ -521,6 +526,7 @@ public static class ReportEndpoints
                 waterType = reader.GetString(5),
                 fulfillMode = reader.GetString(6),
                 amount = reader.GetDecimal(7),
+                transferredAmount = reader.GetDecimal(15),
                 refundBuyQty = reader.GetInt32(8),
                 revokedGiftQty = reader.GetInt32(9),
                 payMethod = reader.GetString(10),
@@ -538,7 +544,7 @@ public static class ReportEndpoints
             return await Paging.From(page, pageSize, legacyLimit: 30).Query(conn,
                 "doc_no, member_name, flow_type, container_type, qty, unit_price, amount, remaining_qty, operator_name, created_at, member_no, pay_method, applicant_name, reason", """
                 (SELECT d.deposit_no AS doc_no, m.name AS member_name, m.member_no, m.phone,
-                        CASE WHEN d.source = 'OPENING' THEN 'OPENING' ELSE 'COLLECT' END AS flow_type, d.container_type, d.paid_qty AS qty,
+                        CASE WHEN d.source IN ('OPENING','TRANSFER') THEN d.source ELSE 'COLLECT' END AS flow_type, d.container_type, d.paid_qty AS qty,
                         d.unit_price, d.total_amount AS amount, d.remaining_qty, d.operator_name, d.created_at, d.pay_method,
                         NULL AS applicant_name, NULL AS reason
                  FROM plugin_kunlun_waterstation.deposit_lots d
@@ -587,9 +593,9 @@ public static class ReportEndpoints
                 memberName = reader.GetString(1),
                 memberNo = reader.GetString(10),
                 flowType = reader.GetString(2),
-                containerType = reader.GetString(3),
-                qty = reader.GetInt32(4),
-                unitPrice = reader.GetDecimal(5),
+                containerType = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                qty = reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
+                unitPrice = reader.IsDBNull(5) ? 0m : reader.GetDecimal(5),
                 amount = reader.GetDecimal(6),
                 remainingQty = reader.GetInt32(7),
                 payMethod = reader.IsDBNull(11) ? null : reader.GetString(11),

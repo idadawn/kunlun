@@ -1,13 +1,13 @@
 import { useRef, useState } from 'react';
 import {
-  KUNLUN_PERMISSIONS as P, calcDepositGap, containerKind, containerOf, containerUnit, money, unitOf, waterFallbackLabel,
+  KUNLUN_PERMISSIONS as P, containerKind, containerOf, containerUnit, money, unitOf, waterFallbackLabel,
   type FulfillOrderRequest, type PayMethod, type WaterOrder,
 } from '@kunlun/shared';
 import { useAuth } from '../auth';
 import { Field, FormDialog, NumberInput, useToast } from '../feedback';
 import { useIdempotencyKey } from '../hooks';
 import {
-  DEPOSIT_NOT_RECEIVED, EMPTY_HANDOVER, HandoverDeposit, composeHandoverNote, damageFields, handoverProblem, paidOf, useConfirmDepositReceived, useDepositPositions,
+  DEPOSIT_NOT_RECEIVED, EMPTY_HANDOVER, HandoverDeposit, depositGap, composeHandoverNote, damageFields, handoverProblem, paidOf, useConfirmDepositReceived, useDepositPositions,
   type HandoverChoice,
 } from '../ordering';
 import { PayOptions, useReviewSettings, waitsForReview } from './common';
@@ -45,7 +45,7 @@ export function FulfillDialog({ order, onClose, onDone }: { order?: WaterOrder; 
   const position = container ? deposits.data?.[container] : undefined;
   // Full-for-empty swap: by default collect as many empties as the member holds, up to the quantity delivered.
   const emptyIn = emptyInInput ?? (position ? Math.min(position.held, initial) : initial);
-  const due = position ? calcDepositGap(position.covered, position.held, fullOut, emptyIn) : 0;
+  const due = position ? depositGap(position, fullOut, emptyIn) : 0;
   // Empties beyond what the member holds are their own containers swapped in: nothing new is lent out, so no deposit.
   const ownEmpties = position ? Math.max(0, emptyIn - position.held) : 0;
   const paid = collected.current ? 0 : paidOf(choice, due);
@@ -55,21 +55,20 @@ export function FulfillDialog({ order, onClose, onDone }: { order?: WaterOrder; 
     if (order && container && position) {
       const problem = handoverProblem(choice, collected.current ? 0 : due, unit);
       if (problem) throw new Error(problem);
-      if (due > 0 && !can(P.DepositCollect)) throw new Error('交付后押金不足，当前账号没有收押金权限');
-      const price = position.unitDeposit;
-      const owed = due - paid;
+      if (paid > 0 && !can(P.DepositCollect)) throw new Error('交付后押金不足，当前账号没有收押金权限');
+      const owed = Math.max(0, due - paid);
       if (paid > 0) {
         const name = order.productSnapshot?.waterLabel || waterFallbackLabel(order.waterType);
-        const unpaidPart = owed > 0 ? { amount: owed * price, text: `${owed} 个${unit}` } : undefined;
-        if (!await confirmDeposit(payMethod, [{ name, type: container, qty: paid, unitDeposit: price }], unpaidPart)) throw new Error(DEPOSIT_NOT_RECEIVED);
+        const unpaidPart = owed > 0 ? { amount: owed, text: "交付后差额" } : undefined;
+        if (!await confirmDeposit(payMethod, [{ name, amount: paid }], unpaidPart)) throw new Error(DEPOSIT_NOT_RECEIVED);
         // Keyed by the amount and method so a retry after a later failure cannot charge twice; coverage is re-read afterwards,
         // which leaves only the unpaid part as 应付 (and 实付 at zero) if the hand-over itself has to be retried.
-        const taken = await api.collectDeposit({ memberId: order.memberId, containerType: container, quantity: paid, payMethod, idempotencyKey: `${key}:${paid}:${payMethod}` });
+        const taken = await api.collectDeposit({ memberId: order.memberId, amount: paid, payMethod, idempotencyKey: `${key}:${paid}:${payMethod}` });
         collected.current += paid;
         if (taken.status === 'PENDING') waiting.current += taken.totalAmount;
         await deposits.reload();
       }
-      const note = composeHandoverNote(choice, { unit, price, paid: collected.current, owed });
+      const note = composeHandoverNote(choice, { unit, paid: collected.current, owed });
       if (owed > 0) body.forceCreditOverride = true;
       if (note) body.overrideReason = note;
       Object.assign(body, damageFields(choice));

@@ -3,7 +3,7 @@ import {
   KUNLUN_PERMISSIONS as P, containerKind, containerLabel, money,
   type CirculationBusinessType, type CirculationRow, type ContainerDamageRow, type ContainerHoldingRow, type ContainerType, type Paged,
 } from '@kunlun/shared';
-import { DepositDialog, Field, FormDialog, MemberPicker, ReasonChips, Stepper, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
+import { Field, FormDialog, MemberPicker, ReasonChips, Stepper, useApi, useAuth, useDialogs, useIdempotencyKey, useLoader, useRun, useToast } from '@kunlun/ui';
 import { EmptyRow, Pager, useExport, useGo, useOperations } from '../common';
 import { useAdminData } from '../data';
 
@@ -132,7 +132,7 @@ export function Assets() {
         <td>{time(r.createdAt)}<br /><small>{r.damageNo}</small></td>
         <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>
         <td>{containerLabel(r.containerType)} × {r.quantity}</td>
-        <td>¥{money(r.depositAmount)}<br /><small>{r.status === 'PENDING' ? '报废时决定是否扣除' : r.depositWaived ? '未扣，已退回可用押金' : '已扣除'}</small></td>
+        <td>¥{money(r.depositAmount)}<br /><small>{r.feePaid != null ? r.feePaid ? '登记时已赔付' : '登记时未赔付' : r.status === 'PENDING' ? '报废时决定是否扣除' : r.depositWaived ? '未扣，已退回可用押金' : '已扣除'}</small></td>
         <td><span className={`tag ${r.status === 'PENDING' ? 'orange' : 'gray'}`}>{r.status === 'PENDING' ? '待报废' : r.depositWaived ? '已报废 · 未扣押金' : '已报废 · 已扣押金'}</span></td>
         <td className="inventory-reason">
           {r.reason}
@@ -196,35 +196,23 @@ export function Assets() {
 function DamageDialog({ member, onClose, onDone }: { member?: Member; onClose: (reported?: boolean) => void; onDone: () => Promise<void> }) {
   const api = useApi();
   const toast = useToast();
-  const dialogs = useDialogs();
   const key = useIdempotencyKey();
-  const { products, containers, refresh } = useAdminData();
+  const { products } = useAdminData();
   const [selected, setSelected] = useState<Member | null>(member ?? null);
   const [type, setType] = useState<ContainerType>(member && member.heldBags === 0 ? 'BUCKET' : 'BAG');
   const summary = useLoader(() => selected ? api.depositSummary(selected.id) : Promise.resolve([]), [api, selected?.id]);
   const row = summary.data?.find(r => r.containerType === type);
   const held = row?.heldQty;
-  // Deposit that can still pay for damage: paid and not refunded, less what earlier damage already holds.
-  const coverable = row ? Math.max(0, row.paidQty - row.pendingDamageQty) : undefined;
   const [quantity, setQuantity] = useState(1);
   const [reason, setReason] = useState('');
   const [fee, setFee] = useState<'paid' | 'unpaid' | null>(null);
-  const [why, setWhy] = useState('');
-  const uncovered = coverable === undefined ? 0 : Math.max(0, quantity - coverable);
-
-  const collect = async () => {
-    if (!selected) return;
-    await dialogs.open(close => <DepositDialog containers={containers} memberId={selected.id} action="collect" onClose={close} onDone={refresh} />);
-    await summary.reload();
-  };
   const submit = async () => {
     if (!selected) throw new Error('请选择会员');
-    if (uncovered > 0 && !fee) throw new Error('押金不够扣：请选报废费用给没给');
-    if (uncovered > 0 && !why.trim()) throw new Error('押金不够扣：请写一句为什么没交押金');
+    if (!fee) throw new Error('请选择破损费用是否已付');
     try {
       await api.reportDamage({
         memberId: selected.id, containerType: type, quantity, reason: reason.trim(), idempotencyKey: key,
-        ...(uncovered > 0 && { acceptUncovered: true, uncoveredNote: `报废费用${fee === 'paid' ? '给了' : '没给'}；说明：${why.trim()}` }),
+        feePaid: fee === 'paid',
       });
     } catch (e) {
       // The deposit may have changed meanwhile; show the current figures with the error.
@@ -232,37 +220,29 @@ function DamageDialog({ member, onClose, onDone }: { member?: Member; onClose: (
       throw e;
     }
     await onDone();
-    toast(uncovered > 0 ? `破损已登记，其中 ${uncovered} 个没押金，备注已记下` : '破损已登记，押金尚未扣除');
+    toast('破损数量及赔付情况已登记');
     onClose(true);
   };
   return (
     <FormDialog title="登记破损归还" className="inventory-dialog" submitLabel="登记破损归还" onClose={() => onClose()} onSubmit={submit}>
-      <div className="membership-summary">实物收回后登记：会员手里减掉，袋桶库存里的客户手里也跟着减，记为待确认报废。此时不扣押金，对应押金暂不可退款或用于新领用。</div>
+      <div className="membership-summary">实物收回后登记：会员手里减掉，袋桶库存里的客户手里也跟着减，记为待确认报废。未收取的破损费用可在退款结算时处理。</div>
       <Field label="会员" htmlFor="damageMember"><MemberPicker id="damageMember" value={selected} onChange={setSelected} /></Field>
       <Field label="容器类型" htmlFor="damageType">
         <select id="damageType" className="select" value={type} onChange={e => setType(e.target.value as ContainerType)}>
           {products.map(p => <option key={p.containerId} value={p.containerId}>{containerLabel(p.containerId)}</option>)}
         </select>
       </Field>
-      <p className="membership-note">{selected ? `${containerLabel(type)}：持有 ${held ?? '…'} 个 · 交过的押金够扣 ${coverable ?? '…'} 个 · 押金余额 ¥${money(selected.depositAmount)}` : '请选择会员'}</p>
+      <p className="membership-note">{selected ? `${containerLabel(type)}：持有 ${held ?? '…'} 个 · 押金余额 ¥${money(selected.depositAmount)}` : '请选择会员'}</p>
       <Field label="已收回破损数量（个）" htmlFor="damageQuantity">
         <Stepper id="damageQuantity" label="破损数量" value={quantity} onChange={setQuantity} min={1} max={10000} />
       </Field>
-      {uncovered > 0 && (
-        <section className="owed-note" aria-label="押金不够扣">
-          <h5>押金不够扣<em>必填</em></h5>
-          <p className="membership-note">
-            他交过的押金只够扣 {coverable} 个，这次登记 {quantity} 个，还差 {uncovered} 个没押金。
-            先让他补交押金（<button type="button" className="link" onClick={() => { void collect(); }}>去收押金</button>）；不交也能登记，但要写清报废费用给没给。
-          </p>
+      <section className="owed-note" aria-label="破损赔付">
+          <h5>报废费用</h5>
           <div className="seg-switch" role="group" aria-label="报废费用">
             <button type="button" aria-pressed={fee === 'paid'} onClick={() => setFee('paid')}>报废费用给了</button>
             <button type="button" aria-pressed={fee === 'unpaid'} onClick={() => setFee('unpaid')}>报废费用没给</button>
           </div>
-          <label htmlFor="damageNoDeposit">为什么没交押金</label>
-          <input id="damageNoDeposit" className="input" maxLength={300} placeholder="如：顾客说下次一起交" value={why} onChange={e => setWhy(e.target.value)} />
-        </section>
-      )}
+      </section>
       <ReasonField value={reason} onChange={setReason} placeholder="如：桶身开裂漏水" />
       <ReasonChips options={DAMAGE_REASONS[containerKind(type)]} value={reason} onPick={setReason} />
     </FormDialog>
@@ -275,21 +255,21 @@ function ScrapDialog({ row, onClose, onDone }: { row: ContainerDamageRow; onClos
   const toast = useToast();
   const key = useIdempotencyKey();
   const [reason, setReason] = useState(row.reason);
-  const [deduct, setDeduct] = useState(true);
+  const [deduct, setDeduct] = useState(row.feePaid == null);
   const submit = async () => {
     const receipt = await api.scrapDamage(row.id, { reason: reason.trim(), idempotencyKey: key, deductDeposit: deduct });
     await onDone();
-    toast(receipt.depositWaived ? '报废完成，未扣押金，对应押金已退回会员可用余额' : `报废完成，已扣押金 ¥${money(receipt.deductedAmount)}`);
+    toast(row.feePaid != null ? '已登记报废' : receipt.depositWaived ? '报废完成，未扣押金，对应押金已退回会员可用余额' : `报废完成，已扣押金 ¥${money(receipt.deductedAmount)}`);
   };
   return (
     <FormDialog title="确认报废" className="inventory-dialog" submitLabel={deduct ? '确认报废并扣押金' : '确认报废，不扣押金'} onClose={onClose} onSubmit={submit}>
-      <div className="seg-switch" role="group" aria-label="押金处理">
+      {row.feePaid == null && <div className="seg-switch" role="group" aria-label="押金处理">
         <button type="button" aria-pressed={deduct} onClick={() => setDeduct(true)}>扣除押金</button>
         <button type="button" aria-pressed={!deduct} onClick={() => setDeduct(false)}>不扣押金（水站承担）</button>
-      </div>
+      </div>}
       <div className="scrap-confirmation">
         <b>{row.memberName} · {containerLabel(row.containerType)} {row.quantity} 个</b>
-        {deduct
+        {row.feePaid != null ? <p>{row.feePaid ? '报废费用已收取' : '费用由退款结算单处理'}</p> : deduct
           ? <>
             <p>本次扣除押金 <strong>¥{money(row.depositAmount)}</strong></p>
             {row.lotBreakdown.length > 0 && <small>按原实收批次结算：{row.lotBreakdown.map(l => `${l.quantity} 个 × ¥${money(l.unitPrice)}`).join(' + ')}</small>}

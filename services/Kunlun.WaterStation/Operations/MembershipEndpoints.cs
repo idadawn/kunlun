@@ -22,6 +22,7 @@ public static class MembershipEndpoints
         {
             if (!CanRead(user, mid)) return Results.Forbid();
             await using var conn = await db.OpenConnectionAsync(ct);
+            var pool = await DepositPool.Read(conn, null, repo.DefaultTenantId, mid, ct);
             var result = new List<object>();
             foreach (var product in await WaterProducts.List(conn, repo.DefaultTenantId, ct))
             {
@@ -43,7 +44,17 @@ public static class MembershipEndpoints
                 var unitDeposit = (decimal?)await configCmd.ExecuteScalarAsync(ct) ?? throw new BusinessRuleException("押金标准尚未配置", 503);
                 // The deposit not held for a damage, oldest first: refunds take from the front at these prices.
                 var available = lots.Where(l => l.Qty > l.Reserved).Select(l => new { unitPrice = l.Price, quantity = l.Qty - l.Reserved }).ToList();
-                result.Add(new { containerType = container, waterType = product.WaterType, name = product.Name, containerKind = product.ContainerType, unitDeposit, paidQty, paidAmount = lots.Sum(l => l.Price * l.Qty), heldQty = held, pendingDamageQty = reservedQty, pendingDamageAmount = lots.Sum(l => l.Price * l.Reserved), refundableQty = refundQty, refundableAmount = amount, pendingRefundQty, pendingCollectQty, pendingCollectAmount, lots = available });
+                await using var damageCount = Command(conn, null, """
+                    SELECT (SELECT COALESCE(sum(handover_damage_qty),0) FROM plugin_kunlun_waterstation.water_orders
+                             WHERE tenant_id=@tid AND member_id=@mid AND water_type=@water)
+                         + (SELECT COALESCE(sum(q.quantity),0) FROM plugin_kunlun_waterstation.refund_requests q
+                            JOIN plugin_kunlun_waterstation.water_orders o ON o.tenant_id=q.tenant_id AND o.order_no=q.order_no
+                            WHERE q.tenant_id=@tid AND q.member_id=@mid AND q.kind='DAMAGE' AND q.container_type=@type AND o.handover_damage_qty IS NULL)
+                         + (SELECT COALESCE(sum(quantity),0) FROM plugin_kunlun_waterstation.container_damages
+                            WHERE tenant_id=@tid AND member_id=@mid AND container_type=@type AND idempotency_key NOT LIKE '%:lost')
+                    """, ("tid", repo.DefaultTenantId), ("mid", mid), ("water", product.WaterType), ("type", container));
+                var damageQty = Convert.ToInt32(await damageCount.ExecuteScalarAsync(ct));
+                result.Add(new { pool, damageQty, containerType = container, waterType = product.WaterType, name = product.Name, containerKind = product.ContainerType, unitDeposit, paidQty, paidAmount = lots.Sum(l => l.Price * l.Qty), heldQty = held, pendingDamageQty = reservedQty, pendingDamageAmount = lots.Sum(l => l.Price * l.Reserved), refundableQty = refundQty, refundableAmount = amount, pendingRefundQty, pendingCollectQty, pendingCollectAmount, lots = available });
             }
             return Results.Ok(result);
         }).RequireAuthorization();
@@ -275,12 +286,12 @@ public static class MembershipEndpoints
     /// 退清一个充值批次的剩余权益：退付费票、收回赠票。退的钱默认按原实付单价折算，传了 amount 就以它为准（不超过原实付）。
     /// 调用方须先锁定会员。
     /// </summary>
-    public static async Task<RechargeRefundResult> ExecuteRechargeRefund(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid id, string payMethod, string reason, string idempotencyKey, string actor, CancellationToken ct, decimal? entered = null)
+    public static async Task<RechargeRefundResult> ExecuteRechargeRefund(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid id, string payMethod, string reason, string idempotencyKey, string actor, CancellationToken ct, decimal? entered = null, decimal transferred = 0)
     {
         var (mid, water, mode, computed, paid, buy, gift) = await RefundableBatch(conn, tx, tid, id, lockRow: true, ct);
         var amount = RefundAmount(entered, computed, paid);
         var rid = Guid.NewGuid(); var no = Number("TK");
-        await Exec(conn, tx, "INSERT INTO plugin_kunlun_waterstation.recharge_refunds(id,tenant_id,refund_no,member_id,batch_id,idempotency_key,refund_buy_qty,revoked_gift_qty,amount,pay_method,reason,operator_name) VALUES(@id,@tid,@no,@mid,@bid,@key,@buy,@gift,@amount,@pay,@reason,@actor)", ct, ("id", rid), ("tid", tid), ("no", no), ("mid", mid), ("bid", id), ("key", idempotencyKey), ("buy", buy), ("gift", gift), ("amount", amount), ("pay", payMethod), ("reason", reason), ("actor", actor));
+        await Exec(conn, tx, "INSERT INTO plugin_kunlun_waterstation.recharge_refunds(id,tenant_id,refund_no,member_id,batch_id,idempotency_key,refund_buy_qty,revoked_gift_qty,amount,pay_method,reason,operator_name,transferred_amount) VALUES(@id,@tid,@no,@mid,@bid,@key,@buy,@gift,@amount,@pay,@reason,@actor,@transferred)", ct, ("transferred", transferred), ("id", rid), ("tid", tid), ("no", no), ("mid", mid), ("bid", id), ("key", idempotencyKey), ("buy", buy), ("gift", gift), ("amount", amount), ("pay", payMethod), ("reason", reason), ("actor", actor));
         await Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.ticket_batches SET remaining_buy=0,remaining_gift=0,status='REFUNDED' WHERE id=@id AND tenant_id=@tid", ct, ("id", id), ("tid", tid));
         var (balance, _) = await MemberTickets.Add(conn, tx, tid, mid, water, mode, -(buy + gift), 0, ct);
         if (buy > 0) await Ledger(conn, tx, tid, mid, water, mode, "RECHARGE_REFUND", -buy, balance + gift, no, actor, ct);

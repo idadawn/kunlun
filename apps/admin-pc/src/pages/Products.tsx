@@ -47,7 +47,7 @@ export function Products() {
               <small>{p.capacityLiters}L {CONTAINERS[p.containerType]} · 仅供本水品使用</small>
               <strong>¥{money(p.unitDeposit)} <span>/ 个</span></strong>
               <p>新收押金标准</p>
-              <p className="product-deposit-note">独立库存、领还和押金账户。历史押金按原实收单价退还。</p>
+              <p className="product-deposit-note">按水品登记库存和领还，按现行标准计算持有价值。</p>
             </div></div>
           </article>
         );
@@ -93,7 +93,7 @@ function ProductDialog({ product: p, onClose, onDone }: { product?: WaterProduct
       <Field label="零售价（元；留空表示未设置）" htmlFor="productRetail"><input id="productRetail" className="input" type="number" min={0.01} max={99999999} step={0.01} value={retail} onChange={e => setRetail(e.target.value)} /></Field>
       <Field label="配送起送数量" htmlFor="productMinimum"><input id="productMinimum" className="input" type="number" required min={1} max={10000} step={1} value={minimum} onChange={e => setMinimum(e.target.value)} /></Field>
       <p className="membership-note">{p
-        ? '押金修改只影响本水品后续收款；历史押金按原收款单价退还。'
+        ? '修改后，持有桶袋和破损结算按新标准估值。'
         : '配套桶袋库存从零开始，到「袋桶库存」点「新购」登记，再到「充值套餐」建套餐。各水品的水票、桶袋和押金都不能互相抵用。'}</p>
     </FormDialog>
   );

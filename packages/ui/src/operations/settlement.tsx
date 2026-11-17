@@ -28,9 +28,12 @@ export function SettlementDialog({ memberId, memberName, onClose, onDone }: { me
   const dialogs = useDialogs();
   const key = useIdempotencyKey();
   const [choices, setChoices] = useState<SettlementContainerInput[] | null>(null);
+  const [decisions, setDecisions] = useState<Record<string, boolean>>({});
+  const damageDecisions = Object.entries(decisions).map(([reference, charge]) => ({ reference, charge }));
   const [preview, setPreview] = useState<SettlementPreview | null>(null);
   const [loadError, setLoadError] = useState('');
   const [amount, setAmount] = useState('');
+  const [enteredAmount, setEnteredAmount] = useState<number>();
   // Once staff type the amount, later changes to the slip leave it alone; until then it follows the computed total.
   const typed = useRef(false);
   const [pay, setPay] = useState<PayMethod>('CASH');
@@ -41,7 +44,7 @@ export function SettlementDialog({ memberId, memberName, onClose, onDone }: { me
     if (!allowed) return;
     let alive = true;
     const timer = window.setTimeout(() => {
-      api.settlementPreview(memberId, { containers: choices ?? undefined })
+      api.settlementPreview(memberId, { containers: choices ?? undefined, damageDecisions, amount: enteredAmount })
         .then(p => {
           if (!alive) return;
           setPreview(p); setLoadError('');
@@ -51,7 +54,7 @@ export function SettlementDialog({ memberId, memberName, onClose, onDone }: { me
         .catch(e => alive && setLoadError(errorText(e)));
     }, choices ? 200 : 0);
     return () => { alive = false; window.clearTimeout(timer); };
-  }, [api, memberId, choices, allowed]);
+  }, [api, memberId, choices, decisions, enteredAmount, allowed]);
 
   if (!allowed) return <Dialog title="退款结算" onClose={onClose}><p className="account-error" role="alert">退款结算要由能审核水费和押金退款的管理员办理。</p></Dialog>;
   if (!preview) return (
@@ -63,28 +66,26 @@ export function SettlementDialog({ memberId, memberName, onClose, onDone }: { me
   const slip = preview.slip;
   // The slip shown was worked out for other counts until the preview for the latest ones comes back.
   const shown = slip.containers.map(choiceOf);
-  const stale = !!choices && (choices.length !== shown.length || choices.some((c, i) => !sameChoice(c, shown[i])));
+  const stale = (slip.damages ?? []).some(d => (decisions[d.reference] ?? null) !== d.charge) || !!choices && (choices.length !== shown.length || choices.some((c, i) => !sameChoice(c, shown[i])));
   const owes = slip.computedAmount < 0;
   const value = parseYuan(amount);
   const final = value === null ? null : owes ? -value : value;
   const changed = final !== null && !sameYuan(final, slip.computedAmount);
   const outOfRange = final !== null && (final < preview.range.min - 0.001 || final > preview.range.max + 0.001);
   const ticketTotal = slip.tickets.reduce((sum, t) => sum + Number(t.value), 0);
-  const depositTotal = slip.containers.reduce((sum, c) => sum + Number(c.refundValue), 0);
-  // Deposit never paid, taken from the refund: kept by the station for containers not coming back, or held for ones that will.
-  const keptOffset = slip.containers.reduce((sum, c) => sum + offsetSplit(c).kept * Number(c.unitDeposit), 0);
-  const chargedOffset = slip.containers.reduce((sum, c) => sum + Number(c.offsetAmount), 0) - keptOffset;
   const change = (type: string, patch: Partial<SettlementContainerInput>) =>
     setChoices(list => (list ?? []).map(c => c.containerType === type ? { ...c, ...patch } : c));
-  const resetAmount = () => { typed.current = false; setAmount(money(Math.abs(slip.computedAmount))); };
+  const resetAmount = () => { typed.current = false; setEnteredAmount(undefined); setAmount(money(Math.abs(slip.computedAmount))); };
 
   const submit = async () => {
+    if (slip.damages?.some(d => d.charge === null)) throw new Error('请逐笔确认历史破损是否收费');
     if (preview.blockers.length) throw new Error(preview.blockers[0]);
     if (stale) throw new Error(loadError || '正在按改过的桶袋数重新计算，请稍等再确认');
     if (final === null) throw new Error(`请填写${owes ? '实收' : '实退'}金额，最多两位小数`);
     if (outOfRange) throw new Error(rangeText(preview));
+    if (!sameYuan(final, slip.amount)) throw new Error('正在核算实退金额，请稍后确认');
     const done = await api.settle(memberId, {
-      idempotencyKey: key, payMethod: pay, containers: choices ?? [], amount: final, expectedAmount: slip.computedAmount, reason: reason.trim() || undefined,
+      idempotencyKey: key, payMethod: pay, containers: choices ?? [], amount: final, expectedAmount: slip.computedAmount, expectedRevision: slip.revision, damageDecisions, reason: reason.trim() || undefined,
     });
     await onDone?.();
     toast(`已结算 ${done.settlementNo}：${done.amount < 0 ? `收 ¥${money(-done.amount)}` : `退 ¥${money(done.amount)}`}`);
@@ -109,26 +110,33 @@ export function SettlementDialog({ memberId, memberName, onClose, onDone }: { me
 
       <section className="settle-section" aria-labelledby="settleContainersTitle">
         <h3 id="settleContainersTitle">押金和手里的桶袋</h3>
-        {slip.containers.length === 0 ? <p className="membership-note">没有押金，手里也没有桶袋。</p> : slip.containers.map(c => {
+        {slip.containers.length === 0 ? <p className="membership-note">会员手里没有桶袋。</p> : slip.containers.map(c => {
           const choice = choices?.find(x => x.containerType === c.containerType) ?? choiceOf(c);
           return <ContainerCard key={c.containerType} line={c} choice={choice} onChange={patch => change(c.containerType, patch)} />;
         })}
       </section>
 
+      {!!slip.damages?.length && <section className="settle-section"><h3>历史破损待核对</h3>{slip.damages.map(d => <div key={d.reference} className="settle-card">
+        <b>{d.name} · {d.quantity} 个 · ¥{money(d.value)}</b><p>{d.reference} · {d.reason}</p>
+        <div className="seg-switch" role="group" aria-label={d.reference}>{[true,false].map(charge =>
+          <button key={String(charge)} type="button" aria-pressed={decisions[d.reference] === charge} onClick={() => setDecisions(v => ({ ...v, [d.reference]: charge }))}>{charge ? '本次收费' : '本次免收'}</button>)}</div>
+      </div>)}</section>}
       {slip.notes.map(n => <p key={n} className="membership-note settle-note">{n}</p>)}
 
       <div className="settle-total">
-        <div><span>水票退款</span><b>¥{money(ticketTotal)}</b></div>
-        <div><span>押金退还</span><b>¥{money(depositTotal)}</b></div>
-        {chargedOffset > 0.001 && <div><span>没交押金的桶袋（从退款里扣）</span><b>−¥{money(chargedOffset)}</b></div>}
-        {keptOffset > 0.001 && <div><span>欠的押金（从退款里转成押金）</span><b>−¥{money(keptOffset)}</b></div>}
+        <div><span>水票剩余价值</span><b>¥{money(ticketTotal)}</b></div>
+        <PoolLines slip={slip} />
         <div className="settle-total-sum"><span>{owes ? '会员应补' : '应退合计'}</span><strong>¥{money(Math.abs(slip.computedAmount))}</strong></div>
       </div>
       {stale && <p className={loadError ? 'account-error' : 'membership-note'} role="status">{loadError || '正在按改过的数重新计算…'}</p>}
       <Field label={owes ? '实收金额（元）' : '实退金额（元）'} htmlFor="settleAmount">
         <div className="refund-amount">
           <input id="settleAmount" className="input" type="number" inputMode="decimal" required min={0} step={0.01} value={amount}
-            onChange={e => { typed.current = true; setAmount(e.target.value); }} />
+            onChange={e => {
+              typed.current = true; setAmount(e.target.value);
+              const next = parseYuan(e.target.value);
+              setEnteredAmount(next === null ? undefined : owes ? -next : next);
+            }} />
           {changed && <button type="button" className="text-btn" onClick={resetAmount}>改回{owes ? '应补' : '应退'} ¥{money(Math.abs(slip.computedAmount))}</button>}
         </div>
       </Field>
@@ -157,7 +165,7 @@ function ContainerCard({ line: c, choice, onChange }: { line: SettlementContaine
   const unreturned = c.held - choice.returned - choice.damaged;
   return (
     <div className="settle-card">
-      <div className="settle-card-head"><b>{containerLabel(c.containerType)}</b><small>已交押金 {c.covered} 个 · 手里 {c.held} 个</small></div>
+      <div className="settle-card-head"><b>{containerLabel(c.containerType)}</b><small>手里 {c.held} 个 · 每个 ¥{money(c.unitDeposit)}</small></div>
       {c.held > 0 ? <>
         <div className="settle-counts">
           <span className="settle-count">
@@ -180,7 +188,7 @@ function ContainerCard({ line: c, choice, onChange }: { line: SettlementContaine
           </div>
         )}
       </> : <p className="membership-note">手里没有{c.unit}，只退押金。</p>}
-      <ContainerLines line={c} />
+      <ContainerLines line={c} pooled />
     </div>
   );
 }
@@ -200,7 +208,24 @@ function offsetSplit(c: SettlementContainerLine) {
 }
 
 /** What one container works out to, line by line; the same lines show on the finished slip. */
-function ContainerLines({ line: c }: { line: SettlementContainerLine }) {
+function PoolLines({ slip }: { slip: SettlementSlip }) {
+  const p = slip.pool;
+  if (!p) return null;
+  return <>
+    <div><span>可结算押金</span><b>¥{money(p.before)}</b></div>
+    {p.charges > 0 && <div><span>破损及不再归还的桶袋收费</span><b>¥{money(p.charges)}</b></div>}
+    {p.kept > 0 && <div><span>保留押金（以后归还可退）</span><b>¥{money(p.kept)}</b></div>}
+    {p.transfer > 0 && <div><span>本次水费转押金 {p.transferNo}</span><b>¥{money(p.transfer)}</b></div>}
+    {p.supplement > 0 && <div><span>另收差额 {p.collectionNo}</span><b>¥{money(p.supplement)}</b></div>}
+    <div><span>本次退押金 {p.refundNo}</span><b>¥{money(p.refund)}</b></div>
+  </>;
+}
+
+function ContainerLines({ line: c, pooled }: { line: SettlementContainerLine; pooled?: boolean }) {
+  if (pooled) return <ul className="settle-lines">
+    {c.unreturned > 0 && <li><span>未还 {c.unreturned} 个 · {c.unreturnedMode === 'KEEP' ? '保留押金' : '不再归还，收费'}</span><b>¥{money(c.keptDeposit + c.chargeDeducted)}</b></li>}
+    {c.damaged > 0 && <li><span>本次破损 {c.damaged} 个 · {c.waiveDamage ? '免收' : '收费'}</span><b>¥{money(c.damageDeducted)}</b></li>}
+  </ul>;
   const price = Number(c.unitDeposit);
   const split = offsetSplit(c);
   const rows: Array<[string, string, string?]> = [];
@@ -240,6 +265,7 @@ export function SettlementSlipDialog({ slip, onClose }: { slip: SettlementSlip; 
         {slip.tickets.length === 0 ? <p className="membership-note">没有退水票。</p> : slip.tickets.map(t => (
           <div key={t.batchId} className="settle-line">
             <span><b>{t.name}</b><small>退剩余付费 {t.remainingBuy}{t.unit}{t.remainingGift ? `，收回赠送 ${t.remainingGift}${t.unit}` : ''}{t.refundNo ? ` · ${t.refundNo}` : ''}</small>
+              {!!t.transferred && <small>另转押金 ¥{money(t.transferred)}</small>}
               {!sameYuan(Number(t.amount), Number(t.value)) && <small>按账 ¥{money(t.value)}</small>}</span>
             <strong>¥{money(t.amount)}</strong>
           </div>
@@ -251,12 +277,14 @@ export function SettlementSlipDialog({ slip, onClose }: { slip: SettlementSlip; 
           <div key={c.containerType} className="settle-card">
             <div className="settle-card-head"><b>{containerLabel(c.containerType)}</b>
               <small>手里 {c.held} 个：还回好的 {c.returned}、坏的 {c.damaged}{c.unreturned ? `、没还 ${c.unreturned}（${c.unreturnedMode === 'KEEP' ? '以后还' : '不还了'}）` : ''}{c.refundNo ? ` · ${c.refundNo}` : ''}</small></div>
-            <ContainerLines line={c} />
+            <ContainerLines line={c} pooled={!!slip.pool} />
           </div>
         ))}
       </section>
       {slip.notes.map(n => <p key={n} className="membership-note settle-note">{n}</p>)}
       <div className="settle-total">
+        <PoolLines slip={slip} />
+        {slip.damages?.map(d => <div key={d.reference}><span>{d.name}历史破损 {d.quantity} 个 · {d.reference}</span><b>{d.charge ? `收费 ¥${money(d.value)}` : '免收'}</b></div>)}
         <div><span>按账{slip.computedAmount < 0 ? '应补' : '应退'}</span><b>¥{money(Math.abs(slip.computedAmount))}</b></div>
         <div className="settle-total-sum"><span>{collected ? '实收' : '实退'}</span><strong>¥{money(Math.abs(slip.amount))}</strong></div>
         <small>{slip.payMethod ? payMethodLabel(slip.payMethod) : ''}{slip.reason ? ` · 原因：${slip.reason}` : ''}</small>

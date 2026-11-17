@@ -8,7 +8,7 @@ using static Kunlun.WaterStation.Operations.ContainerInventory;
 namespace Kunlun.WaterStation.Operations;
 
 // AcceptUncovered: 会员交过的押金不够扣这些破损的（如欠着押金），仍然登记，没押金的个数和 UncoveredNote（报废费用给没给、为什么没交）一并记下。
-public sealed record ReportContainerDamageRequest(Guid MemberId, string ContainerType, int Quantity, string Reason, string IdempotencyKey, bool AcceptUncovered = false, string? UncoveredNote = null);
+public sealed record ReportContainerDamageRequest(Guid MemberId, string ContainerType, int Quantity, string Reason, string IdempotencyKey, bool AcceptUncovered = false, string? UncoveredNote = null, bool? FeePaid = null);
 // DeductDeposit=false 报废但不扣押金（如自然老化、配送损坏由水站承担）：暂占的押金退回会员可用余额。
 public sealed record ScrapContainerDamageRequest(string Reason, string IdempotencyKey, bool DeductDeposit = true);
 public sealed record DamageDepositLot(Guid LotId, string LotNo, int Quantity, decimal UnitPrice);
@@ -72,6 +72,7 @@ public static class ContainerCirculation
             CREATE INDEX IF NOT EXISTS container_damages_member ON plugin_kunlun_waterstation.container_damages(tenant_id,member_id,status);
             ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS deposit_waived BOOLEAN NOT NULL DEFAULT FALSE;
             ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS uncovered_qty INT NOT NULL DEFAULT 0 CHECK(uncovered_qty>=0);
+            ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS fee_paid BOOLEAN;
             ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS uncovered_note TEXT NOT NULL DEFAULT '';
             -- A damage nobody paid a deposit for reserves nothing, so its deposit amount may be zero.
             ALTER TABLE plugin_kunlun_waterstation.container_damages DROP CONSTRAINT IF EXISTS container_damages_deposit_amount_check;
@@ -137,9 +138,9 @@ public static class ContainerCirculation
                   AND (@q='' OR m.name ILIKE @search OR m.phone ILIKE @search OR m.member_no ILIKE @search OR d.damage_no ILIKE @search)
                 """;
             await using var count=Command(conn,null,"SELECT count(*) "+from,args);var total=Convert.ToInt64(await count.ExecuteScalarAsync(ct));
-            await using var cmd=Command(conn,null,"SELECT d.id,d.damage_no,m.name,m.member_no,d.container_type,d.quantity,d.deposit_amount,d.status,d.reason,d.operator_name,d.created_at,d.lot_breakdown::text,COALESCE(d.scrap_no,''),COALESCE(d.scrap_reason,''),d.deposit_waived,d.uncovered_qty,d.uncovered_note "+from+" ORDER BY d.created_at DESC,d.id LIMIT 20 OFFSET @offset",args);
+            await using var cmd=Command(conn,null,"SELECT d.id,d.damage_no,m.name,m.member_no,d.container_type,d.quantity,d.deposit_amount,d.status,d.reason,d.operator_name,d.created_at,d.lot_breakdown::text,COALESCE(d.scrap_no,''),COALESCE(d.scrap_reason,''),d.deposit_waived,d.uncovered_qty,d.uncovered_note,d.fee_paid "+from+" ORDER BY d.created_at DESC,d.id LIMIT 20 OFFSET @offset",args);
             var rows=new List<object>();await using var r=await cmd.ExecuteReaderAsync(ct);
-            while(await r.ReadAsync(ct))rows.Add(new{id=r.GetGuid(0),damageNo=r.GetString(1),memberName=r.GetString(2),memberNo=r.GetString(3),containerType=r.GetString(4),quantity=r.GetInt32(5),depositAmount=r.GetDecimal(6),status=r.GetString(7),reason=r.GetString(8),operatorName=r.GetString(9),createdAt=r.GetDateTime(10),lotBreakdown=JsonSerializer.Deserialize<JsonElement>(r.GetString(11)),scrapNo=r.GetString(12),scrapReason=r.GetString(13),depositWaived=r.GetBoolean(14),uncoveredQty=r.GetInt32(15),uncoveredNote=r.GetString(16)});
+            while(await r.ReadAsync(ct))rows.Add(new{id=r.GetGuid(0),damageNo=r.GetString(1),memberName=r.GetString(2),memberNo=r.GetString(3),containerType=r.GetString(4),quantity=r.GetInt32(5),depositAmount=r.GetDecimal(6),status=r.GetString(7),reason=r.GetString(8),operatorName=r.GetString(9),createdAt=r.GetDateTime(10),lotBreakdown=JsonSerializer.Deserialize<JsonElement>(r.GetString(11)),scrapNo=r.GetString(12),scrapReason=r.GetString(13),depositWaived=r.GetBoolean(14),uncoveredQty=r.GetInt32(15),uncoveredNote=r.GetString(16),feePaid=r.IsDBNull(17)?(bool?)null:r.GetBoolean(17)});
             return Results.Ok(new{rows,total,page=page??1,pageSize=20});
         }).RequireAuthorization();
     }
@@ -159,8 +160,9 @@ public static class ContainerCirculation
         if(req.AcceptUncovered && note.Length>500)throw new BusinessRuleException("没押金的备注请写在 500 字以内");
         // Requests without the uncovered option keep the original hash shape, so replays sent before it still match.
         var tid=repo.DefaultTenantId;var hash=req.AcceptUncovered
-            ?Hash(req with{Reason=req.Reason.Trim(),UncoveredNote=note})
+            ?Hash(new {req.MemberId,req.ContainerType,req.Quantity,Reason=req.Reason.Trim(),req.IdempotencyKey,req.AcceptUncovered,UncoveredNote=note})
             :Hash(new{req.MemberId,req.ContainerType,req.Quantity,Reason=req.Reason.Trim(),req.IdempotencyKey});
+        if(req.FeePaid.HasValue) hash=Hash(new { hash, req.FeePaid });
         await using var conn=await db.OpenConnectionAsync(ct);await using var tx=await conn.BeginTransactionAsync(ct);
         await LockRequest(conn,tx,tid,"damage-report",req.IdempotencyKey,ct);
         await using(var replay=Command(conn,tx,"SELECT request_hash,report_receipt::text FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND idempotency_key=@key",("tid",tid),("key",req.IdempotencyKey)))
@@ -170,7 +172,7 @@ public static class ContainerCirculation
             return Results.Ok(JsonSerializer.Deserialize<JsonElement>(r.GetString(1)));
         }
         await LockMember(conn,tx,tid,req.MemberId,ct);
-        var damage=await RecordDamage(conn,tx,tid,req.MemberId,req.ContainerType,req.Quantity,req.Reason.Trim(),req.IdempotencyKey,hash,req.AcceptUncovered,note,user,ct);
+        var damage=await RecordDamage(conn,tx,tid,req.MemberId,req.ContainerType,req.Quantity,req.Reason.Trim(),req.IdempotencyKey,hash,req.AcceptUncovered,note,user,ct,req.FeePaid);
         await tx.CommitAsync(ct);return Results.Ok(damage.Receipt);
     }
 
@@ -182,22 +184,26 @@ public static class ContainerCirculation
     /// note. The caller holds the member lock.
     /// </summary>
     internal static async Task<DamageResult> RecordDamage(NpgsqlConnection conn,NpgsqlTransaction tx,Guid tid,Guid mid,string type,int quantity,string reason,
-        string key,string hash,bool acceptUncovered,string note,ClaimsPrincipal user,CancellationToken ct)
+        string key,string hash,bool acceptUncovered,string note,ClaimsPrincipal user,CancellationToken ct,bool? feePaid=null)
     {
         var held=await ProductContainers.Held(conn,tx,tid,mid,type,ct);
         if(quantity>held)throw new BusinessRuleException("破损归还数量超过会员当前持有数量");
         var before=await ReadBalance(conn,tx,tid,type,ct);
         if(before.MemberHeldQty<quantity)throw new BusinessRuleException("会员持有汇总需要核对");
         var lots=new List<DamageDepositLot>();var left=quantity;var covered=0;
-        await using(var cmd=Command(conn,tx,"""
-            SELECT id,deposit_no,unit_price,remaining_qty-reserved_damage_qty FROM plugin_kunlun_waterstation.deposit_lots
-            WHERE tenant_id=@tid AND member_id=@mid AND container_type=@type ORDER BY created_at,id FOR UPDATE
-            """,("tid",tid),("mid",mid),("type",type)))
-        await using(var r=await cmd.ExecuteReaderAsync(ct))while(await r.ReadAsync(ct))
+        if (!feePaid.HasValue)
         {
-            var available=r.GetInt32(3);covered+=available;var take=Math.Min(left,available);
-            if(take>0){lots.Add(new(r.GetGuid(0),r.GetString(1),take,r.GetDecimal(2)));left-=take;}
+            await using(var cmd=Command(conn,tx,"""
+                SELECT id,deposit_no,unit_price,remaining_qty-reserved_damage_qty FROM plugin_kunlun_waterstation.deposit_lots
+                WHERE tenant_id=@tid AND member_id=@mid AND container_type=@type ORDER BY created_at,id FOR UPDATE
+                """,("tid",tid),("mid",mid),("type",type)))
+            await using(var r=await cmd.ExecuteReaderAsync(ct))while(await r.ReadAsync(ct))
+            {
+                var available=r.GetInt32(3);covered+=available;var take=Math.Min(left,available);
+                if(take>0){lots.Add(new(r.GetGuid(0),r.GetString(1),take,r.GetDecimal(2)));left-=take;}
+            }
         }
+        else left=0;
         // Deposits pay for damage first; only what they cannot cover is left without a deposit, and that needs the counter's note.
         if(left>0 && !acceptUncovered)throw new BusinessRuleException($"该会员此类容器交过的押金只够扣 {quantity-left} 个，还差 {left} 个没押金。请先让他补交押金；不交也可以登记，但要写清报废费用给没给");
         if(left>0 && note.Length==0)throw new BusinessRuleException("押金不够扣时必须写备注：报废了多少、是否给了报废费用");
@@ -213,9 +219,9 @@ public static class ContainerCirculation
             ?new{id,damageNo=no,MemberId=mid,ContainerType=type,Quantity=quantity,depositAmount=amount,status="PENDING",lotBreakdown=lots,uncoveredQty=uncovered,uncoveredNote}
             :new{id,damageNo=no,MemberId=mid,ContainerType=type,Quantity=quantity,depositAmount=amount,status="PENDING",lotBreakdown=lots};
         await Exec(conn,tx,"""
-            INSERT INTO plugin_kunlun_waterstation.container_damages(id,tenant_id,damage_no,idempotency_key,request_hash,member_id,container_type,quantity,deposit_amount,lot_breakdown,reason,operator_name,report_receipt,uncovered_qty,uncovered_note)
-            VALUES(@id,@tid,@no,@key,@hash,@mid,@type,@qty,@amount,@lots::jsonb,@reason,@actor,@receipt::jsonb,@uncovered,@uncoveredNote)
-            """,ct,("id",id),("tid",tid),("no",no),("key",key),("hash",hash),("mid",mid),("type",type),("qty",quantity),("amount",amount),("lots",Json(lots)),("reason",reason),("actor",Actor(user)),("receipt",Json(receipt)),("uncovered",uncovered),("uncoveredNote",uncoveredNote));
+            INSERT INTO plugin_kunlun_waterstation.container_damages(id,tenant_id,damage_no,idempotency_key,request_hash,member_id,container_type,quantity,deposit_amount,lot_breakdown,reason,operator_name,report_receipt,uncovered_qty,uncovered_note,fee_paid)
+            VALUES(@id,@tid,@no,@key,@hash,@mid,@type,@qty,@amount,@lots::jsonb,@reason,@actor,@receipt::jsonb,@uncovered,@uncoveredNote,@feePaid)
+            """,ct,("id",id),("tid",tid),("no",no),("key",key),("hash",hash),("mid",mid),("type",type),("qty",quantity),("amount",amount),("lots",Json(lots)),("reason",reason),("actor",Actor(user)),("receipt",Json(receipt)),("uncovered",uncovered),("uncoveredNote",uncoveredNote),("feePaid",(object?)feePaid??DBNull.Value));
         var ledgerReason=uncovered>0?$"{reason}；没押金 {uncovered} 个：{uncoveredNote}":reason;
         await Ledger(conn,tx,tid,mid,type,no,"DAMAGE_RETURN",quantity,0,held-quantity,Math.Max(covered-(quantity-uncovered),0),0,ledgerReason,user,ct);
         return new(id,no,amount,uncovered,receipt);

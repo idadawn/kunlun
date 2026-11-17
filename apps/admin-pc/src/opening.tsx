@@ -245,15 +245,11 @@ function ContainerRow({ row: r, lot, deposit, held, onDeposit, onHeld }: {
 }) {
   const unit = containerUnit(r.containerType);
   const locked = !!lot?.locked;
-  // Coverage once saved: the deposit paid in the system, plus the opening deposit as it will be.
-  const coveredNow = r.paidQty - r.pendingDamageQty + r.pendingCollectQty;
-  const covered = coveredNow - (lot?.remainingQty ?? 0) + (locked ? lot!.remainingQty : deposit.qty);
-  const owing = Math.max(0, held - covered);
   const each = deposit.qty > 0 && moneyOk(deposit.amount) ? Number(deposit.amount) / deposit.qty : null;
   const count = (qty: number) => onDeposit(deposit.typed ? { ...deposit, qty } : { qty, amount: qty > 0 ? money(qty * Number(r.unitDeposit)) : '', typed: false });
   return (
     <div className="opening-row">
-      <div className="opening-row-head"><b>{containerLabel(r.containerType)}</b><small>现在：已交押金 {r.paidQty} 个 ¥{money(r.paidAmount)} · 手里 {r.heldQty} 个</small></div>
+      <div className="opening-row-head"><b>{containerLabel(r.containerType)}</b><small>会员押金余额 ¥{money(r.pool.total)} · 手里 {r.heldQty} 个</small></div>
       {locked ? <>
         <div className="opening-inline"><span>上系统前交的押金</span><b>{lot!.quantity} 个，共 ¥{money(lot!.amount)}</b></div>
         <p className="membership-note">这笔押金已经退过或报废扣过，不能再改；要退押金请走「退押金」。</p>
@@ -274,7 +270,7 @@ function ContainerRow({ row: r, lot, deposit, held, onDeposit, onHeld }: {
         <span>个{unit}</span>
         {held !== r.heldQty && <small className="opening-change">原来 {r.heldQty} → {held}</small>}
       </div>
-      {owing > 0 && <p className="profile-warn">手里比押金多 {owing} 个，下次领{unit}时会提示补交押金；没交过就不用填押金。</p>}
+
     </div>
   );
 }

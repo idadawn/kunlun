@@ -6,35 +6,12 @@ using static Kunlun.WaterStation.Operations.TicketBatches;
 
 namespace Kunlun.WaterStation.Operations;
 
-/// <summary>
-/// One container of a settlement. Of what the member holds, Returned came back good and Damaged came back broken; the rest stays
-/// out. WaiveDamage: the station bears the broken ones, so their deposit is not kept. Unreturned decides the rest: CHARGE writes them
-/// off and keeps their deposit, charging the standard deposit for any without one; KEEP leaves them with the member to bring back
-/// later, turning any deposit they owe into deposit paid from the refund.
-/// </summary>
 public sealed record SettlementContainerInput(string ContainerType, int Returned, int Damaged = 0, bool WaiveDamage = false, string Unreturned = "CHARGE");
-
-/// <summary>
-/// Containers left out count as all returned good. Amount: what is actually paid back (negative: what the member pays), the computed
-/// total when left out. ExpectedAmount: the computed total the counter was shown; if the books moved since, the settlement is refused
-/// rather than paying a different sum.
-/// </summary>
+public sealed record DamageDecision(string Reference, bool Charge);
 public sealed record SettlementRequest(string IdempotencyKey, string PayMethod, SettlementContainerInput[]? Containers = null,
-    decimal? Amount = null, decimal? ExpectedAmount = null, string? Reason = null);
+    decimal? Amount = null, decimal? ExpectedAmount = null, string? Reason = null, DamageDecision[]? DamageDecisions = null, string? ExpectedRevision = null);
+public sealed record SettlementPreviewRequest(SettlementContainerInput[]? Containers = null, decimal? Amount = null, DamageDecision[]? DamageDecisions = null);
 
-public sealed record SettlementPreviewRequest(SettlementContainerInput[]? Containers = null, decimal? Amount = null);
-
-/// <summary>
-/// 退款结算：会员不再订水或搬走时，一张退款单结清剩余水票、押金和手里的桶袋。
-/// <list type="bullet">
-/// <item>水票：每个有原价的在用批次按原实付单价退剩余付费票，赠票收回；没有原价的不动。</item>
-/// <item>桶袋：还回好的退押金；坏的默认扣押金（可选水站承担）；没还的选「不还了」就扣下押金，没交押金的按现行押金标准从退款里扣，
-/// 选「以后还」就留在会员手里，欠的押金从退款里转成押金，以后还回再退。</item>
-/// <item>实退金额默认等于应退合计，可以改：差额先记在水费退款上（每笔不超过原实付），少退的再从退押金里扣（记为扣押金）。</item>
-/// </list>
-/// 结算在一个事务里完成，每笔水费、押金退款照常入账并在「审核」里留一条已通过的记录；没交押金要扣的，先按标准记一笔收押金
-/// （收付方式同结算），再报废扣下，所以押金账和现金都对得上。只有能审核水费和押金退款的人可以办理。
-/// </summary>
 public static class Settlements
 {
     private const int ReasonMaxLength = 200;
@@ -59,6 +36,18 @@ public static class Settlements
               reason VARCHAR(200) NOT NULL DEFAULT '', operator_id UUID NOT NULL, operator_name VARCHAR(64) NOT NULL,
               receipt JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
               UNIQUE(tenant_id, idempotency_key)
+            );
+            ALTER TABLE plugin_kunlun_waterstation.recharge_refunds ADD COLUMN IF NOT EXISTS transferred_amount NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK(transferred_amount>=0);
+            ALTER TABLE plugin_kunlun_waterstation.water_orders ADD COLUMN IF NOT EXISTS handover_damage_qty INT,
+              ADD COLUMN IF NOT EXISTS damage_compensated BOOLEAN, ADD COLUMN IF NOT EXISTS damage_reason TEXT;
+            -- Older handovers recorded paid damage only in the standard handover note.
+            UPDATE plugin_kunlun_waterstation.water_orders SET
+              handover_damage_qty=substring(override_reason from '(?:^|；)损坏 ([0-9]{1,5}) 个(?:桶|袋)，顾客赔付(?:；|$)')::int,
+              damage_compensated=TRUE
+            WHERE handover_damage_qty IS NULL AND override_reason ~ '(?:^|；)损坏 [0-9]{1,5} 个(?:桶|袋)，顾客赔付(?:；|$)';
+            CREATE TABLE IF NOT EXISTS plugin_kunlun_waterstation.settlement_damage_decisions (
+              tenant_id UUID NOT NULL, reference TEXT NOT NULL, settlement_id UUID NOT NULL REFERENCES plugin_kunlun_waterstation.member_settlements(id),
+              charge BOOLEAN NOT NULL, amount NUMERIC(10,2) NOT NULL, PRIMARY KEY(tenant_id,reference)
             );
             CREATE INDEX IF NOT EXISTS member_settlements_member ON plugin_kunlun_waterstation.member_settlements(tenant_id, member_id, created_at DESC);
             """, ct);
@@ -90,7 +79,7 @@ public static class Settlements
     {
         if (!CanSettle(user)) return Denied();
         await using var conn = await db.OpenConnectionAsync(ct);
-        var plan = await Build(conn, null, repo.DefaultTenantId, mid, req.Containers, ct);
+        var plan = await Build(conn, null, repo.DefaultTenantId, mid, req.Containers, req.DamageDecisions, ct);
         string? amountError = null;
         try { Distribute(plan, req.Amount ?? plan.Computed); }
         catch (BusinessRuleException e) { amountError = e.Message; Distribute(plan, plan.Computed); }
@@ -108,6 +97,8 @@ public static class Settlements
             mid, req.PayMethod, reason, amount = req.Amount is { } a ? Money.Text(a) : null,
             containers = containers.OrderBy(c => c.ContainerType, StringComparer.Ordinal).Select(c => new { c.ContainerType, c.Returned, c.Damaged, c.WaiveDamage, c.Unreturned })
         });
+        if (req.DamageDecisions is { Length: > 0 } decisions)
+            hash = ContainerInventory.Hash(new { hash, decisions = decisions.OrderBy(d => d.Reference, StringComparer.Ordinal) });
         var tid = repo.DefaultTenantId; var actor = Actor(user);
 
         await using var conn = await db.OpenConnectionAsync(ct);
@@ -122,8 +113,10 @@ public static class Settlements
             }
         // Same lock order as every money path: the request, then the member, then the batches, lots and stock it touches.
         await LockMember(conn, tx, tid, mid, ct);
-        var plan = await Build(conn, tx, tid, mid, containers, ct);
+        var plan = await Build(conn, tx, tid, mid, containers, req.DamageDecisions, ct);
         if (plan.Blockers.Count > 0) throw new BusinessRuleException(plan.Blockers[0], 409);
+        if (plan.Damages.Any(d => d.Charge is null)) throw new BusinessRuleException("请逐笔确认历史破损是否收费");
+        if (req.ExpectedRevision is not null && req.ExpectedRevision != plan.Revision) throw new BusinessRuleException("会员账目已变化，请重新打开结算核对", 409);
         if (req.ExpectedAmount is { } expected && expected != plan.Computed)
             throw new BusinessRuleException($"账目刚有变化：现在应退 ¥{Money.Text(plan.Computed)}（刚才是 ¥{Money.Text(expected)}），请核对后再确认", 409);
         Distribute(plan, req.Amount ?? plan.Computed);
@@ -131,10 +124,23 @@ public static class Settlements
         var id = Guid.NewGuid();
         var no = await BusinessNumbers.SettlementNo(conn, tx, ct);
         var note = $"退款结算 {no}";
-        foreach (var c in plan.Containers) await SettleContainer(conn, tx, tid, mid, id, no, note, req.PayMethod, reason, c, user, ct);
+        foreach (var c in plan.Containers) await SettleContainer(conn, tx, tid, mid, id, no, note, c, user, ct);
+        var supplement = Math.Max(0, -plan.Amount);
+        if (plan.Funding > supplement)
+            plan.TransferNo = (await FinanceEndpoints.InsertDepositLot(conn, tx, tid, mid, null, 0, plan.Funding - supplement, "TRANSFER",
+                $"settlement:{id:N}:transfer", actor, null, ct, "TRANSFER")).DepositNo;
+        if (supplement > 0)
+            plan.CollectionNo = (await FinanceEndpoints.InsertDepositLot(conn, tx, tid, mid, null, 0, supplement, req.PayMethod,
+                $"settlement:{id:N}:collect", actor, null, ct)).DepositNo;
+        if (plan.RefundValue + plan.Charges > 0)
+        {
+            var refund = await DepositPool.Debit(conn, tx, tid, mid, plan.RefundValue + plan.Charges, plan.RefundAmount, req.PayMethod, $"settlement:{id:N}:debit", actor, ct);
+            await RefundRequests.RecordDirect(conn, tx, tid, "DEPOSIT", mid, null, null, null, req.PayMethod, reason, refund.RefundNo, refund.Amount, actor, ct, plan.RefundValue, note);
+            plan.RefundNo = refund.RefundNo;
+        }
         foreach (var t in plan.Tickets)
         {
-            var refund = await MembershipEndpoints.ExecuteRechargeRefund(conn, tx, tid, t.BatchId, req.PayMethod, reason, $"settlement:{id:N}:{t.BatchId:N}", actor, ct, t.Amount);
+            var refund = await MembershipEndpoints.ExecuteRechargeRefund(conn, tx, tid, t.BatchId, req.PayMethod, reason, $"settlement:{id:N}:{t.BatchId:N}", actor, ct, t.Amount, t.Transferred);
             await RefundRequests.RecordDirect(conn, tx, tid, "RECHARGE", mid, null, null, t.BatchId, req.PayMethod, reason, refund.RefundNo, refund.Amount, actor, ct, t.Value, note);
             t.RefundNo = refund.RefundNo;
         }
@@ -147,59 +153,31 @@ public static class Settlements
             VALUES(@id,@tid,@no,@key,@hash,@mid,@computed,@amount,@pay,@reason,@operator,@actor,@receipt::jsonb)
             """, ct, ("id", id), ("tid", tid), ("no", no), ("key", req.IdempotencyKey), ("hash", hash), ("mid", mid), ("computed", plan.Computed),
             ("amount", plan.Amount), ("pay", req.PayMethod), ("reason", reason), ("operator", Guid.Parse(user.FindFirstValue("sub")!)), ("actor", actor), ("receipt", json));
+        foreach (var d in plan.Damages)
+            await Exec(conn, tx, """
+                INSERT INTO plugin_kunlun_waterstation.settlement_damage_decisions(tenant_id,reference,settlement_id,charge,amount)
+                VALUES(@tid,@ref,@id,@charge,@amount)
+                """, ct, ("tid", tid), ("ref", d.Reference), ("id", id), ("charge", d.Charge!.Value), ("amount", d.Charge.Value ? d.Value : 0m));
         await tx.CommitAsync(ct);
         return Results.Ok(JsonSerializer.Deserialize<JsonElement>(json));
     }
 
-    /// <summary>
-    /// Carries out one container's part in the order the plan assumed: deposit for containers without one, the good ones back, the broken
-    /// ones scrapped, the ones not coming back written off, then the rest of the deposit refunded, each from the oldest lots first.
-    /// </summary>
     private static async Task SettleContainer(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, Guid id, string no, string note,
-        string pay, string reason, ContainerLine c, ClaimsPrincipal user, CancellationToken ct)
+        ContainerLine c, ClaimsPrincipal user, CancellationToken ct)
     {
-        var actor = Actor(user);
-        var key = $"settlement:{id:N}:{c.ContainerType}";
-        if (c.OffsetQty > 0)
+        if (c.Returned > 0) await TakeBack(conn, tx, tid, mid, c.ContainerType, c.Returned, no, Actor(user), ct);
+        async Task Scrap(int quantity, string action, string description, bool charged)
         {
-            c.OffsetNo = await BusinessNumbers.DepositNo(conn, tx, ct);
-            await Exec(conn, tx, """
-                INSERT INTO plugin_kunlun_waterstation.deposit_lots
-                  (id,tenant_id,deposit_no,idempotency_key,member_id,container_type,unit_price,paid_qty,refunded_qty,remaining_qty,total_amount,pay_method,operator_name,source)
-                VALUES(@id,@tid,@no,@key,@mid,@type,@price,@qty,0,@qty,@total,@pay,@actor,'SETTLEMENT')
-                """, ct, ("id", Guid.NewGuid()), ("tid", tid), ("no", c.OffsetNo), ("key", key + ":deposit"), ("mid", mid), ("type", c.ContainerType),
-                ("price", c.UnitDeposit), ("qty", c.OffsetQty), ("total", c.OffsetAmount), ("pay", pay), ("actor", actor));
-            await Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.members SET deposit_amount=deposit_amount+@amount WHERE tenant_id=@tid AND id=@mid", ct,
-                ("amount", c.OffsetAmount), ("tid", tid), ("mid", mid));
-        }
-        if (c.Returned > 0) await TakeBack(conn, tx, tid, mid, c.ContainerType, c.Returned, no, actor, ct);
-        if (c.Damaged > 0)
-        {
-            var damage = await ContainerCirculation.RecordDamage(conn, tx, tid, mid, c.ContainerType, c.Damaged, $"{note}：还回时坏了",
-                key + ":damage", "", acceptUncovered: c.WaiveDamage, c.WaiveDamage ? "结算时坏的不扣押金，水站承担" : "", user, ct);
-            var scrap = await ContainerCirculation.Scrap(conn, tx, tid, mid, damage.Id, c.WaiveDamage ? $"{note}：坏的不扣押金，水站承担" : $"{note}：坏的扣押金",
-                c.WaiveDamage, key + ":damage-scrap", "", user, ct);
-            if (scrap.DeductedAmount != c.DamageDeducted) throw Moved();
+            var key = $"settlement:{id:N}:{c.ContainerType}:{action}";
+            var damage = await ContainerCirculation.RecordDamage(conn, tx, tid, mid, c.ContainerType, quantity, description, key, "",
+                true, note, user, ct, feePaid: charged);
+            // Release any historical reservations. The monetary fee is posted once, from the member-wide pool.
+            var scrap = await ContainerCirculation.Scrap(conn, tx, tid, mid, damage.Id, description, true, key + ":scrap", "", user, ct);
             c.ScrapNos.Add(scrap.ScrapNo);
         }
-        if (c.Unreturned > 0 && c.Mode == "CHARGE")
-        {
-            var lost = await ContainerCirculation.RecordDamage(conn, tx, tid, mid, c.ContainerType, c.Unreturned, $"{note}：没还回，押金不退",
-                key + ":kept", "", acceptUncovered: false, "", user, ct);
-            var scrap = await ContainerCirculation.Scrap(conn, tx, tid, mid, lost.Id, $"{note}：没还回，押金不退", false, key + ":kept-scrap", "", user, ct);
-            if (scrap.DeductedAmount != c.ChargeDeducted) throw Moved();
-            c.ScrapNos.Add(scrap.ScrapNo);
-        }
-        if (c.RefundQty > 0)
-        {
-            var refund = await FinanceEndpoints.ExecuteDepositRefund(conn, tx, tid, mid, c.ContainerType, c.RefundQty, pay, key, actor, ct, c.RefundAmount);
-            if (refund.Value != c.RefundValue) throw Moved();
-            await RefundRequests.RecordDirect(conn, tx, tid, "DEPOSIT", mid, c.ContainerType, c.RefundQty, null, pay, reason, refund.RefundNo, refund.Amount, actor, ct, refund.Value, note);
-            c.RefundNo = refund.RefundNo;
-        }
+        if (c.Damaged > 0) await Scrap(c.Damaged, "damaged", $"{note}：破损，{(c.WaiveDamage ? "免收" : "计入结算")}", !c.WaiveDamage);
+        if (c.Mode == "CHARGE" && c.Unreturned > 0) await Scrap(c.Unreturned, "lost", $"{note}：未归还，计入结算", true);
     }
-
-    private static BusinessRuleException Moved() => new("押金账刚有变化，请关掉重新打开结算", 409);
 
     /// <summary>Good containers handed back: they leave the member and return to the store. The caller holds the member lock.</summary>
     private static async Task TakeBack(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, string type, int qty, string no, string actor, CancellationToken ct)
@@ -220,7 +198,7 @@ public static class Settlements
 
     // ---- The plan: what each ticket batch and container works out to, shared by the preview and the settlement itself. ----
 
-    private sealed record LotRow(decimal Price, int Available);
+    private sealed record HistoricalDamage(string Reference, string ContainerType, string Name, int Quantity, decimal Value, string Reason, bool? Charge);
 
     private sealed class TicketLine
     {
@@ -234,6 +212,7 @@ public static class Settlements
         public decimal Value { get; init; }
         /// <summary>What the recharge took in: the most it may pay back.</summary>
         public decimal Paid { get; init; }
+        public decimal Transferred { get; set; }
         public decimal Amount { get; set; }
         public string? RefundNo { get; set; }
     }
@@ -245,29 +224,14 @@ public static class Settlements
         public string Unit { get; init; } = "";
         public decimal UnitDeposit { get; init; }
         public int Held { get; init; }
-        public List<LotRow> Lots { get; init; } = [];
-        public int Covered => Lots.Sum(l => l.Available);
-        public int PendingDamageQty { get; init; }
-        public decimal PendingDamageAmount { get; init; }
         public int Returned { get; set; }
         public int Damaged { get; set; }
         public bool WaiveDamage { get; set; }
         public int Unreturned { get; set; }
         public string Mode { get; set; } = "CHARGE";
-        /// <summary>Containers without a deposit that must have one (to deduct, or to stay out): added at the standard price from the refund.</summary>
-        public int OffsetQty { get; set; }
-        public decimal OffsetAmount { get; set; }
-        public decimal DamageDeducted { get; set; }
-        /// <summary>Broken ones the station bears that never had a deposit.</summary>
-        public int DamageUncovered { get; set; }
-        public decimal ChargeDeducted { get; set; }
-        public int KeptQty { get; set; }
-        public decimal KeptDeposit { get; set; }
-        public int RefundQty { get; set; }
-        public decimal RefundValue { get; set; }
-        public decimal RefundAmount { get; set; }
-        public string? RefundNo { get; set; }
-        public string? OffsetNo { get; set; }
+        public decimal DamageDeducted => WaiveDamage ? 0 : Damaged * UnitDeposit;
+        public decimal ChargeDeducted => Mode == "CHARGE" ? Unreturned * UnitDeposit : 0;
+        public decimal KeptDeposit => Mode == "KEEP" ? Unreturned * UnitDeposit : 0;
         public List<string> ScrapNos { get; } = [];
     }
 
@@ -280,17 +244,26 @@ public static class Settlements
         public List<ContainerLine> Containers { get; } = [];
         public List<string> Blockers { get; } = [];
         public List<string> Notes { get; } = [];
-        public decimal Computed => Tickets.Sum(t => t.Value) + Containers.Sum(c => c.RefundValue - c.OffsetAmount);
-        /// <summary>Every refund down to nothing; the deposit owed is still taken.</summary>
-        public decimal Min => -Containers.Sum(c => c.OffsetAmount);
-        /// <summary>Every water refund up to what its recharge took in.</summary>
+        public List<HistoricalDamage> Damages { get; } = [];
+        public decimal Deposit { get; set; }
+        public decimal Kept => Containers.Sum(c => c.KeptDeposit);
+        public decimal Charges => Containers.Sum(c => c.ChargeDeducted + c.DamageDeducted) + Damages.Where(d => d.Charge == true).Sum(d => d.Value);
+        public decimal Funding => Math.Max(0, Kept + Charges - Deposit);
+        public decimal RefundValue => Math.Max(0, Deposit - Kept - Charges);
+        public decimal RefundAmount { get; set; }
+        public decimal Computed => Tickets.Sum(t => t.Value) + RefundValue - Funding;
+        public decimal Min => -Funding;
         public decimal Max => Computed + Tickets.Sum(t => t.Paid - t.Value);
+        public string Revision { get; set; } = "";
+        public string? TransferNo { get; set; }
+        public string? CollectionNo { get; set; }
+        public string? RefundNo { get; set; }
         public decimal Amount { get; set; }
     }
 
     private sealed record SlipHeader(Guid Id, string No, string PayMethod, string Reason, string OperatorName, DateTimeOffset CreatedAt);
 
-    private static async Task<Plan> Build(NpgsqlConnection conn, NpgsqlTransaction? tx, Guid tid, Guid mid, SettlementContainerInput[]? inputs, CancellationToken ct)
+    private static async Task<Plan> Build(NpgsqlConnection conn, NpgsqlTransaction? tx, Guid tid, Guid mid, SettlementContainerInput[]? inputs, DamageDecision[]? decisions, CancellationToken ct)
     {
         Plan plan;
         await using (var cmd = Command(conn, tx, "SELECT name,member_no,status FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND id=@mid", ("tid", tid), ("mid", mid)))
@@ -335,68 +308,61 @@ public static class Settlements
             }
         if (unpriced > 0) plan.Notes.Add($"另有 {unpriced} 张水票没有原价（历史余额或套餐不清楚），这次不退也不动");
 
+        var pool = await DepositPool.Read(conn, tx, tid, mid, ct);
+        plan.Deposit = pool.Total - pool.Reserved;
+        if (pool.Reserved > 0) plan.Notes.Add($"另有待报废押金 ¥{Money.Text(pool.Reserved)}，待报废处理后再结算");
+        var choices = inputs ?? [];
+        if (choices.Select(c => c.ContainerType).Distinct().Count() != choices.Length) throw new BusinessRuleException("同种桶袋不能重复结算");
         foreach (var product in await WaterProducts.List(conn, tid, ct))
         {
-            var type = product.ContainerId;
-            var held = await ProductContainers.Held(conn, tx, tid, mid, type, ct);
-            var lots = new List<LotRow>();
-            await using (var cmd = Command(conn, tx, """
-                SELECT unit_price,remaining_qty-reserved_damage_qty FROM plugin_kunlun_waterstation.deposit_lots
-                WHERE tenant_id=@tid AND member_id=@mid AND container_type=@type AND remaining_qty>reserved_damage_qty ORDER BY created_at,id
-                """, ("tid", tid), ("mid", mid), ("type", type)))
-            await using (var r = await cmd.ExecuteReaderAsync(ct))
-                while (await r.ReadAsync(ct)) lots.Add(new LotRow(r.GetDecimal(0), r.GetInt32(1)));
-            int pendingQty; decimal pendingAmount;
-            await using (var cmd = Command(conn, tx, "SELECT COALESCE(sum(quantity),0),COALESCE(sum(deposit_amount),0) FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND member_id=@mid AND container_type=@type AND status='PENDING'",
-                ("tid", tid), ("mid", mid), ("type", type)))
-            await using (var r = await cmd.ExecuteReaderAsync(ct)) { await r.ReadAsync(ct); pendingQty = Convert.ToInt32(r.GetValue(0)); pendingAmount = r.GetDecimal(1); }
-            if (pendingQty > 0) plan.Notes.Add($"{product.Name}另有 {pendingQty} 个坏{product.Unit}等报废，押金 ¥{Money.Text(pendingAmount)} 先不退，到桶袋台账报废时再定");
-            if (held == 0 && lots.Count == 0) continue;
-            plan.Containers.Add(new ContainerLine
-            {
-                ContainerType = type, Name = product.Name, Unit = product.Unit, UnitDeposit = product.UnitDeposit, Held = held, Lots = lots,
-                PendingDamageQty = pendingQty, PendingDamageAmount = pendingAmount
-            });
+            var held = await ProductContainers.Held(conn, tx, tid, mid, product.ContainerId, ct);
+            if (held == 0) continue;
+            var input = choices.FirstOrDefault(c => c.ContainerType == product.ContainerId);
+            var line = new ContainerLine {
+                ContainerType = product.ContainerId, Name = product.Name, Unit = product.Unit, UnitDeposit = product.UnitDeposit, Held = held,
+                Returned = input?.Returned ?? 0, Damaged = input?.Damaged ?? 0, WaiveDamage = input?.WaiveDamage ?? false, Mode = input?.Unreturned ?? "KEEP"
+            };
+            if (line.Returned < 0 || line.Damaged < 0 || (long)line.Returned + line.Damaged > held || line.Mode is not ("KEEP" or "CHARGE"))
+                throw new BusinessRuleException($"{product.Name}的归还数量或处理方式无效，请重新核对");
+            line.Unreturned = held - line.Returned - line.Damaged;
+            plan.Containers.Add(line);
         }
+        if (choices.Any(input => plan.Containers.All(c => c.ContainerType != input.ContainerType))) throw new BusinessRuleException("会员持有数量已变化，请重新打开结算", 409);
 
-        foreach (var input in inputs ?? [])
-            if (plan.Containers.All(c => c.ContainerType != input.ContainerType)) throw new BusinessRuleException("这位会员没有这种桶袋可结算，请刷新后再试");
-        foreach (var c in plan.Containers) PlanContainer(c, inputs?.FirstOrDefault(i => i.ContainerType == c.ContainerType));
-        if (plan.Tickets.Count == 0 && plan.Containers.Count == 0) plan.Blockers.Add("这位会员没有要退的水票、押金或桶袋");
+        await using (var cmd = Command(conn, tx, """
+            WITH damaged AS (
+              SELECT request_no AS ref,container_type,quantity,concat_ws(' · ',order_no,reason) AS reason FROM plugin_kunlun_waterstation.refund_requests
+              WHERE tenant_id=@tid AND member_id=@mid AND kind='DAMAGE' AND status<>'PENDING'
+              UNION ALL
+              SELECT damage_no,container_type,
+                     CASE WHEN fee_paid IS FALSE THEN quantity
+                          ELSE (CASE WHEN deposit_waived THEN quantity ELSE uncovered_qty END)
+                                - (CASE WHEN uncovered_note LIKE '报废费用给了；%' THEN uncovered_qty ELSE 0 END) END,
+                     concat_ws(' · ',reason,NULLIF(uncovered_note,''),scrap_reason) FROM plugin_kunlun_waterstation.container_damages
+              WHERE tenant_id=@tid AND member_id=@mid AND (fee_paid IS FALSE OR (fee_paid IS NULL AND status='SCRAPPED' AND (deposit_waived OR uncovered_qty>0)))
+                AND idempotency_key NOT LIKE 'settlement:%'
+            )
+            SELECT d.ref,d.container_type,p.name,d.quantity,d.quantity*c.unit_deposit,d.reason FROM damaged d
+            JOIN plugin_kunlun_waterstation.container_configs c ON c.tenant_id=@tid AND c.container_type=d.container_type
+            JOIN plugin_kunlun_waterstation.water_products p ON p.tenant_id=@tid AND p.container_id=d.container_type
+            WHERE d.quantity>0 AND NOT EXISTS (SELECT 1 FROM plugin_kunlun_waterstation.settlement_damage_decisions s WHERE s.tenant_id=@tid AND s.reference=d.ref)
+            ORDER BY d.ref
+            """, ("tid", tid), ("mid", mid)))
+        await using (var r = await cmd.ExecuteReaderAsync(ct))
+            while (await r.ReadAsync(ct))
+            {
+                var reference = r.GetString(0);
+                plan.Damages.Add(new(reference,r.GetString(1),r.GetString(2),r.GetInt32(3),r.GetDecimal(4),r.GetString(5),
+                    decisions?.FirstOrDefault(d => d.Reference == reference)?.Charge));
+            }
+        if (decisions is not null && (decisions.Select(d => d.Reference).Distinct().Count() != decisions.Length ||
+                decisions.Any(d => plan.Damages.All(item => item.Reference != d.Reference))))
+            throw new BusinessRuleException("历史破损记录已变化，请重新核对", 409);
+        if (plan.Tickets.Count == 0 && plan.RefundValue == 0 && plan.Damages.Count == 0 &&
+            plan.Funding == 0 && plan.Containers.All(c => c.Damaged + c.Returned == 0 && c.ChargeDeducted == 0))
+            plan.Blockers.Add("这位会员没有待结算的变动");
+        plan.Revision = ContainerInventory.Hash(new { plan.Deposit, plan.Tickets, plan.Containers, plan.Damages });
         return plan;
-    }
-
-    /// <summary>
-    /// Works out one container from the lots oldest first, in the order the settlement runs: broken ones kept, written-off ones
-    /// kept, the rest refunded, and the newest left for the ones staying out.
-    /// </summary>
-    private static void PlanContainer(ContainerLine c, SettlementContainerInput? input)
-    {
-        c.Returned = input?.Returned ?? c.Held;
-        c.Damaged = input?.Damaged ?? 0;
-        c.WaiveDamage = input?.WaiveDamage ?? false;
-        c.Mode = input?.Unreturned ?? "CHARGE";
-        if (c.Returned < 0 || c.Damaged < 0 || c.Returned + c.Damaged > c.Held)
-            throw new BusinessRuleException($"{c.Name}：还回的好的和坏的加起来不能比手里的 {c.Held} 个多");
-        if (c.Mode is not ("CHARGE" or "KEEP")) throw new BusinessRuleException("没还的桶袋请选「不还了」或「以后还」");
-        c.Unreturned = c.Held - c.Returned - c.Damaged;
-        var deduct = c.Damaged > 0 && !c.WaiveDamage;
-        var need = (deduct ? c.Damaged : 0) + c.Unreturned;
-        c.OffsetQty = Math.Max(0, need - c.Covered);
-        c.OffsetAmount = c.OffsetQty * c.UnitDeposit;
-        var queue = c.Lots.Select(l => (l.Price, l.Available)).ToList();
-        if (c.OffsetQty > 0) queue.Add((c.UnitDeposit, c.OffsetQty));
-        var total = queue.Sum(q => q.Available);
-        var used = 0;
-        decimal Take(int n) { var value = FinanceEndpoints.FifoValue(queue, n, used); used += n; return value; }
-        c.DamageUncovered = c.WaiveDamage ? Math.Max(0, c.Damaged - total) : 0;
-        c.DamageDeducted = deduct ? Take(c.Damaged) : 0;
-        c.ChargeDeducted = c.Mode == "CHARGE" ? Take(c.Unreturned) : 0;
-        c.KeptQty = c.Mode == "KEEP" ? c.Unreturned : 0;
-        c.RefundQty = total - used - c.KeptQty;
-        c.RefundValue = Take(c.RefundQty);
-        c.KeptDeposit = Take(c.KeptQty);
-        c.RefundAmount = c.RefundValue;
     }
 
     /// <summary>
@@ -411,14 +377,21 @@ public static class Settlements
                 ? $"这次只能退 ¥{Money.Text(plan.Max)}：没有水费退款可以承担差额"
                 : $"实退金额只能在 ¥{Money.Text(plan.Min)} 到 ¥{Money.Text(plan.Max)} 之间：多退记在水费退款上（每笔不超过原实付），少退先少退水费、再扣押金");
         foreach (var t in plan.Tickets) t.Amount = t.Value;
-        foreach (var c in plan.Containers) c.RefundAmount = c.RefundValue;
+        plan.RefundAmount = plan.RefundValue;
         var diff = amount - plan.Computed;
         if (diff > 0)
             foreach (var t in plan.Tickets) { var add = Math.Min(diff, t.Paid - t.Value); t.Amount += add; diff -= add; }
         else if (diff < 0)
         {
             foreach (var t in plan.Tickets) { var cut = Math.Min(-diff, t.Amount); t.Amount -= cut; diff += cut; }
-            foreach (var c in plan.Containers) { var cut = Math.Min(-diff, c.RefundAmount); c.RefundAmount -= cut; diff += cut; }
+            plan.RefundAmount -= Math.Min(-diff, plan.RefundAmount);
+        }
+        var transfer = plan.Funding + Math.Min(0, amount);
+        foreach (var ticket in plan.Tickets)
+        {
+            ticket.Transferred = Math.Min(ticket.Amount, transfer);
+            ticket.Amount -= ticket.Transferred;
+            transfer -= ticket.Transferred;
         }
         plan.Amount = amount;
     }
@@ -431,14 +404,16 @@ public static class Settlements
         computedAmount = plan.Computed, amount = plan.Amount,
         tickets = plan.Tickets.Select(t => new
         {
-            t.BatchId, t.Name, t.WaterType, t.Unit, t.RemainingBuy, t.RemainingGift, value = t.Value, paid = t.Paid, amount = t.Amount, refundNo = t.RefundNo
+            t.BatchId, t.Name, t.WaterType, t.Unit, t.RemainingBuy, t.RemainingGift, value = t.Value, paid = t.Paid, t.Transferred, amount = t.Amount, refundNo = t.RefundNo
         }),
         containers = plan.Containers.Select(c => new
         {
-            c.ContainerType, c.Name, c.Unit, c.UnitDeposit, c.Held, c.Covered, c.Returned, c.Damaged, c.WaiveDamage, c.Unreturned, unreturnedMode = c.Mode,
-            c.OffsetQty, c.OffsetAmount, c.DamageDeducted, c.DamageUncovered, c.ChargeDeducted, c.KeptQty, c.KeptDeposit,
-            c.RefundQty, c.RefundValue, c.RefundAmount, c.RefundNo, c.OffsetNo, c.ScrapNos, c.PendingDamageQty, c.PendingDamageAmount
+            c.ContainerType, c.Name, c.Unit, c.UnitDeposit, c.Held, c.Returned, c.Damaged, c.WaiveDamage, c.Unreturned, unreturnedMode = c.Mode,
+            c.DamageDeducted, c.ChargeDeducted, c.KeptDeposit, c.ScrapNos
         }),
+        damages = plan.Damages, revision = plan.Revision,
+        pool = new { before = plan.Deposit, kept = plan.Kept, charges = plan.Charges, transfer = plan.Funding + Math.Min(0,plan.Amount),
+            supplement = Math.Max(0,-plan.Amount), refund = plan.RefundAmount, plan.TransferNo, plan.CollectionNo, plan.RefundNo },
         notes = plan.Notes
     };
 }

@@ -278,7 +278,7 @@ public static class MemberOpening
             var (lotId, no2, qty, oldPrice, oldTotal, touched) = lot.Value;
             if (d.Quantity == qty && price == oldPrice) return null;
             if (touched) throw new BusinessRuleException("上系统前的这笔押金已经退过或报废扣过，不能再改；要退押金请走「退押金」", 409);
-            await using (var pending = Command(conn, tx, "SELECT request_no FROM plugin_kunlun_waterstation.refund_requests WHERE tenant_id=@tid AND member_id=@mid AND kind='DEPOSIT' AND container_type=@type AND status='PENDING'", ("tid", tid), ("mid", mid), ("type", d.ContainerType)))
+            await using (var pending = Command(conn, tx, "SELECT request_no FROM plugin_kunlun_waterstation.refund_requests WHERE tenant_id=@tid AND member_id=@mid AND kind='DEPOSIT' AND (container_type=@type OR container_type IS NULL) AND status='PENDING'", ("tid", tid), ("mid", mid), ("type", d.ContainerType)))
                 if (await pending.ExecuteScalarAsync(ct) is string request) throw new BusinessRuleException($"这种桶袋有退押金申请 {request} 在审核，处理完再改", 409);
             var before = new { quantity = qty, unitPrice = oldPrice, amount = oldTotal };
             if (d.Quantity == 0)

@@ -194,18 +194,19 @@ public static class FinanceEndpoints
             if (!HasPerm(user, KunlunPermissions.DepositCollect))
                 return Results.Json(new { error = "无押金收款权限" }, statusCode: StatusCodes.Status403Forbidden);
 
-            var ctype = req.ContainerType.ToUpperInvariant();
+            var ctype = req.ContainerType?.ToUpperInvariant();
             await using var conn = await ds.OpenConnectionAsync(ct);
             await using var tx = await conn.BeginTransactionAsync(ct);
-            if (!ProductContainers.ValidId(ctype) || req.Quantity <= 0 || req.Quantity > 10000 || req.PayMethod is not ("CASH" or "WECHAT" or "WX_OFFLINE" or "ALIPAY" or "BANK"))
+            if ((ctype is null ? req.Quantity != 0 : !ProductContainers.ValidId(ctype) || req.Quantity is <= 0 or > 10000) || req.PayMethod is not ("CASH" or "WECHAT" or "WX_OFFLINE" or "ALIPAY" or "BANK"))
                 throw new BusinessRuleException("押金数量、容器或收款方式无效");
+            if (ctype is null) DepositPool.Positive(req.Amount);
             await TicketBatches.LockRequest(conn, tx, finRepo.TenantId, "deposit-collect", req.IdempotencyKey, ct);
             await TicketBatches.LockMember(conn, tx, finRepo.TenantId, req.MemberId, ct);
             await using (var replay = TicketBatches.Command(conn, tx, "SELECT deposit_no,member_id,container_type,paid_qty,total_amount,pay_method FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND idempotency_key=@key", ("tid", finRepo.TenantId), ("key", req.IdempotencyKey)))
             await using (var r = await replay.ExecuteReaderAsync(ct))
                 if (await r.ReadAsync(ct))
                 {
-                    if (r.GetGuid(1) != req.MemberId || r.GetString(2) != ctype || r.GetInt32(3) != req.Quantity || r.GetString(5) != req.PayMethod
+                    if (r.GetGuid(1) != req.MemberId || (r.IsDBNull(2) ? null : r.GetString(2)) != ctype || (r.IsDBNull(3) ? 0 : r.GetInt32(3)) != req.Quantity || r.GetString(5) != req.PayMethod
                         || (req.Amount is { } typed && r.GetDecimal(4) != typed)) throw new BusinessRuleException("请求标识已用于其他收押操作", 409);
                     return Results.Ok(new { depositNo = r.GetString(0), status = "APPROVED", totalAmount = r.GetDecimal(4), idempotentReplay = true });
                 }
@@ -213,30 +214,22 @@ public static class FinanceEndpoints
             if (await RefundRequests.CollectReplay(conn, tx, finRepo.TenantId, req.IdempotencyKey, req.MemberId, ctype, req.Quantity, req.PayMethod, ct, req.Amount) is { } pendingReplay)
                 return Results.Ok(pendingReplay);
 
-            await ProductContainers.Require(conn, tx, finRepo.TenantId, ctype, ct);
-            // 获取当前容器押金单价
             decimal unitPrice;
-            await using (var cfgCmd = new NpgsqlCommand("""
-                SELECT unit_deposit FROM plugin_kunlun_waterstation.container_configs
-                WHERE tenant_id = @tid AND container_type = @ct
-                """, conn, tx))
+            if (ctype is null) unitPrice = DepositPool.Positive(req.Amount);
+            else
             {
-                cfgCmd.Parameters.AddWithValue("tid", finRepo.TenantId);
-                cfgCmd.Parameters.AddWithValue("ct", ctype);
-                var val = await cfgCmd.ExecuteScalarAsync(ct);
-                if (val is null) return Results.BadRequest(new { error = "无效容器类型" });
-                unitPrice = Convert.ToDecimal(val);
+                await ProductContainers.Require(conn, tx, finRepo.TenantId, ctype, ct);
+                await using var cfg = TicketBatches.Command(conn, tx, "SELECT unit_deposit FROM plugin_kunlun_waterstation.container_configs WHERE tenant_id=@tid AND container_type=@ct",
+                    ("tid", finRepo.TenantId), ("ct", ctype));
+                unitPrice = req.Amount is { } typedAmount ? Money.UnitPrice(typedAmount, req.Quantity, "") : Convert.ToDecimal(await cfg.ExecuteScalarAsync(ct));
             }
-            // The money actually taken, typed in at the counter, decides each container's price; without it the current standard does.
-            if (req.Amount is { } amount) unitPrice = Money.UnitPrice(amount, req.Quantity, "");
-
             var operatorName = user.FindFirstValue("display_name") ?? "员工";
             // 收押金要审核时（不分谁收的，门店共用一个管理员账号）先记成待审核：交付照样算进押金覆盖，管理员核对到账批准后才记成押金批次。
             if ((await ReviewSettings.Read(conn, tx, finRepo.TenantId, ct)).DepositReview)
             {
                 var (requestId, requestNo) = await RefundRequests.RequestCollect(conn, tx, finRepo.TenantId, req.MemberId, ctype, req.Quantity, unitPrice, req.PayMethod, req.IdempotencyKey, operatorName, ct);
                 await tx.CommitAsync(ct);
-                return Results.Ok(new { requestId, requestNo, status = "PENDING", containerType = ctype, unitPrice, quantity = req.Quantity, totalAmount = unitPrice * req.Quantity });
+                return Results.Ok(new { requestId, requestNo, status = "PENDING", containerType = ctype, unitPrice, quantity = req.Quantity, totalAmount = unitPrice * Math.Max(1, req.Quantity) });
             }
 
             var lot = await InsertDepositLot(conn, tx, finRepo.TenantId, req.MemberId, ctype, req.Quantity, unitPrice, req.PayMethod, req.IdempotencyKey, operatorName, null, ct);
@@ -283,7 +276,6 @@ public static class FinanceEndpoints
             await using var cover = TicketBatches.Command(conn, tx, "SELECT COALESCE(sum(remaining_qty-reserved_damage_qty),0) FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@ct", ("tid", tid), ("mid", req.MemberId), ("ct", ctype));
             // Deposits taken but not yet approved count too: the customer already paid them.
             var covered = Convert.ToInt32(await cover.ExecuteScalarAsync(ct)) + await RefundRequests.PendingCollectQty(conn, tx, tid, req.MemberId, ctype, ct);
-            if (nextHeld > held && nextHeld > covered) throw new BusinessRuleException("押金不足，请先补交押金");
             if (!await ContainerInventory.MoveToMembers(conn, tx, tid, ctype, delta, ct))
                 throw new BusinessRuleException("会员持有桶袋的汇总需要核对，请联系管理员");
             await ProductContainers.SetHeld(conn, tx, tid, req.MemberId, ctype, nextHeld, ct);
@@ -307,27 +299,30 @@ public static class FinanceEndpoints
             if (!HasPerm(user, KunlunPermissions.DepositRefundApprove))
                 return Results.Json(new { error = "押金退款须由管理员审核，请提交退款申请" }, statusCode: StatusCodes.Status403Forbidden);
 
-            var ctype = req.ContainerType.ToUpperInvariant();
+            var ctype = req.ContainerType?.ToUpperInvariant();
             await using var conn = await ds.OpenConnectionAsync(ct);
             await using var tx = await conn.BeginTransactionAsync(ct);
-            if (!ProductContainers.ValidId(ctype) || req.Quantity <= 0 || req.Quantity > 10000)
+            if ((ctype is null ? req.Quantity != 0 : !ProductContainers.ValidId(ctype) || req.Quantity is <= 0 or > 10000))
                 throw new BusinessRuleException("退款数量或容器类型无效");
             if (req.PayMethod is not (null or "CASH" or "WECHAT" or "WX_OFFLINE" or "ALIPAY" or "BANK"))
                 throw new BusinessRuleException("退款方式无效");
+            if (ctype is null) DepositPool.Positive(req.Amount);
             await TicketBatches.LockRequest(conn, tx, finRepo.TenantId, "deposit-refund", req.IdempotencyKey, ct);
             await TicketBatches.LockMember(conn, tx, finRepo.TenantId, req.MemberId, ct);
             await using (var replay = TicketBatches.Command(conn, tx, "SELECT refund_no,member_id,container_type,refund_qty,refund_amount,pay_method FROM plugin_kunlun_waterstation.deposit_refunds WHERE tenant_id=@tid AND idempotency_key=@key", ("tid", finRepo.TenantId), ("key", req.IdempotencyKey)))
             await using (var r = await replay.ExecuteReaderAsync(ct))
                 if (await r.ReadAsync(ct))
                 {
-                    if (r.GetGuid(1) != req.MemberId || r.GetString(2) != ctype || r.GetInt32(3) != req.Quantity || (r.IsDBNull(5) ? null : r.GetString(5)) != req.PayMethod
+                    if (r.GetGuid(1) != req.MemberId || (r.IsDBNull(2) ? null : r.GetString(2)) != ctype || (r.IsDBNull(3) ? 0 : r.GetInt32(3)) != req.Quantity || (r.IsDBNull(5) ? null : r.GetString(5)) != req.PayMethod
                         || (req.Amount is { } typed && r.GetDecimal(4) != typed)) throw new BusinessRuleException("请求标识已用于其他退押操作", 409);
                     return Results.Ok(new { refundNo = r.GetString(0), refundAmount = r.GetDecimal(4), idempotentReplay = true });
                 }
 
             var actor = user.FindFirstValue("display_name") ?? "员工";
-            var refund = await ExecuteDepositRefund(conn, tx, finRepo.TenantId, req.MemberId, ctype, req.Quantity, req.PayMethod, req.IdempotencyKey, actor, ct, req.Amount);
-            await RefundRequests.RecordDirect(conn, tx, finRepo.TenantId, "DEPOSIT", req.MemberId, ctype, req.Quantity, null, req.PayMethod, "", refund.RefundNo, refund.Amount, actor, ct, refund.Value);
+            var refund = ctype is null
+                ? await DepositPool.Debit(conn, tx, finRepo.TenantId, req.MemberId, req.Amount!.Value, req.Amount.Value, req.PayMethod, req.IdempotencyKey, actor, ct)
+                : await ExecuteDepositRefund(conn, tx, finRepo.TenantId, req.MemberId, ctype, req.Quantity, req.PayMethod, req.IdempotencyKey, actor, ct, req.Amount);
+            await RefundRequests.RecordDirect(conn, tx, finRepo.TenantId, "DEPOSIT", req.MemberId, ctype, ctype is null ? null : req.Quantity, null, req.PayMethod, "", refund.RefundNo, refund.Amount, actor, ct, refund.Value);
             await tx.CommitAsync(ct);
             return Results.Ok(new
             {
@@ -375,17 +370,17 @@ public static class FinanceEndpoints
     /// are not reviewed, or when an admin approves one staff took (keeping the time it was taken, so lots stay in the order paid).
     /// </summary>
     public static async Task<(Guid LotId, string DepositNo, decimal Amount)> InsertDepositLot(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid,
-        string ctype, int qty, decimal unitPrice, string pay, string key, string operatorName, DateTimeOffset? takenAt, CancellationToken ct)
+        string? ctype, int qty, decimal unitPrice, string pay, string key, string operatorName, DateTimeOffset? takenAt, CancellationToken ct, string source = "COLLECT")
     {
         var lotId = Guid.NewGuid();
         var depositNo = await BusinessNumbers.DepositNo(conn, tx, ct);
-        var amount = unitPrice * qty;
+        var amount = ctype is null ? unitPrice : unitPrice * qty;
         await TicketBatches.Exec(conn, tx, """
             INSERT INTO plugin_kunlun_waterstation.deposit_lots
-                (id, tenant_id, deposit_no, idempotency_key, member_id, container_type, unit_price, paid_qty, refunded_qty, remaining_qty, total_amount, pay_method, operator_name, created_at)
+                (id, tenant_id, deposit_no, idempotency_key, member_id, container_type, unit_price, paid_qty, refunded_qty, remaining_qty, total_amount, pay_method, operator_name, created_at,free_amount,source)
             VALUES
-                (@id, @tid, @no, @key, @mid, @ct, @unit, @qty, 0, @qty, @tot, @pay, @op, COALESCE(@at::timestamptz, now()))
-            """, ct, ("id", lotId), ("tid", tid), ("no", depositNo), ("key", key), ("mid", mid), ("ct", ctype), ("unit", unitPrice), ("qty", qty),
+                (@id, @tid, @no, @key, @mid, @ct, @unit, NULLIF(@qty,0), 0, @qty, @tot, @pay, @op, COALESCE(@at::timestamptz, now()),@free,@source)
+            """, ct, ("id", lotId), ("tid", tid), ("no", depositNo), ("key", key), ("mid", mid), ("ct", (object?)ctype ?? DBNull.Value), ("unit", ctype is null ? DBNull.Value : (object)unitPrice), ("qty", qty), ("free", ctype is null ? amount : 0m), ("source", source),
             ("tot", amount), ("pay", pay), ("op", operatorName), ("at", (object?)takenAt ?? DBNull.Value));
         await TicketBatches.Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.members SET deposit_amount = deposit_amount + @amt WHERE tenant_id = @tid AND id = @mid",
             ct, ("amt", amount), ("tid", tid), ("mid", mid));
@@ -397,7 +392,7 @@ public static class FinanceEndpoints
     /// 少退的部分记为扣押金（deducted_amount），在池押金照样按原价减少。只退未被实际持有和待报废占用的数量；调用方须先锁定会员。
     /// </summary>
     public static async Task<DepositRefundResult> ExecuteDepositRefund(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, string ctype,
-        int quantity, string? payMethod, string idempotencyKey, string operatorName, CancellationToken ct, decimal? entered = null)
+        int quantity, string? payMethod, string idempotencyKey, string operatorName, CancellationToken ct, decimal? entered = null, Guid? requestId = null)
     {
         var currentHeld = await ProductContainers.Held(conn, tx, tid, mid, ctype, ct);
 
@@ -419,6 +414,8 @@ public static class FinanceEndpoints
         if (quantity > refundableQty)
             throw new BusinessRuleException($"可退押金数量不足：可用押金 {totalPaidRemaining} 个（已排除待报废占用），当前实际持有占用 {currentHeld} 个，最多可退 {refundableQty} 个（请先登记归还容器）");
 
+        var pool = await DepositPool.Read(conn, tx, tid, mid, ct, requestId);
+        DepositPool.Check(FifoValue(lots.Select(l => (l.UnitPrice, l.Remaining)), quantity), pool);
         // AC-12: 按历史原收款批次单价计算押金原价（不按修改后的当前单价）
         var needToRefund = quantity;
         decimal value = 0m;

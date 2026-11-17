@@ -101,7 +101,7 @@ export function StaffMembers() {
             {ticketGroups(m.tickets).map(g => <span key={g.waterType}>{g.name}<span>自提 <b>{g.pickup}</b> · 配送 <b>{g.delivery}</b> {g.unit}</span></span>)}
           </div>
           <div className="wallet-sub">
-            <span>押金 <b>¥{Number(m.depositAmount).toFixed(0)}</b></span>
+            <span>押金 <b>¥{Number(m.depositAmount).toFixed(2)}</b></span>
             <span>持桶/袋 <b>{m.heldBuckets}/{m.heldBags}</b></span>
           </div>
         </div>

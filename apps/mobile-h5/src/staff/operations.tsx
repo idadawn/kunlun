@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { KUNLUN_PERMISSIONS as P, money, pathFor, ticketGroups, type MemberProfile, type MobileFeatureKey, type WaterOrder } from '@kunlun/shared';
 import {
   AddressBook, CredentialsDialog, DepositDialog, Dialog, FulfillDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog,
-  RechargeDialog, SettlementDialog, SettlementRecords, canSettle, useAuth, useDialogs, useRun, useSettlements, useToast, type DepositAction,
+  RechargeDialog, SettlementDialog, SettlementRecords, canSettle, useAuth, useDialogs, useLoader, useRun, useSettlements, useToast, type DepositAction,
 } from '@kunlun/ui';
 import { useMobileLayout, useStaffData } from './data';
 
@@ -11,7 +11,7 @@ import { useMobileLayout, useStaffData } from './data';
 export function useStaffOperations() {
   const { api, can } = useAuth();
   const data = useStaffData();
-  const { containers, selectedMemberId, refresh } = data;
+  const { selectedMemberId, refresh } = data;
   const dialogs = useDialogs();
   const toast = useToast();
   const run = useRun();
@@ -20,7 +20,7 @@ export function useStaffOperations() {
     await open();
   });
   const deposit = (action?: DepositAction) => guard(can(P.DepositCollect) || can(P.DepositRefundApply) || can(P.DepositRefundApprove), '当前账号没有押金办理权限', () =>
-    dialogs.open(close => <DepositDialog containers={containers} memberId={selectedMemberId} action={action} onClose={close} onDone={refresh} />));
+    dialogs.open(close => <DepositDialog memberId={selectedMemberId} action={action} onClose={close} onDone={refresh} />));
 
   async function createMember() {
     const created = await dialogs.open<{ id: string; memberNo: string; name: string; phone: string }>(close => <NewMemberDialog onClose={close} onDone={refresh} />);
@@ -73,7 +73,7 @@ function MemberDetailDialog({ member: opened, onClose }: { member: MemberProfile
   const { members, refresh, setSelectedMemberId } = useStaffData();
   // The list refreshes after a recharge, deposit or address change made from here; show that, not the row as it was when opened.
   const member = members.find(m => m.id === opened.id) ?? opened;
-  const { can } = useAuth();
+  const { api, can } = useAuth();
   const layout = useMobileLayout();
   const ops = useStaffOperations();
   const navigate = useNavigate();
@@ -83,6 +83,8 @@ function MemberDetailDialog({ member: opened, onClose }: { member: MemberProfile
   const depositActions = !disabled && (layout.has('depositCollect') || layout.has('depositRefund'));
   const dialogs = useDialogs();
   const [settled, setSettled] = useState(0);
+  const deposits = useLoader(() => api.depositSummary(member.id), [api, member, settled]);
+  const pool = deposits.data?.[0]?.pool;
   const settlements = useSettlements(member.id, settled);
   const settle = () => void dialogs.open(close => <SettlementDialog memberId={member.id} memberName={member.name} onClose={close}
     onDone={async () => { await refresh(); setSettled(n => n + 1); }} />);
@@ -102,8 +104,10 @@ function MemberDetailDialog({ member: opened, onClose }: { member: MemberProfile
         </section>
         <section className="deposit">
           <header><b>押金</b><small>独立记账</small></header>
-          <p>在池押金 <b>¥{money(member.depositAmount)}</b></p>
+          <p>在池押金 <b>¥{money(pool?.total ?? member.depositAmount)}</b></p>
           <p>持有桶/袋 <b>{member.heldBuckets}/{member.heldBags}</b></p>
+          {pool && <p>持有桶袋需 ¥{money(pool.required)} · {pool.shortfall ? `欠押金 ¥${money(pool.shortfall)}` : '押金已覆盖'}</p>}
+          {deposits.data?.filter(r => r.damageQty > 0).map(r => <p key={r.containerType}>{r.name}累计登记破损 {r.damageQty} 个</p>)}
           {depositActions && <div className="member-ledger-actions">
             {layout.has('depositCollect') && <button type="button" className="btn sm" onClick={ops.collectDeposit}>收押金</button>}
             {layout.has('depositRefund') && <button type="button" className="btn sm" onClick={ops.refundDeposit}>退押金</button>}
