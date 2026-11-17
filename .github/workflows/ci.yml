@@ -1,5 +1,17 @@
 name: CI
-on: [push, pull_request]
+# A PR commit is checked once, by its pull_request run; push runs are limited to main so the
+# same commit does not also queue a second set of jobs (and a second macos-15 runner for ios).
+# Branches without a PR can run CI by hand from the Actions tab (workflow_dispatch).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+# A new commit on a PR cancels that PR's run still in progress. Every other run (pushes to main,
+# manual runs) is grouped by its own run id, so it never waits behind, cancels or gets cancelled.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
