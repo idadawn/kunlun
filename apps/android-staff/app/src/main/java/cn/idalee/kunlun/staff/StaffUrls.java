@@ -38,4 +38,14 @@ final class StaffUrls {
         String path = URI.create(value).getPath();
         return path != null && path.startsWith("/api/") && !path.contains("..") && !path.contains("//");
     }
+
+    /** The number in a tel: link (digits, spaces, dashes, brackets, a leading +), or null for anything else. */
+    static String phoneNumber(String value) {
+        try {
+            URI uri = URI.create(value);
+            if (!"tel".equalsIgnoreCase(uri.getScheme())) return null;
+            String number = uri.getSchemeSpecificPart();
+            return number != null && number.matches("\\+?[0-9][0-9 ()-]{2,30}") ? number : null;
+        } catch (IllegalArgumentException e) { return null; }
+    }
 }
