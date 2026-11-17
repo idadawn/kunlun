@@ -40,7 +40,7 @@
 
 ## 本地启动与验收
 
-先显式设置 `ConnectionStrings__Kunlun`、`Kunlun__Jwt__SigningKey`，以及首次初始化所需的 `Kunlun__Bootstrap__Username` / `Kunlun__Bootstrap__Password`（见 `.env.example`）。应用不自动读取 `.env.local`，默认不创建演示账号。已有员工的用户名为原工号；会员登录账号在管理端会员详情中设置。
+先显式设置 `ConnectionStrings__Kunlun`、`Kunlun__Jwt__SigningKey`，以及首次初始化所需的 `Kunlun__Bootstrap__Username` / `Kunlun__Bootstrap__Password`（见 `.env.example`）；Android App 检查更新另需蒲公英账号 API Key `Kunlun__Pgyer__ApiKey`，不设置时一律答没有更新。应用不自动读取 `.env.local`，默认不创建演示账号。已有员工的用户名为原工号；会员登录账号在管理端会员详情中设置。
 
 ```sh
 dotnet run --project services/Kunlun.WaterStation --urls http://127.0.0.1:5188

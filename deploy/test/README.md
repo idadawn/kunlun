@@ -5,6 +5,7 @@
 - al 部署目录 `/opt/kunlun-test`，Compose 项目 `kunlun-test`。
 - 独立 PostgreSQL 数据卷和数据库 `kunlun_test`、账号 `kunlun_test_app`、JWT 密钥及 issuer/audience。数据库不开放公网端口。
 - 宿主机诊断口 `127.0.0.1:18086`，既有 Caddy 经 `kunlun-test-web:8080` 代理 HTTPS。
+- 数据库只在内部网络；API 另接只用于出网的 `kunlun-test_egress`，向蒲公英查询 Android App 有没有新版本。
 - `ASPNETCORE_ENVIRONMENT=Testing`，`SeedDemoData=false`，初始化通过业务 API 完成。系统不接收线上付款，钱款均在店里线下收取后记账。
 
 ## 构建与发布
@@ -28,6 +29,8 @@ KUNLUN_JWT_KEY=至少32字节独立随机值
 KUNLUN_ADMIN_USER=test_admin
 KUNLUN_ADMIN_PASSWORD=独立随机密码
 RELEASE_DIR=/opt/kunlun-test/releases/SOURCE_SHA
+# 可选：蒲公英账号 API Key，Android App 检查更新用；不设置时不提示更新
+KUNLUN_PGYER_API_KEY=
 ```
 
 镜像需固定 digest，可复用 al 上已验证的基础镜像。先运行 Compose `config --quiet` 再 `up -d --wait`。网关备份后添加 `Caddyfile.fragment`，通过 `caddy validate` 后用现有 Caddy 的 `USR1` 信号重读配置，保持原站点不变。HTTP 网关添加 `http-redirect.conf`，通过 `nginx -t` 后热加载。
