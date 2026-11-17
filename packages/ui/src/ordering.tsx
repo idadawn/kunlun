@@ -5,7 +5,7 @@ import {
 } from '@kunlun/shared';
 import { AddressPicker } from './addresses';
 import { useApi, useAuth } from './auth';
-import { useRun } from './feedback';
+import { NumberInput, useRun } from './feedback';
 import { useLoader } from './hooks';
 import { Icon } from './icons';
 
@@ -113,7 +113,7 @@ export function Stepper({ id, value, onChange, min = 0, max, label, showZero = f
       {shown && <button type="button" className="stepper-minus" aria-label={`减少${label}`} disabled={value <= min} onClick={() => set(value - 1)}>−</button>}
       {shown && (id === undefined
         ? <span aria-label={label}>{value}</span>
-        : <input id={id} className="stepper-input" type="number" inputMode="numeric" min={min} max={max} step={1} required value={value} onChange={e => set(Number(e.target.value))} />)}
+        : <NumberInput id={id} className="stepper-input" inputMode="numeric" min={min} max={max} step={1} required value={value} onChange={set} />)}
       <button type="button" className="stepper-plus" aria-label={`增加${label}`} disabled={max !== undefined && value >= max} onClick={() => set(value + 1)}>+</button>
     </div>
   );

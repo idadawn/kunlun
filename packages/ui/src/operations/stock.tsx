@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { containerLabel, containerUnit, type ContainerSummaryItem, type InventoryAction, type UpdateStockRequest } from '@kunlun/shared';
 import { useAuth } from '../auth';
-import { FormDialog, useToast } from '../feedback';
+import { FormDialog, NumberInput, useToast } from '../feedback';
 import { useIdempotencyKey } from '../hooks';
 import { Stepper } from '../ordering';
 import { ReasonChips, type Done } from './common';
@@ -72,8 +72,8 @@ export function StockEditDialog({ config: c, focus = 'inStationQty', onClose, on
       </CountField>
       <div className="stock-dialog-more">
         <label htmlFor="stockThreshold">店里少于</label>
-        <input id="stockThreshold" className="input" type="number" inputMode="numeric" min={0} max={MAX} step={1} required value={threshold}
-          onChange={e => setThreshold(Math.min(MAX, Math.max(0, Math.trunc(Number(e.target.value)) || 0)))} />
+        <NumberInput id="stockThreshold" className="input" inputMode="numeric" min={0} max={MAX} step={1} required value={threshold}
+          onChange={n => setThreshold(Math.min(MAX, Math.max(0, Math.trunc(n) || 0)))} />
         <span>个时提醒（填 0 不提醒）</span>
       </div>
       <label htmlFor="stockNote">备注（选填）</label>

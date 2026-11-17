@@ -24,7 +24,41 @@ cd apps/android-staff
 ./gradlew :app:assembleRelease -PstaffReleaseOrigin=https://kunlun.idalee.cn
 ```
 
-Gradle 会先检查前端类型，再将当前 `apps/mobile-h5` 构建到生成的 assets 目录，不改动 H5 的 `dist`。发布版仅允许 HTTPS，默认连接正式服务，可用 `staffReleaseOrigin` 指定其他 HTTPS 域名。发布 APK 尚未配置签名，正式分发前需由发布人员提供签名配置；本地调试包由 Android 调试密钥签名。
+Gradle 会先检查前端类型，再将当前 `apps/mobile-h5` 构建到生成的 assets 目录，不改动 H5 的 `dist`。发布版仅允许 HTTPS，默认连接正式服务，可用 `staffReleaseOrigin` 指定其他 HTTPS 域名。不提供签名配置时，发布包不签名（`app-release-unsigned.apk`，CI 即如此）；本地调试包由 Android 调试密钥签名。
+
+## 正式签名与打包
+
+员工端和会员端用同一把签名密钥。密钥和密码只放在发布人员的电脑和备份里，不进仓库。
+
+1. **生成密钥**（只做一次）。命令会提示输入密码和名称；macOS 上若找不到 `keytool`，用 Android Studio 自带的 `"/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/keytool"`。
+
+   ```sh
+   mkdir -p ~/kunlun-release && chmod 700 ~/kunlun-release
+   keytool -genkeypair -v -keystore ~/kunlun-release/kunlun-release.jks -storetype PKCS12 \
+     -alias kunlun -keyalg RSA -keysize 4096 -validity 10000
+   ```
+
+2. **写签名配置**：在同一目录建 `signing.properties`，执行 `chmod 600`。PKCS12 密钥库的两个密码相同；`storeFile` 写相对路径时，从这个文件所在目录找。
+
+   ```properties
+   storeFile=kunlun-release.jks
+   storePassword=生成密钥时设的密码
+   keyAlias=kunlun
+   keyPassword=同上
+   ```
+
+3. **打包**：`-PkunlunSigning` 也可以换成环境变量 `KUNLUN_ANDROID_SIGNING`。文件不存在或缺项时构建直接失败，不会悄悄打出未签名的包。
+
+   ```sh
+   cd apps/android-staff
+   ./gradlew :app:assembleRelease -PkunlunSigning=$HOME/kunlun-release/signing.properties
+   ```
+
+   输出 `app/build/outputs/apk/release/app-release.apk`，同时带 v1、v2 签名。可以用 SDK 的 `build-tools/<版本>/apksigner verify --min-sdk-version 23 --print-certs <apk>` 核对。
+
+4. **保管**：密钥或密码丢了，就不能再发布能覆盖安装的更新，用户只能卸载重装。请把 `kunlun-release.jks` 和密码另外备份，比如放进密码管理器。
+
+版本号在 `app/build.gradle` 的 `versionCode` 和 `versionName`，首个正式版是 1 / 1.0.0；以后每次发布，`versionCode` 至少加 1。正式版连接 `https://kunlun.idalee.cn`，所以线上服务要先更新到与 App 同一版本再发布。
 
 ## 容器规则
 
