@@ -44,6 +44,21 @@ export function externalUrl(value) {
   } catch { return null; }
 }
 
+/** A login the page asked to remember, trimmed to what the login form accepts; anything else is null. */
+export function normalizeLogin(value) {
+  if (!value || typeof value !== 'object') return null;
+  const username = typeof value.username === 'string' ? value.username.trim() : '';
+  const password = typeof value.password === 'string' ? value.password : '';
+  if (!username || username.length > 32 || !password || password.length > 128) return null;
+  return { username, password };
+}
+
+/** The saved login for this server, or null when it was saved for another one or is unreadable. */
+export function savedLoginFor(origin, value) {
+  if (!value || typeof value !== 'object' || value.origin !== origin) return null;
+  return normalizeLogin(value);
+}
+
 export const ZOOM_LEVELS = { min: -3, max: 5, step: 0.5 };
 
 /** A saved zoom level, kept within bounds; anything unreadable is the normal size. */
