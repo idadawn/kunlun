@@ -22,6 +22,7 @@ builder.Services.AddSingleton<KunlunAuthRepository>();
 builder.Services.AddSingleton<KunlunFinanceRepository>();
 builder.Services.AddSingleton<KunlunOrderRepository>();
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
+builder.Services.AddAppUpdates();
 
 var signingKey = Encoding.UTF8.GetBytes(
     builder.Configuration["Kunlun:Jwt:SigningKey"] ?? throw new InvalidOperationException("JWT signing key is required."));
@@ -86,6 +87,11 @@ builder.Services.AddRateLimiter(options =>
         context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
         { PermitLimit = builder.Environment.IsEnvironment("Testing") ? 10000 : 15, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+    // Update checks need no login. Answers are cached, so this only bounds how often anyone can make the server ask pgyer.
+    options.AddPolicy("app-update", context => System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+        { PermitLimit = builder.Environment.IsEnvironment("Testing") ? 10000 : 60, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
 });
 
 var app = builder.Build();
@@ -255,6 +261,7 @@ app.MapWaterProducts();
 app.MapOrderEndpoints();
 app.MapReportEndpoints();
 app.MapOverviewEndpoints();
+app.MapAppUpdates();
 app.Run();
 
 public partial class Program;

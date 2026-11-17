@@ -58,7 +58,27 @@ Gradle 会先检查前端类型，再将当前 `apps/mobile-h5` 构建到生成�
 
 4. **保管**：密钥或密码丢了，就不能再发布能覆盖安装的更新，用户只能卸载重装。请把 `kunlun-release.jks` 和密码另外备份，比如放进密码管理器。
 
-版本号在 `app/build.gradle` 的 `versionCode` 和 `versionName`，首个正式版是 1 / 1.0.0；以后每次发布，`versionCode` 至少加 1。正式版连接 `https://kunlun.idalee.cn`，所以线上服务要先更新到与 App 同一版本再发布。
+版本号在 `app/build.gradle` 的 `versionCode` 和 `versionName`，首个正式版是 1 / 1.0.0，带自动更新的是 2 / 1.1.0；以后每次发布，`versionCode` 至少加 1。正式版连接 `https://kunlun.idalee.cn`，所以线上服务要先更新到与 App 同一版本再发布。
+
+## 自动更新
+
+员工端和会员端都在蒲公英（pgyer.com）分发。从 1.1.0（`versionCode` 2）起，App 启动时问一次后端 `GET /api/app-update/android/staff?versionCode=<当前版本>`（会员端是 `/member`），以后回到前台时最多每小时再问一次；没联网或后端出错时 5 分钟后再试。后端用服务器上的蒲公英 API Key 代查，有更高 `versionCode` 的版本就弹窗「发现新版本 x.y.z」，内容是上传时填写的更新说明和当前版本号。
+
+- 「立即更新」用系统浏览器打开这个 App 在蒲公英的安装页，下载后覆盖安装（两个版本签名相同）。App 只打开 `https://www.pgyer.com`、`https://pgyer.com` 的页面。
+- 「以后再说」或返回键：这个版本一天内不再提示；更新的版本出来照常提示。
+- 蒲公英后台设置了强制更新时，弹窗没有「以后再说」、关不掉，回到 App 会再次弹出。
+- 后端没配 Key、蒲公英出错时一律答「没有更新」，App 照常使用。后端把蒲公英的答复缓存 10 分钟，所以上传后最多约 10 分钟才会提示。
+- 蒲公英 API Key 能上传和删除应用，只放在服务器 `.env` 的 `KUNLUN_PGYER_API_KEY`，不进 APK 和仓库。两个 App Key 不是机密，写在后端代码里（可用 `Kunlun__Pgyer__StaffAppKey`、`Kunlun__Pgyer__MemberAppKey` 覆盖）。
+- 调试版问的是本机后端，本机没配 Key 就不提示。想在模拟器上看弹窗，可以让本机后端的 `Kunlun__Pgyer__BaseUrl` 指向一个模拟蒲公英 `apiv2/app/check` 的本地服务。
+
+发布新版本：
+
+1. 在 `app/build.gradle` 把 `versionCode` 加 1，并改 `versionName`。
+2. 按上一节打出签名包。
+3. 上传到蒲公英上原来的 App（员工端、会员端各一个，不要新建），填写更新说明。
+4. 已安装的 App 下次启动，或回到前台且距上次检查满一小时时，提示更新。
+
+1.0.0 还没有检查更新，已经装了 1.0.0 的手机要手动装一次 1.1.0，以后就会自动提示。
 
 ## 容器规则
 

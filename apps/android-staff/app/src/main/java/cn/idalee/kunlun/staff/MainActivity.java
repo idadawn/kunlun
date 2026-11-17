@@ -35,6 +35,7 @@ public final class MainActivity extends Activity {
     private WebViewAssetLoader assets;
     private WebView webView;
     private LinearLayout errorView;
+    private UpdateChecker updates;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -76,6 +77,7 @@ public final class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::navigateBack);
         }
+        updates = new UpdateChecker(this);
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
             webView.loadUrl(HOME);
         }
@@ -149,6 +151,6 @@ public final class MainActivity extends Activity {
     public void onBackPressed() { navigateBack(); }
     @Override protected void onSaveInstanceState(Bundle state) { webView.saveState(state); super.onSaveInstanceState(state); }
     @Override protected void onPause() { webView.onPause(); super.onPause(); }
-    @Override protected void onResume() { super.onResume(); webView.onResume(); }
-    @Override protected void onDestroy() { webView.destroy(); super.onDestroy(); }
+    @Override protected void onResume() { super.onResume(); webView.onResume(); updates.onResume(); }
+    @Override protected void onDestroy() { updates.onDestroy(); webView.destroy(); super.onDestroy(); }
 }
