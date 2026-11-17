@@ -42,9 +42,12 @@ al 的 `wg0` 为 `10.77.0.20/32`，连接 `39.105.178.224:51820`。路由范围�
 ```sh
 ssh al 'cd /opt/kunlun && docker compose ps'
 ssh al 'curl -fsS http://127.0.0.1:18085/healthz'
+ssh al 'docker exec kunlun-web getent hosts api; docker inspect -f "{{.NetworkSettings.Networks.kunlun_backend.IPAddress}}" kunlun-api-1'
 ssh al 'systemctl is-active wg-quick@wg0 && ip route get 10.78.1.161'
 ssh al 'curl -fsS http://10.78.1.201/api/v2.0/ping'
 ```
+
+第二行输出的两个地址必须相同。`kunlun-web` 也接在 Caddy 共用网络上：别的 Compose 项目如果有叫 `api` 的服务也接进了这个网络，web 重启后就可能把请求转到那边（2026-11-18 审核环境出过这个问题，见 `deploy/review/README.md`）。web 的健康检查现在核对库名必须是 `kunlun_prod`，转错时容器会显示 unhealthy。
 
 ### 数据库备份
 

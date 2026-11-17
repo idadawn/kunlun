@@ -20,7 +20,9 @@ services:
       retries: 12
     networks: [database]
     mem_limit: 128m
-  api:
+  # Never name this service "api": Compose adds the service name as an alias on every network, gateway included,
+  # and the production and test nginx proxy to http://api:8080 while they share that network.
+  review-api:
     image: ${ASPNET_IMAGE:?Set a pinned ASP.NET image}
     restart: unless-stopped
     user: '1654:1654'
