@@ -5,6 +5,7 @@ using System.Text.Json;
 using Kunlun.WaterStation.Auth;
 using Kunlun.WaterStation.Operations;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Npgsql;
@@ -80,6 +81,17 @@ builder.Services
 
 if (signingKey.Length < 32) throw new InvalidOperationException("JWT signing key must contain at least 32 bytes.");
 builder.Services.AddAuthorization();
+// Rate limits count per client. Caddy, the public entry, replaces any X-Forwarded-For a client sends with the address the
+// client connected from, and nginx passes it on. The API publishes no port: on the internal network only nginx (and the
+// database) can reach it, and on egress only the host. So it takes the last entry (one hop) from private and loopback peers,
+// i.e. nginx; any other peer is counted as itself whatever it sends.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+    options.ForwardLimit = 1;
+    foreach (var network in new[] { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7" })
+        options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(network));
+});
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = 429;
@@ -95,6 +107,7 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+app.UseForwardedHeaders(); // first, so the rate limiter sees the client's address instead of nginx's
 app.Use(async (context, next) =>
 {
     try { await next(); }

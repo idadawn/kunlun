@@ -59,7 +59,7 @@ kunlun/
 
 三端统一使用用户名和密码。管理端仅接受 ADMIN，员工端接受 STAFF，会员端接受 MEMBER。用户名不区分大小写，支持 3–32 位字母、数字、点、横线和下划线；密码 8–128 位，以随机盐 PBKDF2-SHA256（600,000 次）保存，兼容升级前员工密码摘要。不存在手机号免密登录入口。
 
-首次部署显式提供数据库连接、至少 32 字节 JWT 签名密钥及初始化管理员用户名/密码；只在员工表为空时创建管理员。默认不写演示账号。已有员工使用原工号作为用户名，会员由授权员工在会员详情中设置账号。修改密码、重置凭证、退出登录和停用账号均递增 token_version，服务端每次请求检查状态和版本。登录按来源 IP 限流，页面不保存密码。
+首次部署显式提供数据库连接、至少 32 字节 JWT 签名密钥及初始化管理员用户名/密码；只在员工表为空时创建管理员。默认不写演示账号。已有员工使用原工号作为用户名，会员由授权员工在会员详情中设置账号。修改密码、重置凭证、退出登录和停用账号均递增 token_version，服务端每次请求检查状态和版本。登录按真实客户端 IP 限流（每分钟 15 次，见第 17 节），页面不保存密码。
 
 开发启动必须显式提供环境配置，不自动读取 `.env.local`。测试仅使用 `KUNLUN_TEST_DATABASE_URL`，自行创建独立测试数据库并在结束后删除。前端源码只在 `apps/*/src` 与 `packages/*/src` 中维护，不再保留手写 HTML 页面。
 
@@ -311,7 +311,24 @@ kunlun/
     - 会员端用会员端 App Key 查询，弹窗相同，返回键等同「以后再说」。
   - 从 al 上桥接网络的容器访问蒲公英接口正常（不带 Key 时返回 `{"code":1001,...}`）。服务器配好 Key 后在 al 上直接查蒲公英：同一个 API Key 两个 App 都能查；两个 App 当时都是 1.0.0（`buildVersionNo` 1），传 `buildVersion=1` 答没有新版，传 0 答有新版；`appURl` 和短链接 `buildShortcutUrl` 都是完整的 `https://www.pgyer.com/…` 地址，打开是对应 App 的下载页。
 - 没做：App 内下载安装（要 `REQUEST_INSTALL_PACKAGES` 和 FileProvider，蒲公英的直接下载地址又带着 Key），改由浏览器打开安装页。
-- 顺带发现（本次未改）：两个限流都按 `RemoteIpAddress` 分组，但请求都经 nginx 转来，后端看到的是同一个地址，所以登录的「每分钟 15 次」实际是所有人共用。改为按真实客户端 IP 计数见 PR #46。
+- 顺带发现（本次未改）：两个限流都按 `RemoteIpAddress` 分组，但请求都经 nginx 转来，后端看到的是同一个地址，所以登录的「每分钟 15 次」实际是所有人共用。改为按真实客户端 IP 计数见 PR #46（第 17 节）。
+
+## 17. 限流按真实客户端 IP 计数（2026-11-17）
+
+- 问题：线上和测试环境的请求都是 Caddy（`atlas-wiki-gateway-1`）→ nginx（`kunlun-web` / `kunlun-test-web`）→ `api:8080`。后端不处理转发头，看到的来源总是 nginx 在 `backend` 网络里的地址，所有人共用登录的每分钟 15 次。会员端 1.0.0 每次打开都要重新登录，人一多就会被 429 挡住。
+- 转发头链路（在 al 上核实）：
+  - Caddy v2.11.4 的 `reverse_proxy` 没有配 `trusted_proxies`，会丢掉客户端自己带的 `X-Forwarded-For`，改写成它看到的客户端地址。带伪造的 `X-Forwarded-For` 请求测试站，nginx 日志里只剩真实地址。
+  - nginx 默认原样转发请求头，Caddy 写的值本来就会到后端。`deploy/nginx.conf` 的 `location /api/` 现在显式写出 `proxy_set_header X-Forwarded-For $http_x_forwarded_for`，行为不变，只是把约定写进配置。不能改成 `$proxy_add_x_forwarded_for`：那样最后一项会变成 Caddy 的地址，大家又挤在一起。
+- 后端：`UseForwardedHeaders` 放在中间件最前面，只处理 `X-Forwarded-For`，`ForwardLimit = 1`，只信任来自私有网段（`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、`fc00::/7`）和本机回环的对端。API 不发布端口：在 `internal: true` 的 `backend` 网络上能连到它的只有 nginx（和数据库），第 16 节加的 `egress` 网络上只有宿主机能连到它，所以这就是只信任 nginx 这一跳。
+  - 只取最后一项。客户端在前面塞的地址不起作用。
+  - 对端不在这些网段时，不管带什么头，都按对端自己的地址计数。
+  - 登录和 App 更新检查（`app-update`，第 16 节）两个限流策略仍按 `Connection.RemoteIpAddress` 分组，代码不用改，现在都按真实客户端计数。
+- 前提：nginx 只能经 Caddy 访问（宿主机诊断口只绑 `127.0.0.1`）。如果把 nginx 直接暴露到公网，客户端就能自己写 `X-Forwarded-For`。
+- 测试：`ClientAddressRateLimitTests` 用生产环境的限额，手动设定 TestServer 请求的对端地址。
+  - nginx 后面的两个客户端各有 15 次。
+  - 在 Caddy 写入的地址前面塞别的地址，不会多出次数。
+  - 公网对端带任意 `X-Forwarded-For`，都按它自己的地址计数。
+  - TestServer 请求默认没有对端地址，这时中间件会无条件采用转发头，所以测试必须显式设置对端。
 
 ## 独立测试服务（2026-10-30，2026-11-01 更新）
 
