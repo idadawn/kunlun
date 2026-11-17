@@ -91,6 +91,58 @@ private actor Server {
         #expect(legacy.waterName(in: []) == "")
     }
 
+    @Test func decodesPackagesBoughtBeforeTheSystem() throws {
+        let batches = try JSONDecoder().decode([TicketBatch].self, from: fixture("batches"))
+        let priced = try #require(batches.first { $0.id == "opening-1" })
+        let unknown = try #require(batches.first { $0.id == "opening-2" })
+        #expect(priced.source == "OPENING")
+        #expect(priced.opening?.entryNo == "QC-DEMO-001")
+        #expect(priced.opening?.paidAmount == 480)
+        #expect(priced.opening?.packageQty == 40)
+        #expect(priced.opening?.planId == nil)
+        // A package recorded as 套餐不清楚 has no price and no package size.
+        #expect(unknown.paidAmount == 0)
+        #expect(unknown.opening?.paidAmount == 0)
+        #expect(unknown.opening?.packageQty == nil)
+        // Every other batch sends null.
+        #expect(batches.filter { $0.opening != nil }.map(\.id) == ["opening-1", "opening-2"])
+    }
+
+    @Test func serversWithoutTheOpeningFieldStillDecode() throws {
+        var rows = try #require(JSONSerialization.jsonObject(with: fixture("batches")) as? [[String: Any]])
+        for index in rows.indices { rows[index]["opening"] = nil }
+        let batches = try JSONDecoder().decode([TicketBatch].self, from: JSONSerialization.data(withJSONObject: rows))
+        #expect(batches.count == 4)
+        #expect(batches.allSatisfy { $0.opening == nil })
+        // Without its entry number an opening package still says it was bought before the system, not a date.
+        #expect(batches.first { $0.id == "opening-1" }?.openingNote == "上系统前买的")
+        // A snapshot missing fields does not fail the whole list either.
+        rows[1]["opening"] = ["entryNo": "QC-DEMO-002"]
+        let sparse = try JSONDecoder().decode([TicketBatch].self, from: JSONSerialization.data(withJSONObject: rows))
+        #expect(sparse[1].opening?.paidAmount == nil)
+        #expect(sparse[1].openingNote == "上系统前买的 · 补录单 QC-DEMO-002")
+    }
+
+    @Test func openingPackagesShowWhereTheyCameFromInsteadOfADateOrZeroPrice() throws {
+        let batches = try JSONDecoder().decode([TicketBatch].self, from: fixture("batches"))
+        let byID = Dictionary(uniqueKeysWithValues: batches.map { ($0.id, $0) })
+        let purchase = try #require(byID["batch-1"]), legacy = try #require(byID["legacy-1"])
+        let priced = try #require(byID["opening-1"]), unknown = try #require(byID["opening-2"])
+        #expect(priced.isOpening && unknown.isOpening)
+        #expect(!purchase.isOpening && !legacy.isOpening)
+        // An opening batch's createdAt is when the member was set up, so it shows the note and the entry that recorded it.
+        #expect(priced.openingNote == "上系统前买的 · 补录单 QC-DEMO-001")
+        #expect(unknown.openingNote == "上系统前买的 · 补录单 QC-DEMO-001")
+        // Recharges keep their date and legacy balances keep their own note.
+        #expect(purchase.openingNote == nil)
+        #expect(legacy.openingNote == nil)
+        // Only an opening package without its price is 套餐不清楚; a priced one shows what was paid, a legacy balance its 0 as before.
+        #expect(unknown.hasUnknownPackage)
+        #expect(!priced.hasUnknownPackage)
+        #expect(!legacy.hasUnknownPackage)
+        #expect(!purchase.hasUnknownPackage)
+    }
+
     @Test func loginUsesMemberEndpointAndNeverSendsPriorBearer() async throws {
         let server = Server()
         let result = try await server.api.login(account: "  member.demo  ", password: "not-a-real-password")

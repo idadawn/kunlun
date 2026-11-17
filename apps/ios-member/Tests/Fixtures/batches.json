@@ -18,7 +18,72 @@
     "rechargeNo": "CZ-DEMO-001",
     "refundedAmount": 0,
     "pendingRequestNo": null,
-    "pendingGiftQty": 3
+    "pendingGiftQty": 3,
+    "opening": null
+  },
+  {
+    "id": "opening-1",
+    "source": "OPENING",
+    "name": "上系统前 · 桶装水 15L · 配送 480 元 / 40 桶",
+    "waterLabel": "桶装水 15L",
+    "waterType": "BUCKET_18_9L",
+    "fulfillMode": "DELIVERY",
+    "paidAmount": 480,
+    "fixedQty": 40,
+    "giftQty": 0,
+    "remainingBuy": 25,
+    "remainingGift": 0,
+    "reservedBuy": 0,
+    "reservedGift": 0,
+    "status": "ACTIVE",
+    "createdAt": "2026-09-15T04:00:00Z",
+    "rechargeNo": "",
+    "refundedAmount": 0,
+    "pendingRequestNo": null,
+    "pendingGiftQty": 0,
+    "opening": {
+      "entryNo": "QC-DEMO-001",
+      "planId": null,
+      "planName": null,
+      "name": "上系统前 · 桶装水 15L · 配送 480 元 / 40 桶",
+      "waterLabel": "桶装水 15L",
+      "fulfillMode": "DELIVERY",
+      "paidAmount": 480,
+      "packageQty": 40,
+      "enteredAt": "2026-11-17T06:30:00Z"
+    }
+  },
+  {
+    "id": "opening-2",
+    "source": "OPENING",
+    "name": "上系统前 · 桶装水 15L · 配送（套餐不清楚）",
+    "waterLabel": "桶装水 15L",
+    "waterType": "BUCKET_18_9L",
+    "fulfillMode": "DELIVERY",
+    "paidAmount": 0,
+    "fixedQty": 6,
+    "giftQty": 0,
+    "remainingBuy": 6,
+    "remainingGift": 0,
+    "reservedBuy": 0,
+    "reservedGift": 0,
+    "status": "ACTIVE",
+    "createdAt": "2026-09-15T04:00:00Z",
+    "rechargeNo": "",
+    "refundedAmount": 0,
+    "pendingRequestNo": null,
+    "pendingGiftQty": 0,
+    "opening": {
+      "entryNo": "QC-DEMO-001",
+      "planId": null,
+      "planName": null,
+      "name": "上系统前 · 桶装水 15L · 配送（套餐不清楚）",
+      "waterLabel": "桶装水 15L",
+      "fulfillMode": "DELIVERY",
+      "paidAmount": 0,
+      "packageQty": null,
+      "enteredAt": "2026-11-17T06:30:00Z"
+    }
   },
   {
     "id": "legacy-1",
@@ -39,6 +104,7 @@
     "rechargeNo": "",
     "refundedAmount": 0,
     "pendingRequestNo": null,
-    "pendingGiftQty": 0
+    "pendingGiftQty": 0,
+    "opening": null
   }
 ]

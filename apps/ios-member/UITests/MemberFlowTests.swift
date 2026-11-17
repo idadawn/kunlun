@@ -52,9 +52,14 @@ import XCTest
         XCTAssertTrue(app.staticTexts["SD-DEMO-001"].waitForExistence(timeout: 5))
         app.buttons["充值记录"].tap()
         XCTAssertTrue(app.staticTexts["赠票 3 份待审核"].waitForExistence(timeout: 5))
+        // Packages bought before the system say so instead of the member's 2026-09-15 join date; the unknown one shows no ¥0.00.
+        XCTAssertTrue(scrollTo(app.staticTexts["当时实付"], in: app))
+        XCTAssertTrue(scrollTo(app.staticTexts["套餐不清楚"], in: app))
+        XCTAssertTrue(app.staticTexts["可以照常用水，不能按原价退，详情请向门店核对"].exists)
+        XCTAssertGreaterThan(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "上系统前买的 · 补录单")).count, 0)
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "2026年9月")).count, 0)
         // A legacy balance names its water from the member's tickets and hides its placeholder 2000-01-01 date.
-        app.swipeUp()
-        XCTAssertTrue(app.staticTexts["袋装水 5L · 到店取水"].waitForExistence(timeout: 5))
+        XCTAssertTrue(scrollTo(app.staticTexts["袋装水 5L · 到店取水"], in: app))
         XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "2000年")).count, 0)
         app.tabBars.buttons["押金与桶"].tap()
         XCTAssertTrue(app.staticTexts["我的押金余额"].waitForExistence(timeout: 5))
@@ -75,5 +80,12 @@ import XCTest
         app.buttons["退出登录"].firstMatch.tap()
         XCTAssertTrue(app.textFields["login.account"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["林先生"].exists)
+    }
+
+    /// The recharge list is lazy, so a card further down exists only once it has been scrolled to.
+    private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        var swipes = 0
+        while !element.exists && swipes < 6 { app.swipeUp(); swipes += 1 }
+        return element.waitForExistence(timeout: 5)
     }
 }
