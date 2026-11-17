@@ -1,0 +1,19 @@
+{
+  "name": "@kunlun/windows-admin",
+  "version": "1.0.0",
+  "private": true,
+  "productName": "绿麒麟水站管理端",
+  "description": "绿麒麟水站管理端 Windows 桌面版",
+  "author": "绿麒麟水站",
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test src/rules.test.js",
+    "package:win": "node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "electron": "^45.3.3",
+    "electron-builder": "^26.18.0"
+  }
+}
