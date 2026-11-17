@@ -10,11 +10,14 @@ public sealed record ApproveRefundRequest(string? PayMethod, string? Note);
 public sealed record RejectRefundRequest(string Note);
 
 /// <summary>
-/// 审核申请：押金退款、水费退款（退清剩余权益）和充值时的手动赠送（kind=GIFT）都记在这张表里。
+/// 审核申请：押金退款、水费退款（退清剩余权益）、充值时的手动赠送（kind=GIFT）、员工收的押金（kind=COLLECT）和交付时登记的
+/// 损坏不赔付（kind=DAMAGE）都记在这张表里。
 /// 后台「审核开关」决定店员办理时要不要等管理员：要审核时先登记为申请，管理员通过时才在同一事务里退款或让赠票到账，驳回不动任何账目；
 /// 不要审核时店员当场办完，同样记一条已通过的申请。管理员自己办理的退款直接生效，也记为已通过，保证每笔退款都有记录；
-/// 手动赠送不分谁填的，开关打开时一律等管理员在审核页批准（门店共用一个管理员账号登记，赠送要再看一眼）。
-/// 提交退款：押金需 deposit:refund_apply，水费需 recharge:create；审核：押金需 deposit:refund_approve，水费和赠送需 recharge:refund。
+/// 手动赠送、收押金和损坏不赔付不分谁办的，开关打开时一律等管理员在审核页批准（门店共用一个管理员账号登记，要再看一眼）。
+/// 收押金待审核时还没有押金批次：交付时照样算进押金覆盖，批准时才按收款时的单价和时间记成押金批次，驳回就作废，会员手里多出的就是欠押金。
+/// 损坏不赔付只是要管理员点头，批准、驳回都不动账，驳回后由管理员提醒员工去找顾客赔。
+/// 提交退款：押金需 deposit:refund_apply，水费需 recharge:create；审核：押金退款、收押金和损坏需 deposit:refund_approve，水费和赠送需 recharge:refund。
 /// </summary>
 public static class RefundRequests
 {
@@ -23,14 +26,22 @@ public static class RefundRequests
     private static bool CanApply(ClaimsPrincipal u, string kind) => kind == "DEPOSIT"
         ? Has(u, KunlunPermissions.DepositRefundApply) || Has(u, KunlunPermissions.DepositRefundApprove)
         : Has(u, KunlunPermissions.RechargeCreate) || Has(u, KunlunPermissions.RechargeRefund);
-    private static bool CanReview(ClaimsPrincipal u, string kind) => Has(u, kind == "DEPOSIT" ? KunlunPermissions.DepositRefundApprove : KunlunPermissions.RechargeRefund);
+    private static bool CanReview(ClaimsPrincipal u, string kind) =>
+        Has(u, kind is "DEPOSIT" or "COLLECT" or "DAMAGE" ? KunlunPermissions.DepositRefundApprove : KunlunPermissions.RechargeRefund);
+    private static string ReviewDenied(string kind) => kind switch
+    {
+        "GIFT" => "赠送须由有审核权限的管理员批准",
+        "COLLECT" => "收押金须由有审核权限的管理员批准",
+        "DAMAGE" => "损坏不赔付须由有审核权限的管理员批准",
+        _ => "退款须由有审核权限的管理员审核",
+    };
     private static bool Payment(string? value) => value is "CASH" or "WECHAT" or "ALIPAY" or "BANK";
     private static string Actor(ClaimsPrincipal u) => u.FindFirstValue("display_name") ?? "员工";
     private static IResult Denied(string message) => Results.Json(new { error = message }, statusCode: StatusCodes.Status403Forbidden);
 
-    private const string KindsCheck = "kind IN ('DEPOSIT','RECHARGE','GIFT')";
+    private const string KindsCheck = "kind IN ('DEPOSIT','RECHARGE','GIFT','COLLECT','DAMAGE')";
     private const string ShapeCheck = """
-        (kind='DEPOSIT' AND container_type IS NOT NULL AND quantity IS NOT NULL AND batch_id IS NULL)
+        (kind IN ('DEPOSIT','COLLECT','DAMAGE') AND container_type IS NOT NULL AND quantity IS NOT NULL AND batch_id IS NULL)
          OR (kind='RECHARGE' AND batch_id IS NOT NULL AND container_type IS NULL AND quantity IS NULL)
          OR (kind='GIFT' AND batch_id IS NOT NULL AND container_type IS NULL AND quantity IS NOT NULL)
         """;
@@ -56,11 +67,11 @@ public static class RefundRequests
               UNIQUE(tenant_id, idempotency_key),
               CHECK({ShapeCheck})
             );
-            -- Tables made before gift reviews only knew the two refund kinds.
+            -- Tables made before deposit and damage reviews only knew the refund kinds and gifts.
             DO $$
             BEGIN
               IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='plugin_kunlun_waterstation.refund_requests'::regclass
-                             AND conname='refund_requests_kind_check' AND pg_get_constraintdef(oid) LIKE '%GIFT%') THEN
+                             AND conname='refund_requests_kind_check' AND pg_get_constraintdef(oid) LIKE '%COLLECT%') THEN
                 ALTER TABLE plugin_kunlun_waterstation.refund_requests DROP CONSTRAINT IF EXISTS refund_requests_kind_check;
                 ALTER TABLE plugin_kunlun_waterstation.refund_requests ADD CONSTRAINT refund_requests_kind_check CHECK({KindsCheck});
                 ALTER TABLE plugin_kunlun_waterstation.refund_requests DROP CONSTRAINT IF EXISTS refund_requests_check;
@@ -72,6 +83,9 @@ public static class RefundRequests
             CREATE UNIQUE INDEX IF NOT EXISTS refund_requests_pending_batch_kind ON plugin_kunlun_waterstation.refund_requests(batch_id, kind) WHERE status='PENDING';
             CREATE INDEX IF NOT EXISTS refund_requests_status ON plugin_kunlun_waterstation.refund_requests(tenant_id, status, created_at DESC);
             CREATE INDEX IF NOT EXISTS refund_requests_member ON plugin_kunlun_waterstation.refund_requests(tenant_id, member_id, status);
+            -- 收押金：收款时的单价（批准时按它记押金批次）；损坏不赔付：是哪张水单交付时登记的。
+            ALTER TABLE plugin_kunlun_waterstation.refund_requests ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,2);
+            ALTER TABLE plugin_kunlun_waterstation.refund_requests ADD COLUMN IF NOT EXISTS order_no VARCHAR(40);
             """, ct);
         await tx.CommitAsync(ct);
     }
@@ -85,7 +99,7 @@ public static class RefundRequests
             ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>
         {
             if (!Has(user, KunlunPermissions.MemberRead)) return Results.Forbid();
-            if (status is not (null or "" or "PENDING" or "APPROVED" or "REJECTED") || kind is not (null or "" or "DEPOSIT" or "RECHARGE" or "GIFT"))
+            if (status is not (null or "" or "PENDING" or "APPROVED" or "REJECTED") || kind is not (null or "" or "DEPOSIT" or "RECHARGE" or "GIFT" or "COLLECT" or "DAMAGE"))
                 throw new BusinessRuleException("筛选条件无效");
             await using var conn = await db.OpenConnectionAsync(ct);
             return await Paging.From(page, pageSize, legacyLimit: 50).Query(conn, """
@@ -93,7 +107,7 @@ public static class RefundRequests
                 ro.recharge_no, COALESCE(ro.plan_snapshot->>'name', b.opening_snapshot->>'name'), b.water_type, b.fulfill_mode, b.remaining_buy, b.remaining_gift,
                 rr.estimated_amount, rr.pay_method, rr.reason, rr.applicant_name, rr.created_at,
                 rr.reviewer_name, rr.reviewed_at, rr.review_note, rr.refund_no, rr.refund_amount, rr.member_id,
-                ro.paid_amount, ro.buy_qty
+                ro.paid_amount, ro.buy_qty, rr.unit_price, rr.order_no
                 """, """
                 plugin_kunlun_waterstation.refund_requests rr
                 JOIN plugin_kunlun_waterstation.members m ON m.id = rr.member_id
@@ -103,7 +117,7 @@ public static class RefundRequests
                   AND (@status IS NULL OR rr.status = @status)
                   AND (@kind IS NULL OR rr.kind = @kind)
                   AND (@q IS NULL OR rr.request_no ILIKE @q OR m.name ILIKE @q OR m.member_no ILIKE @q OR m.phone ILIKE @q
-                       OR rr.applicant_name ILIKE @q OR rr.refund_no ILIKE @q OR ro.recharge_no ILIKE @q)
+                       OR rr.applicant_name ILIKE @q OR rr.refund_no ILIKE @q OR ro.recharge_no ILIKE @q OR rr.order_no ILIKE @q)
                 """, "rr.created_at DESC, rr.id", p =>
             {
                 p.AddWithValue("tid", repo.DefaultTenantId);
@@ -140,7 +154,9 @@ public static class RefundRequests
                 refundNo = r.IsDBNull(24) ? null : r.GetString(24),
                 refundAmount = r.IsDBNull(25) ? (decimal?)null : r.GetDecimal(25),
                 rechargePaid = r.IsDBNull(27) ? (decimal?)null : r.GetDecimal(27),
-                rechargeBuyQty = r.IsDBNull(28) ? (int?)null : r.GetInt32(28)
+                rechargeBuyQty = r.IsDBNull(28) ? (int?)null : r.GetInt32(28),
+                unitPrice = r.IsDBNull(29) ? (decimal?)null : r.GetDecimal(29),
+                orderNo = r.IsDBNull(30) ? null : r.GetString(30)
             }, ct);
         }).RequireAuthorization();
     }
@@ -212,7 +228,8 @@ public static class RefundRequests
             await tx.CommitAsync(ct);
             return Results.Ok(new { id, requestNo = no, status = "PENDING", estimatedAmount = estimate, refundNo = (string?)null, refundAmount = (decimal?)null, idempotentReplay = false });
         }
-        var (refundNo, amount) = await Settle(conn, tx, tid, id, kind, req.MemberId, ctype, qty, batchId, req.PayMethod, reason, Actor(user), ct);
+        var (refundNo, amount) = await Settle(conn, tx, tid, id,
+            new Pending(kind, req.MemberId, ctype, qty, batchId, req.PayMethod, reason, null, req.IdempotencyKey, Actor(user), DateTimeOffset.UtcNow), Actor(user), ct);
         await MarkApproved(conn, tx, tid, id, req.PayMethod, Actor(user), settings.RefundReview ? "管理员直接办理" : "无需审核，直接退款", refundNo, amount, ct);
         await tx.CommitAsync(ct);
         return Results.Ok(new { id, requestNo = no, status = "APPROVED", estimatedAmount = estimate, refundNo, refundAmount = (decimal?)amount, idempotentReplay = false });
@@ -257,44 +274,63 @@ public static class RefundRequests
         await using var conn = await db.OpenConnectionAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         var (kind, mid) = await Find(conn, tx, tid, id, ct);
-        if (!CanReview(user, kind)) return Denied(kind == "GIFT" ? "赠送须由有审核权限的管理员批准" : "退款须由有审核权限的管理员审核");
+        if (!CanReview(user, kind)) return Denied(ReviewDenied(kind));
         // Same lock order as every money path: member first, then the request and the ledgers it touches.
         await LockMember(conn, tx, tid, mid, ct);
-        string status, reason; string? pay, ctype; int? qty; Guid? batchId;
-        await using (var cmd = Command(conn, tx, "SELECT status,container_type,quantity,batch_id,pay_method,reason,refund_no,refund_amount FROM plugin_kunlun_waterstation.refund_requests WHERE tenant_id=@tid AND id=@id FOR UPDATE", ("tid", tid), ("id", id)))
+        Pending row;
+        await using (var cmd = Command(conn, tx, """
+            SELECT status,container_type,quantity,batch_id,pay_method,reason,refund_no,refund_amount,unit_price,idempotency_key,applicant_name,created_at
+            FROM plugin_kunlun_waterstation.refund_requests WHERE tenant_id=@tid AND id=@id FOR UPDATE
+            """, ("tid", tid), ("id", id)))
         await using (var r = await cmd.ExecuteReaderAsync(ct))
         {
             await r.ReadAsync(ct);
-            status = r.GetString(0);
+            var status = r.GetString(0);
             if (status == "APPROVED")
                 return Results.Ok(new { id, status, refundNo = r.IsDBNull(6) ? null : r.GetString(6), refundAmount = r.IsDBNull(7) ? 0 : r.GetDecimal(7), idempotentReplay = true });
             if (status == "REJECTED") throw new BusinessRuleException("该申请已驳回，不能再审核通过", 409);
-            ctype = r.IsDBNull(1) ? null : r.GetString(1); qty = r.IsDBNull(2) ? null : r.GetInt32(2); batchId = r.IsDBNull(3) ? null : r.GetGuid(3);
-            pay = kind == "GIFT" ? null : req.PayMethod ?? r.GetString(4); reason = r.GetString(5);
+            // Gifts and damage waivers move no money; a deposit keeps the method it was taken with unless the reviewer corrects it.
+            var stored = r.IsDBNull(4) ? null : r.GetString(4);
+            row = new Pending(kind, mid, r.IsDBNull(1) ? null : r.GetString(1), r.IsDBNull(2) ? null : r.GetInt32(2), r.IsDBNull(3) ? null : r.GetGuid(3),
+                kind is "GIFT" or "DAMAGE" ? null : req.PayMethod ?? stored, r.GetString(5), r.IsDBNull(8) ? null : r.GetDecimal(8),
+                r.GetString(9), r.GetString(10), r.GetFieldValue<DateTimeOffset>(11));
         }
 
         var actor = Actor(user);
-        var (refundNo, amount) = await Settle(conn, tx, tid, id, kind, mid, ctype, qty, batchId, pay, reason, actor, ct);
-        await MarkApproved(conn, tx, tid, id, pay, actor, req.Note?.Trim() ?? "", refundNo, amount, ct);
+        var (refundNo, amount) = await Settle(conn, tx, tid, id, row, actor, ct);
+        await MarkApproved(conn, tx, tid, id, row.Pay, actor, req.Note?.Trim() ?? "", refundNo, amount, ct);
         await tx.CommitAsync(ct);
         return Results.Ok(new { id, status = "APPROVED", refundNo, refundAmount = amount, idempotentReplay = false });
     }
 
-    /// <summary>Carries out an approved request: refunds pay the member back, a gift puts its tickets on the recharge. The caller holds the member lock.</summary>
-    private static async Task<(string? RefundNo, decimal Amount)> Settle(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid id, string kind, Guid mid,
-        string? ctype, int? qty, Guid? batchId, string? pay, string reason, string actor, CancellationToken ct)
+    /// <summary>A request as it waits for review, with what approving it needs.</summary>
+    private sealed record Pending(string Kind, Guid MemberId, string? ContainerType, int? Quantity, Guid? BatchId, string? Pay, string Reason,
+        decimal? UnitPrice, string IdempotencyKey, string Applicant, DateTimeOffset CreatedAt);
+
+    /// <summary>
+    /// Carries out an approved request: refunds pay the member back, a gift puts its tickets on the recharge, a deposit taken by
+    /// staff becomes a deposit lot at the price and time it was taken, and a damage waiver changes nothing. The caller holds the member lock.
+    /// </summary>
+    private static async Task<(string? RefundNo, decimal Amount)> Settle(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid id, Pending p, string actor, CancellationToken ct)
     {
         var key = $"refund-request:{id:N}";
-        switch (kind)
+        switch (p.Kind)
         {
             case "DEPOSIT":
-                var deposit = await FinanceEndpoints.ExecuteDepositRefund(conn, tx, tid, mid, ctype!, qty!.Value, pay, key, actor, ct);
+                var deposit = await FinanceEndpoints.ExecuteDepositRefund(conn, tx, tid, p.MemberId, p.ContainerType!, p.Quantity!.Value, p.Pay, key, actor, ct);
                 return (deposit.RefundNo, deposit.Amount);
             case "RECHARGE":
-                var recharge = await MembershipEndpoints.ExecuteRechargeRefund(conn, tx, tid, batchId!.Value, pay!, reason, key, actor, ct);
+                var recharge = await MembershipEndpoints.ExecuteRechargeRefund(conn, tx, tid, p.BatchId!.Value, p.Pay!, p.Reason, key, actor, ct);
                 return (recharge.RefundNo, recharge.Amount);
+            case "COLLECT":
+                // The lot carries the collect request's key, so a replay of that collect finds the booked deposit.
+                var lot = await FinanceEndpoints.InsertDepositLot(conn, tx, tid, p.MemberId, p.ContainerType!, p.Quantity!.Value, p.UnitPrice!.Value, p.Pay!,
+                    p.IdempotencyKey, p.Applicant, p.CreatedAt, ct);
+                return (lot.DepositNo, lot.Amount);
+            case "DAMAGE":
+                return (null, 0);
             default:
-                await MembershipEndpoints.GrantGift(conn, tx, tid, batchId!.Value, qty!.Value, actor, ct);
+                await MembershipEndpoints.GrantGift(conn, tx, tid, p.BatchId!.Value, p.Quantity!.Value, actor, ct);
                 return (null, 0);
         }
     }
@@ -314,13 +350,21 @@ public static class RefundRequests
         var tid = repo.DefaultTenantId;
         await using var conn = await db.OpenConnectionAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
-        var (kind, _) = await Find(conn, tx, tid, id, ct);
-        if (!CanReview(user, kind)) return Denied(kind == "GIFT" ? "赠送须由有审核权限的管理员批准" : "退款须由有审核权限的管理员审核");
+        var (kind, mid) = await Find(conn, tx, tid, id, ct);
+        if (!CanReview(user, kind)) return Denied(ReviewDenied(kind));
+        // A rejected deposit stops counting toward the member's cover, so take the member lock like every deposit change.
+        if (kind == "COLLECT") await LockMember(conn, tx, tid, mid, ct);
         await using (var cmd = Command(conn, tx, "SELECT status FROM plugin_kunlun_waterstation.refund_requests WHERE tenant_id=@tid AND id=@id FOR UPDATE", ("tid", tid), ("id", id)))
         {
             var status = (string)(await cmd.ExecuteScalarAsync(ct))!;
             if (status == "REJECTED") return Results.Ok(new { id, status, idempotentReplay = true });
-            if (status == "APPROVED") throw new BusinessRuleException(kind == "GIFT" ? "该赠送已批准到账，不能驳回" : "该申请已审核通过并退款，不能驳回", 409);
+            if (status == "APPROVED") throw new BusinessRuleException(kind switch
+            {
+                "GIFT" => "该赠送已批准到账，不能驳回",
+                "COLLECT" => "这笔押金已批准入账，不能驳回",
+                "DAMAGE" => "已同意不赔付，不能驳回",
+                _ => "该申请已审核通过并退款，不能驳回",
+            }, 409);
         }
         await Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.refund_requests SET status='REJECTED',reviewer_name=@actor,reviewed_at=now(),review_note=@note WHERE tenant_id=@tid AND id=@id",
             ct, ("actor", Actor(user)), ("note", note), ("tid", tid), ("id", id));
@@ -334,6 +378,71 @@ public static class RefundRequests
         await using var r = await cmd.ExecuteReaderAsync(ct);
         if (!await r.ReadAsync(ct)) throw new BusinessRuleException("审核申请不存在", 404);
         return (r.GetString(0), r.GetGuid(1));
+    }
+
+    /// <summary>
+    /// A deposit staff took while deposits are reviewed: no lot yet, only this request, which counts toward the member's
+    /// cover until an admin approves it (the lot is booked then) or rejects it (the member owes it again).
+    /// </summary>
+    public static async Task<(Guid Id, string RequestNo)> RequestCollect(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, string ctype, int qty,
+        decimal unitPrice, string pay, string key, string actor, CancellationToken ct)
+    {
+        var id = Guid.NewGuid();
+        var no = await BusinessNumbers.RefundRequestNo(conn, tx, ct);
+        await Exec(conn, tx, """
+            INSERT INTO plugin_kunlun_waterstation.refund_requests
+              (id,tenant_id,request_no,idempotency_key,request_hash,kind,member_id,container_type,quantity,estimated_amount,unit_price,pay_method,applicant_name)
+            VALUES(@id,@tid,@no,@key,'','COLLECT',@mid,@ctype,@qty,@amount,@price,@pay,@actor)
+            """, ct, ("id", id), ("tid", tid), ("no", no), ("key", key), ("mid", mid), ("ctype", ctype), ("qty", qty),
+            ("amount", unitPrice * qty), ("price", unitPrice), ("pay", pay), ("actor", actor));
+        return (id, no);
+    }
+
+    /// <summary>A collect request sent before under this key: replaying the same collect answers with it instead of taking the deposit twice.</summary>
+    public static async Task<object?> CollectReplay(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, string key, Guid mid, string ctype, int qty, string pay, CancellationToken ct)
+    {
+        await using var cmd = Command(conn, tx, """
+            SELECT id,request_no,status,member_id,container_type,quantity,pay_method,estimated_amount,unit_price,refund_no
+            FROM plugin_kunlun_waterstation.refund_requests WHERE tenant_id=@tid AND idempotency_key=@key AND kind='COLLECT'
+            """, ("tid", tid), ("key", key));
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        if (!await r.ReadAsync(ct)) return null;
+        if (r.GetGuid(3) != mid || r.GetString(4) != ctype || r.GetInt32(5) != qty || r.GetString(6) != pay) throw new BusinessRuleException("请求标识已用于其他收押操作", 409);
+        return new
+        {
+            requestId = r.GetGuid(0), requestNo = r.GetString(1), status = r.GetString(2), containerType = ctype, quantity = qty,
+            unitPrice = r.GetDecimal(8), totalAmount = r.GetDecimal(7), depositNo = r.IsDBNull(9) ? null : r.GetString(9), idempotentReplay = true
+        };
+    }
+
+    /// <summary>Containers whose deposit staff took and an admin has not yet approved; they count toward the member's cover meanwhile.</summary>
+    public static async Task<int> PendingCollectQty(NpgsqlConnection conn, NpgsqlTransaction? tx, Guid tid, Guid mid, string ctype, CancellationToken ct)
+    {
+        await using var cmd = Command(conn, tx, """
+            SELECT COALESCE(sum(quantity),0) FROM plugin_kunlun_waterstation.refund_requests
+            WHERE tenant_id=@tid AND member_id=@mid AND container_type=@ctype AND kind='COLLECT' AND status='PENDING'
+            """, ("tid", tid), ("mid", mid), ("ctype", ctype));
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
+    }
+
+    /// <summary>
+    /// Damaged containers the customer does not pay for, from a hand-over: waits for an admin while damage waivers are reviewed,
+    /// otherwise recorded as approved. Neither way moves money; the order note says the same.
+    /// </summary>
+    public static async Task<(string RequestNo, string Status)> RequestDamage(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, string ctype, int qty,
+        string reason, string orderNo, Guid orderId, string actor, bool reviewed, CancellationToken ct)
+    {
+        var no = await BusinessNumbers.RefundRequestNo(conn, tx, ct);
+        var status = reviewed ? "PENDING" : "APPROVED";
+        await Exec(conn, tx, """
+            INSERT INTO plugin_kunlun_waterstation.refund_requests
+              (id,tenant_id,request_no,idempotency_key,request_hash,kind,member_id,container_type,quantity,reason,order_no,status,applicant_name,
+               reviewer_name,reviewed_at,review_note)
+            VALUES(@id,@tid,@no,@key,'','DAMAGE',@mid,@ctype,@qty,@reason,@order,@status,@actor,
+               CASE WHEN @status='APPROVED' THEN @actor END,CASE WHEN @status='APPROVED' THEN now() END,CASE WHEN @status='APPROVED' THEN '无需审核' END)
+            """, ct, ("id", Guid.NewGuid()), ("tid", tid), ("no", no), ("key", $"damage:{orderId:N}"), ("mid", mid), ("ctype", ctype), ("qty", qty),
+            ("reason", reason), ("order", orderNo), ("status", status), ("actor", actor));
+        return (no, status);
     }
 
     /// <summary>A gift a clerk gave by hand while gifts are reviewed: its tickets reach the member once an admin approves.</summary>

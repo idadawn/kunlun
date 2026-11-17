@@ -521,6 +521,13 @@ public static class OrderEndpoints
         {
             return Results.BadRequest(new { error = "INVALID_FULFILL_QTY", message = "实送数量必须大于 0，发出/收回容器数不能为负数" });
         }
+        var damageReason = req.DamageReason?.Trim();
+        if (req.DamagedQty is < 0 or > 10000)
+            return Results.BadRequest(new { error = "INVALID_DAMAGE_QTY", message = "损坏个数无效" });
+        if (req.DamagedQty > 0 && req.DamageCompensated is null)
+            return Results.BadRequest(new { error = "DAMAGE_COMPENSATION_REQUIRED", message = "有损坏的桶袋要选顾客赔不赔" });
+        if (req.DamagedQty > 0 && req.DamageCompensated == false && (string.IsNullOrEmpty(damageReason) || damageReason.Length > 200))
+            return Results.BadRequest(new { error = "DAMAGE_REASON_REQUIRED", message = "损坏的桶袋不赔付，要写上原因（200 字以内）" });
 
         await using var conn = await db.OpenConnectionAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
@@ -635,22 +642,24 @@ public static class OrderEndpoints
             depCmd.Parameters.AddWithValue("ctype", containerType);
             coveredDepositQty = (int)(await depCmd.ExecuteScalarAsync(ct))!;
         }
+        // 收了还没批准的押金也算：顾客已经交了，管理员驳回后才变回欠押金。
+        coveredDepositQty += await RefundRequests.PendingCollectQty(conn, tx, orderRepo.TenantId, memberId, containerType, ct);
 
         // AC-09: 若本次履约后会员持有桶数 newHeld > 已缴押金覆盖桶数 coveredDepositQty，默认拦截要求先补押金。
-        // 顾客当场没交够时，有收押金权限的员工可以记欠押金照样交付，但必须写备注（报废了多少、是否给了报废费用、为什么没交），
-        // 备注存进水单 override_reason 和袋桶台账；会员手里比押金多的个数就是欠的押金，下次交付时并进需补押金。
-        string? owedNote = null;
+        // 顾客没交或没交够时，有收押金权限的员工可以记欠押金照样交付，但要带上备注（交没交、交了几个、欠几个）；
+        // 会员手里比押金多的个数就是欠的押金，下次交付时并进应付押金。
+        // 交付备注还写损坏的桶袋赔没赔、不赔的原因，所以不欠押金时带来的备注也存进水单 override_reason 和袋桶台账。
+        var handoverNote = string.IsNullOrWhiteSpace(req.OverrideReason) ? null : req.OverrideReason.Trim();
         if (newHeld > coveredDepositQty && req.ForceCreditOverride)
         {
             var uncoveredGap = newHeld - coveredDepositQty;
             if (!canOweDeposit)
                 return Results.Json(new { error = "FORBIDDEN_PERMISSION", message = "记欠押金需要收押金权限 deposit.collect" }, statusCode: StatusCodes.Status403Forbidden);
-            owedNote = req.OverrideReason?.Trim();
-            if (string.IsNullOrEmpty(owedNote) || owedNote.Length > 500)
+            if (handoverNote is null || handoverNote.Length > 500)
                 return Results.BadRequest(new
                 {
                     error = "DEPOSIT_OWED_NOTE_REQUIRED",
-                    message = $"押金还差 {uncoveredGap} 个没交，记欠押金必须写备注：报废了多少、是否给了报废费用、为什么没交（500 字以内）",
+                    message = $"押金还差 {uncoveredGap} 个没交，记欠押金要带上备注：顾客交没交押金、交了几个、欠几个（500 字以内）",
                     uncoveredGap
                 });
         }
@@ -669,6 +678,8 @@ public static class OrderEndpoints
                 uncoveredGap
             });
         }
+        if (handoverNote is { Length: > 500 })
+            return Results.BadRequest(new { error = "HANDOVER_NOTE_TOO_LONG", message = "交付备注请写在 500 字以内" });
 
         if (extraNeeded > 0) await TicketBatches.Reserve(conn, tx, orderRepo.TenantId, memberId, waterType, fulfillMode, resolvedOrderId, extraNeeded, ct);
         await TicketBatches.Settle(conn, tx, resolvedOrderId, req.ActualQty, ct);
@@ -701,7 +712,7 @@ public static class OrderEndpoints
             uOrdCmd.Parameters.AddWithValue("outN", req.FullOutN);
             uOrdCmd.Parameters.AddWithValue("inM", req.EmptyInM);
             uOrdCmd.Parameters.AddWithValue("diff", (object?)req.DiffReason ?? DBNull.Value);
-            uOrdCmd.Parameters.AddWithValue("ovr", (object?)owedNote ?? DBNull.Value);
+            uOrdCmd.Parameters.AddWithValue("ovr", (object?)handoverNote ?? DBNull.Value);
             uOrdCmd.Parameters.AddWithValue("op", operatorName);
             uOrdCmd.Parameters.AddWithValue("tid", orderRepo.TenantId);
             uOrdCmd.Parameters.AddWithValue("oid", resolvedOrderId);
@@ -770,9 +781,18 @@ public static class OrderEndpoints
             clCmd.Parameters.AddWithValue("held", newHeld);
             clCmd.Parameters.AddWithValue("cov", coveredDepositQty);
             clCmd.Parameters.AddWithValue("op", operatorName);
-            var ledgerRemark = string.Join("；", new[] { req.DiffReason, owedNote }.Where(text => !string.IsNullOrWhiteSpace(text)));
+            var ledgerRemark = string.Join("；", new[] { req.DiffReason, handoverNote }.Where(text => !string.IsNullOrWhiteSpace(text)));
             clCmd.Parameters.AddWithValue("rmk", ledgerRemark.Length > 0 ? ledgerRemark : "正常履约交接");
             await clCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        // 损坏不赔付：审核开关打开时等管理员批准，关掉就记一条已通过的；都不动账，交付备注里也写着。
+        string? damageRequestNo = null, damageReviewStatus = null;
+        if (req.DamagedQty > 0 && req.DamageCompensated == false)
+        {
+            var reviewed = (await ReviewSettings.Read(conn, tx, orderRepo.TenantId, ct)).DamageReview;
+            (damageRequestNo, damageReviewStatus) = await RefundRequests.RequestDamage(conn, tx, orderRepo.TenantId, memberId, containerType, req.DamagedQty,
+                damageReason!, orderNo, resolvedOrderId, operatorName, reviewed, ct);
         }
 
         await tx.CommitAsync(ct);
@@ -792,7 +812,9 @@ public static class OrderEndpoints
             owedDepositQty = Math.Max(0, newHeld - coveredDepositQty),
             depositAmountUnchanged = depositAmount,
             availableTicketsAfter = newAvail,
-            reservedTicketsAfter = newReserved
+            reservedTicketsAfter = newReserved,
+            damageRequestNo,
+            damageReviewStatus
         });
     }
 }

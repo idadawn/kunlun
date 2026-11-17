@@ -13,7 +13,8 @@ const REFUND_REASONS = ['不再订水', '搬家', '容器已全部归还', '退�
 
 /**
  * 押金收退：与水费充值分开办理。先选业务和会员，再选水品配套容器，直接显示该会员对应的已交、持有和可退数量。
- * 收押金当场登记；退押金在后台要求审核时店员只提交申请，管理员通过才退款，否则当场退款。
+ * 收押金在后台要求审核时（不分谁收的）先记待审核，管理员核对到账批准后才入账，期间照样算进押金覆盖；否则当场入账。
+ * 退押金在后台要求审核时店员只提交申请，管理员通过才退款，否则当场退款。
  */
 export function DepositDialog({ containers, memberId, action: initialAction, onClose, onDone }: {
   containers: ContainerSummaryItem[];
@@ -29,6 +30,7 @@ export function DepositDialog({ containers, memberId, action: initialAction, onC
   const canCollect = can(P.DepositCollect);
   const canRefund = can(P.DepositRefundApprove) || can(P.DepositRefundApply);
   const waits = waitsForReview(review, 'refund', can(P.DepositRefundApprove));
+  const collectWaits = waitsForReview(review, 'deposit');
   const [member, setMember] = usePickedMember(memberId);
   const [container, setContainer] = useState<ContainerType>('BUCKET');
   const [action, setAction] = useState<DepositAction>(initialAction === 'refund' && canRefund || !canCollect ? 'refund' : 'collect');
@@ -61,7 +63,9 @@ export function DepositDialog({ containers, memberId, action: initialAction, onC
     if (collect) {
       const result = await api.collectDeposit({ memberId: member.id, containerType: container, quantity, payMethod: pay, idempotencyKey: key });
       await onDone?.();
-      toast(`已收押金 ¥${money(result.totalAmount)}`);
+      toast(result.status === 'PENDING'
+        ? `已记押金 ¥${money(result.totalAmount)}（${result.requestNo}），等管理员核对到账后入账`
+        : `已收押金 ¥${money(result.totalAmount)}`);
       return;
     }
     const result = await api.applyRefund({ kind: 'DEPOSIT', memberId: member.id, containerType: container, quantity, payMethod: pay, reason: reason.trim(), idempotencyKey: key });
@@ -71,7 +75,7 @@ export function DepositDialog({ containers, memberId, action: initialAction, onC
   const refundLabel = waits ? '申请退押金' : '退押金';
   return (
     <FormDialog title={collect ? '收押金' : refundLabel}
-      description={collect ? '押金单独记账：不算水费，也不送水' : waits ? '提交后由管理员审核，审核通过才退款' : '确认后当场退款，按原收款单价计算'}
+      description={collect ? `押金单独记账：不算水费，也不送水${collectWaits ? '；收了先记待审核，管理员核对到账后入账' : ''}` : waits ? '提交后由管理员审核，审核通过才退款' : '确认后当场退款，按原收款单价计算'}
       submitLabel={collect ? '确认已收款' : waits ? '提交退款申请' : '确认已退款'} onClose={onClose} onSubmit={submit}>
       {canCollect && canRefund && (
         <div className="seg-switch" role="group" aria-label="押金业务">
@@ -92,7 +96,7 @@ export function DepositDialog({ containers, memberId, action: initialAction, onC
               <span>
                 <b>{containerLabel(type)}</b>
                 <small>{unit === undefined ? '押金标准加载中' : `押金 ¥${money(unit)}/个`}</small>
-                {r && <small>已交 {r.paidQty} · 持有 {r.heldQty} · 可退 <em>{applicable(r)}</em>{r.pendingRefundQty > 0 && ` · 审核中 ${r.pendingRefundQty}`}</small>}
+                {r && <small>已交 {r.paidQty} · 持有 {r.heldQty} · 可退 <em>{applicable(r)}</em>{r.pendingRefundQty > 0 && ` · 审核中 ${r.pendingRefundQty}`}{r.pendingCollectQty > 0 && ` · 收了待审核 ${r.pendingCollectQty}`}</small>}
               </span>
             </button>
           );

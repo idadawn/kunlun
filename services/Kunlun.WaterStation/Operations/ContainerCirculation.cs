@@ -221,7 +221,7 @@ public static class ContainerCirculation
         var no=op.GetProperty("operationNo").GetString()!;
         var held=await ProductContainers.Held(conn,tx,tid,mid,type,ct);
         await using var coverage=Command(conn,tx,"SELECT COALESCE(sum(remaining_qty-reserved_damage_qty),0) FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@type",("tid",tid),("mid",mid),("type",type));
-        var covered=Convert.ToInt32(await coverage.ExecuteScalarAsync(ct));
+        var covered=Convert.ToInt32(await coverage.ExecuteScalarAsync(ct))+await RefundRequests.PendingCollectQty(conn,tx,tid,mid,type,ct);
         await Ledger(conn,tx,tid,mid,type,no,waive?"SCRAP_WAIVED":"SCRAP",0,qty,held,covered,deducted,req.Reason.Trim(),user,ct);
         var receipt=new{id,scrapNo=no,memberId=mid,containerType=type,quantity=qty,deductedAmount=deducted,depositWaived=waive,lotBreakdown=lots,status="SCRAPPED"};
         await Exec(conn,tx,"""

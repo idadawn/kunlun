@@ -191,6 +191,45 @@ public sealed class OrderIntegrationTests(TestHost factory)
     }
 
     [Fact]
+    public async Task Handover_Note_On_Damaged_Containers_Is_Kept_When_No_Deposit_Is_Owed()
+    {
+        var token = await GetAdminTokenAsync();
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        // 押金够 2 个桶，配送 1 桶不换空桶：不欠押金，但顾客有个坏桶不赔，交付备注照样记进水单和袋桶台账。
+        var memResp = await _client.PostAsJsonAsync("/api/members",
+            new CreateMemberRequest("损坏备注验收", $"138{Random.Shared.Next(10000000, 99999999)}", "绿麒麟嘉园 8 栋", "损坏备注测试", "801"));
+        var memberId = (await memResp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        await _client.PostAsJsonAsync("/api/recharges",
+            new CreateRechargeOrderRequest(memberId, Guid.Parse("30000000-0000-0000-0000-000000000103"), "WECHAT", $"idem-dmg-rcg-{Guid.NewGuid()}"));
+        await _client.PostAsJsonAsync("/api/deposits/collect", new CollectDepositRequest(memberId, "BUCKET", 2, "CASH", $"idem-dmg-dep-{Guid.NewGuid()}"));
+
+        async Task<Guid> Order() => (await (await _client.PostAsJsonAsync("/api/orders",
+            new CreateWaterOrderRequest(memberId, "BUCKET_18_9L", "DELIVERY", 1, $"idem-dmg-ord-{Guid.NewGuid()}"))).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+
+        // 超过 500 字的交付备注被拦下，水单不变。
+        var tooLong = await Order();
+        var refused = await _client.PostAsJsonAsync($"/api/orders/{tooLong}/fulfill",
+            new FulfillWaterOrderRequest(ActualQty: 1, FullOutN: 1, EmptyInM: 0, OverrideReason: new string('坏', 501)));
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("HANDOVER_NOTE_TOO_LONG", (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString());
+
+        const string note = "损坏 1 个桶，不赔付：自然老化";
+        var orderId = await Order();
+        var done = await _client.PostAsJsonAsync($"/api/orders/{orderId}/fulfill",
+            new FulfillWaterOrderRequest(ActualQty: 1, FullOutN: 1, EmptyInM: 0, OverrideReason: $" {note} "));
+        Assert.Equal(HttpStatusCode.OK, done.StatusCode);
+        Assert.Equal(0, (await done.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("owedDepositQty").GetInt32());
+
+        var orders = await _client.GetFromJsonAsync<JsonElement>($"/api/orders?memberId={memberId}&page=1&pageSize=20");
+        var fulfilled = orders.GetProperty("rows").EnumerateArray().Single(o => o.GetProperty("id").GetGuid() == orderId);
+        Assert.Equal(note, fulfilled.GetProperty("overrideReason").GetString());
+        var ledger = await _client.GetFromJsonAsync<JsonElement>($"/api/containers/circulation?q={Uri.EscapeDataString(fulfilled.GetProperty("orderNo").GetString()!)}&page=1");
+        Assert.Equal(note, ledger.GetProperty("rows")[0].GetProperty("remark").GetString());
+        Assert.Equal("PENDING", orders.GetProperty("rows").EnumerateArray().Single(o => o.GetProperty("id").GetGuid() == tooLong).GetProperty("status").GetString());
+    }
+
+    [Fact]
     public async Task PickupCode_Verification_DiffAdjustment_AC14_And_ContainerIdentity_AC20_Should_Pass()
     {
         var token = await GetAdminTokenAsync();

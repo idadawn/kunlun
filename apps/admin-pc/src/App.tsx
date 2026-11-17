@@ -107,7 +107,7 @@ function AdminLayout() {
   // Work waiting on a page: shown on its menu item so it is visible from anywhere in the console.
   const badges: Record<string, { text: string; hint: string; warn?: boolean }> = {};
   if (pending > 0) badges.orders = { text: String(pending), hint: `待处理水单 ${pending} 单` };
-  if (pendingRefunds) badges.refunds = { text: String(pendingRefunds), hint: `待审核 ${pendingRefunds} 笔（赠送或退款）` };
+  if (pendingRefunds) badges.refunds = { text: String(pendingRefunds), hint: `待审核 ${pendingRefunds} 笔（赠送、收押金、退款或损坏不赔付）` };
   if (lowStock.length) badges.inventory = { text: '偏少', hint: `${lowStock.join('、')}店里的数量低于提醒线`, warn: true };
   if (scrapPending > 0) badges.assets = { text: String(scrapPending), hint: `待确认报废 ${scrapPending} 个` };
 

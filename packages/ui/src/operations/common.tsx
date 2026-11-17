@@ -33,11 +33,14 @@ export function useReviewSettings() {
 }
 
 /**
- * Whether a hand-given gift or a refund waits for an administrator; unknown settings count as reviewed. A reviewer's own
- * refund never waits, but a gift always does while gifts are reviewed: the counter shares one admin login.
+ * Whether a hand-given gift, a refund, a deposit staff took or an unpaid damage waits for an administrator; unknown settings
+ * count as reviewed. A reviewer's own refund never waits, but gifts, deposits and damage waivers always do while reviewed:
+ * the counter shares one admin login.
  */
-export function waitsForReview(settings: ReviewSettings | null, what: 'gift' | 'refund', reviewer: boolean) {
+export function waitsForReview(settings: ReviewSettings | null, what: 'gift' | 'refund' | 'deposit' | 'damage', reviewer = false) {
   if (what === 'gift') return settings ? settings.giftReview : true;
+  if (what === 'deposit') return settings ? settings.depositReview : true;
+  if (what === 'damage') return settings ? settings.damageReview : true;
   if (reviewer) return false;
   return settings ? settings.refundReview : true;
 }

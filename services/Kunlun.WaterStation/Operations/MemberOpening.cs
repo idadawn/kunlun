@@ -305,7 +305,7 @@ public static class MemberOpening
                 throw new BusinessRuleException("会员持有桶袋的汇总需要核对，请联系管理员");
             await ProductContainers.SetHeld(conn, tx, tid, mid, h.ContainerType, h.Quantity, ct);
             await using var coverage = Command(conn, tx, "SELECT COALESCE(sum(remaining_qty-reserved_damage_qty),0) FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@type", ("tid", tid), ("mid", mid), ("type", h.ContainerType));
-            var covered = Convert.ToInt32(await coverage.ExecuteScalarAsync(ct));
+            var covered = Convert.ToInt32(await coverage.ExecuteScalarAsync(ct)) + await RefundRequests.PendingCollectQty(conn, tx, tid, mid, h.ContainerType, ct);
             await Exec(conn, tx, """
                 INSERT INTO plugin_kunlun_waterstation.container_ledgers
                   (tenant_id,ledger_no,member_id,container_type,order_no,full_out_qty,empty_in_qty,delta_held,held_after,covered_deposit_qty_after,operator_name,remark,business_type)

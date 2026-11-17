@@ -206,9 +206,11 @@ public static class FinanceEndpoints
                 if (await r.ReadAsync(ct))
                 {
                     if (r.GetGuid(1) != req.MemberId || r.GetString(2) != ctype || r.GetInt32(3) != req.Quantity || r.GetString(5) != req.PayMethod) throw new BusinessRuleException("请求标识已用于其他收押操作", 409);
-                    return Results.Ok(new { depositNo = r.GetString(0), totalAmount = r.GetDecimal(4), idempotentReplay = true });
+                    return Results.Ok(new { depositNo = r.GetString(0), status = "APPROVED", totalAmount = r.GetDecimal(4), idempotentReplay = true });
                 }
-
+            // Taken while deposits were reviewed: the same collect answers with its request, approved or not.
+            if (await RefundRequests.CollectReplay(conn, tx, finRepo.TenantId, req.IdempotencyKey, req.MemberId, ctype, req.Quantity, req.PayMethod, ct) is { } pendingReplay)
+                return Results.Ok(pendingReplay);
 
             await ProductContainers.Require(conn, tx, finRepo.TenantId, ctype, ct);
             // 获取当前容器押金单价
@@ -225,45 +227,18 @@ public static class FinanceEndpoints
                 unitPrice = Convert.ToDecimal(val);
             }
 
-            var totalAmt = unitPrice * req.Quantity;
-            var lotId = Guid.NewGuid();
-            var depositNo = await BusinessNumbers.DepositNo(conn, tx, ct);
             var operatorName = user.FindFirstValue("display_name") ?? "员工";
-
-            await using (var insLot = new NpgsqlCommand("""
-                INSERT INTO plugin_kunlun_waterstation.deposit_lots
-                    (id, tenant_id, deposit_no, idempotency_key, member_id, container_type, unit_price, paid_qty, refunded_qty, remaining_qty, total_amount, pay_method, operator_name)
-                VALUES
-                    (@id, @tid, @no, @key, @mid, @ct, @unit, @qty, 0, @qty, @tot, @pay, @op)
-                """, conn, tx))
+            // 收押金要审核时（不分谁收的，门店共用一个管理员账号）先记成待审核：交付照样算进押金覆盖，管理员核对到账批准后才记成押金批次。
+            if ((await ReviewSettings.Read(conn, tx, finRepo.TenantId, ct)).DepositReview)
             {
-                insLot.Parameters.AddWithValue("id", lotId);
-                insLot.Parameters.AddWithValue("tid", finRepo.TenantId);
-                insLot.Parameters.AddWithValue("no", depositNo);
-                insLot.Parameters.AddWithValue("key", req.IdempotencyKey);
-                insLot.Parameters.AddWithValue("mid", req.MemberId);
-                insLot.Parameters.AddWithValue("ct", ctype);
-                insLot.Parameters.AddWithValue("unit", unitPrice);
-                insLot.Parameters.AddWithValue("qty", req.Quantity);
-                insLot.Parameters.AddWithValue("tot", totalAmt);
-                insLot.Parameters.AddWithValue("pay", req.PayMethod);
-                insLot.Parameters.AddWithValue("op", operatorName);
-                await insLot.ExecuteNonQueryAsync(ct);
+                var (requestId, requestNo) = await RefundRequests.RequestCollect(conn, tx, finRepo.TenantId, req.MemberId, ctype, req.Quantity, unitPrice, req.PayMethod, req.IdempotencyKey, operatorName, ct);
+                await tx.CommitAsync(ct);
+                return Results.Ok(new { requestId, requestNo, status = "PENDING", containerType = ctype, unitPrice, quantity = req.Quantity, totalAmount = unitPrice * req.Quantity });
             }
 
-            await using (var updMem = new NpgsqlCommand("""
-                UPDATE plugin_kunlun_waterstation.members
-                SET deposit_amount = deposit_amount + @amt
-                WHERE id = @mid
-                """, conn, tx))
-            {
-                updMem.Parameters.AddWithValue("amt", totalAmt);
-                updMem.Parameters.AddWithValue("mid", req.MemberId);
-                await updMem.ExecuteNonQueryAsync(ct);
-            }
-
+            var lot = await InsertDepositLot(conn, tx, finRepo.TenantId, req.MemberId, ctype, req.Quantity, unitPrice, req.PayMethod, req.IdempotencyKey, operatorName, null, ct);
             await tx.CommitAsync(ct);
-            return Results.Ok(new { lotId, depositNo, containerType = ctype, unitPrice, quantity = req.Quantity, totalAmount = totalAmt });
+            return Results.Ok(new { lotId = lot.LotId, depositNo = lot.DepositNo, status = "APPROVED", containerType = ctype, unitPrice, quantity = req.Quantity, totalAmount = lot.Amount });
         }).RequireAuthorization();
 
         // 7. 独立登记容器领还（AC-10: 归还容器减少持有量，但押金仍保留，不自动退押金）
@@ -303,7 +278,8 @@ public static class FinanceEndpoints
             var nextHeld = held + delta;
             if (nextHeld < 0) throw new BusinessRuleException("归还数量超过会员当前持有和本次领出数量");
             await using var cover = TicketBatches.Command(conn, tx, "SELECT COALESCE(sum(remaining_qty-reserved_damage_qty),0) FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@ct", ("tid", tid), ("mid", req.MemberId), ("ct", ctype));
-            var covered = Convert.ToInt32(await cover.ExecuteScalarAsync(ct));
+            // Deposits taken but not yet approved count too: the customer already paid them.
+            var covered = Convert.ToInt32(await cover.ExecuteScalarAsync(ct)) + await RefundRequests.PendingCollectQty(conn, tx, tid, req.MemberId, ctype, ct);
             if (nextHeld > held && nextHeld > covered) throw new BusinessRuleException("押金不足，请先补交押金");
             if (!await ContainerInventory.MoveToMembers(conn, tx, tid, ctype, delta, ct))
                 throw new BusinessRuleException("会员持有桶袋的汇总需要核对，请联系管理员");
@@ -361,6 +337,28 @@ public static class FinanceEndpoints
     }
 
     public sealed record DepositRefundResult(string RefundNo, decimal Amount, List<object> Breakdown);
+
+    /// <summary>
+    /// Books a deposit as a lot at the given unit price and adds it to the member's deposit balance: straight away when deposits
+    /// are not reviewed, or when an admin approves one staff took (keeping the time it was taken, so lots stay in the order paid).
+    /// </summary>
+    public static async Task<(Guid LotId, string DepositNo, decimal Amount)> InsertDepositLot(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid,
+        string ctype, int qty, decimal unitPrice, string pay, string key, string operatorName, DateTimeOffset? takenAt, CancellationToken ct)
+    {
+        var lotId = Guid.NewGuid();
+        var depositNo = await BusinessNumbers.DepositNo(conn, tx, ct);
+        var amount = unitPrice * qty;
+        await TicketBatches.Exec(conn, tx, """
+            INSERT INTO plugin_kunlun_waterstation.deposit_lots
+                (id, tenant_id, deposit_no, idempotency_key, member_id, container_type, unit_price, paid_qty, refunded_qty, remaining_qty, total_amount, pay_method, operator_name, created_at)
+            VALUES
+                (@id, @tid, @no, @key, @mid, @ct, @unit, @qty, 0, @qty, @tot, @pay, @op, COALESCE(@at::timestamptz, now()))
+            """, ct, ("id", lotId), ("tid", tid), ("no", depositNo), ("key", key), ("mid", mid), ("ct", ctype), ("unit", unitPrice), ("qty", qty),
+            ("tot", amount), ("pay", pay), ("op", operatorName), ("at", (object?)takenAt ?? DBNull.Value));
+        await TicketBatches.Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.members SET deposit_amount = deposit_amount + @amt WHERE tenant_id = @tid AND id = @mid",
+            ct, ("amt", amount), ("tid", tid), ("mid", mid));
+        return (lotId, depositNo, amount);
+    }
 
     /// <summary>
     /// 在调用方事务内退押金：按 FIFO 从未退批次扣减，按原收款单价计算金额，并减少会员押金余额。

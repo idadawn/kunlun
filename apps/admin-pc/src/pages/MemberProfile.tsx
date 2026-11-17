@@ -239,7 +239,7 @@ function DisableMemberDialog({ member: m, onClose, onDone }: { member: MemberPro
   return (
     <FormDialog title="停用会员" description={`${m.name} · ${m.memberNo}`} submitLabel="确认停用" onClose={onClose} onSubmit={submit}
       extraActions={<button type="button" className="btn" onClick={onClose}>取消</button>}>
-      <p className="membership-note">停用后会员端马上登录不了，员工也不能再为这位会员充值、点单、收退押金、退款、登记领还和补录。没完成的水单、待审核的赠送和退款要先办完。以后需要可以重新启用。</p>
+      <p className="membership-note">停用后会员端马上登录不了，员工也不能再为这位会员充值、点单、收退押金、退款、登记领还和补录。没完成的水单、待审核的赠送、收押金、退款和损坏不赔付要先办完。以后需要可以重新启用。</p>
       {holds.length > 0 && <p className="profile-warn">还有 {holds.join('、')}：停用后都还在，照样算在账上。要退钱请先退再停用，或者重新启用后再退。</p>}
       <label htmlFor="disableReason">停用原因</label>
       <input id="disableReason" className="input" required maxLength={100} placeholder="如：搬走了" value={reason} onChange={e => setReason(e.target.value)} />
@@ -251,7 +251,8 @@ function DisableMemberDialog({ member: m, onClose, onDone }: { member: MemberPro
 /** One container's deposit: what the member holds, what they paid and what they could take back now. */
 function ContainerDeposit({ row: r }: { row: DepositSummaryRow }) {
   const unit = containerUnit(r.containerType);
-  const owing = Math.max(0, r.heldQty - Math.max(0, r.paidQty - r.pendingDamageQty));
+  // Deposit taken but still waiting for an admin covers containers already, as at the hand-over.
+  const owing = Math.max(0, r.heldQty - Math.max(0, r.paidQty - r.pendingDamageQty + r.pendingCollectQty));
   return (
     <div className={`profile-container${r.containerKind === 'BAG' ? ' bag' : ''}`}>
       <div className="profile-container-head"><b>{containerLabel(r.containerType)}</b><small>现行押金 ¥{money(r.unitDeposit)}/个</small></div>
@@ -261,6 +262,7 @@ function ContainerDeposit({ row: r }: { row: DepositSummaryRow }) {
         <div><small>现在可退</small><b>¥{money(r.refundableAmount)}</b><small>{r.refundableQty} 个</small></div>
       </div>
       {owing > 0 && <p className="profile-warn">手里的{unit}比押金多 {owing} 个，下次交付时会提示补交押金。</p>}
+      {r.pendingCollectQty > 0 && <p className="membership-note">另收了押金 ¥{money(r.pendingCollectAmount)}（{r.pendingCollectQty} 个），等管理员在「审核」里核对到账，批准后计入已交押金。</p>}
       {r.pendingRefundQty > 0 && <p className="membership-note">退押金审核中 {r.pendingRefundQty} 个，批准后退款。</p>}
       {r.pendingDamageQty > 0 && <p className="membership-note">{r.pendingDamageQty} 个{unit}待确认报废，占用押金 ¥{money(r.pendingDamageAmount)}，确认报废后按原批次扣除。</p>}
     </div>

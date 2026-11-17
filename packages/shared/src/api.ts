@@ -223,7 +223,7 @@ export class KunlunApi {
     return this.post<{ id: string; requestNo: string; status: RefundRequestStatus; estimatedAmount: number; refundNo: string | null; refundAmount: number | null; idempotentReplay: boolean }>('/api/refund-requests', body);
   }
   reviewSettings() { return this.request<ReviewSettings>('/api/settings/review'); }
-  saveReviewSettings(body: { giftReview: boolean; refundReview: boolean }) { return this.put<ReviewSettings>('/api/settings/review', body); }
+  saveReviewSettings(body: { giftReview: boolean; refundReview: boolean; depositReview: boolean; damageReview: boolean }) { return this.put<ReviewSettings>('/api/settings/review', body); }
   refundRequests(query: RefundRequestQuery = {}) {
     return this.request<Paged<RefundRequestRow>>('/api/refund-requests' + paged(query));
   }
@@ -248,7 +248,7 @@ export class KunlunApi {
     return this.post<{ id: string; orderNo: string; status: string }>(`/api/orders/${orderId}/cancel`, { cancelReason });
   }
   fulfillOrder(orderId: string, body: FulfillOrderRequest) {
-    return this.post<{ id: string; orderNo: string; status: string }>(`/api/orders/${orderId}/fulfill`, body);
+    return this.post<{ id: string; orderNo: string; status: string; damageRequestNo?: string | null; damageReviewStatus?: 'PENDING' | 'APPROVED' | null }>(`/api/orders/${orderId}/fulfill`, body);
   }
   verifyPickup(body: FulfillOrderRequest & { pickupCode: string }) {
     return this.post<{ id: string; orderNo: string; status: string }>('/api/orders/pickup-verify', body);
@@ -262,8 +262,9 @@ export class KunlunApi {
   registerMovement(body: { memberId: string; containerType: ContainerType; fullOutN: number; emptyInM: number; idempotencyKey: string }) {
     return this.post<{ ledgerNo: string; currentHeld: number }>('/api/containers/movements', body);
   }
+  /** While deposits are reviewed the deposit waits as a request (status PENDING, no deposit number) until an admin approves it. */
   collectDeposit(body: { memberId: string; containerType: ContainerType; quantity: number; payMethod: PayMethod; idempotencyKey: string }) {
-    return this.post<{ depositNo: string; totalAmount: number }>('/api/deposits/collect', body);
+    return this.post<{ status: 'PENDING' | 'APPROVED'; depositNo?: string | null; requestNo?: string; totalAmount: number }>('/api/deposits/collect', body);
   }
   inventory(body: InventoryRequest) { return this.post<InventoryOperation>('/api/containers/inventory', body); }
   updateStock(body: UpdateStockRequest) { return this.post<InventoryOperation>('/api/containers/stock', body); }
