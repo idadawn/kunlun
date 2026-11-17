@@ -8,9 +8,8 @@ import XCTest
         app.launch()
         let account = app.textFields["login.account"]
         XCTAssertTrue(account.waitForExistence(timeout: 15))
-        account.tap(); account.typeText("demo.member")
-        let password = app.secureTextFields["login.password"]
-        password.tap(); password.typeText("demo-only")
+        type("demo.member", into: account)
+        type("demo-only", into: app.secureTextFields["login.password"])
         app.buttons["login.submit"].tap()
         XCTAssertTrue(app.staticTexts["你好，林先生"].waitForExistence(timeout: 10))
         app.terminate()
@@ -33,9 +32,8 @@ import XCTest
         XCTAssertTrue(account.waitForExistence(timeout: 15))
         XCTAssertFalse(app.staticTexts["SD-DEMO-001"].exists)
         XCTAssertFalse(app.buttons["login.submit"].isEnabled)
-        account.tap(); account.typeText("demo.member")
-        let password = app.secureTextFields["login.password"]
-        password.tap(); password.typeText("demo-only")
+        type("demo.member", into: account)
+        type("demo-only", into: app.secureTextFields["login.password"])
         app.buttons["login.submit"].tap()
         XCTAssertTrue(app.staticTexts["SD-DEMO-001"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.tabBars.buttons["记录"].isSelected)
@@ -80,6 +78,19 @@ import XCTest
         app.buttons["退出登录"].firstMatch.tap()
         XCTAssertTrue(app.textFields["login.account"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["林先生"].exists)
+    }
+
+    /// Taps a field until it reports keyboard focus, then types. On a busy CI simulator a tap right after launch can
+    /// leave the field unfocused, and XCUITest's own retries of `typeText` never tap again, so they fail the same way.
+    private func type(_ text: String, into field: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let focused = NSPredicate(format: "hasKeyboardFocus == true")
+        for _ in 1...3 {
+            field.tap()
+            // An expectation can be waited on only once, so each tap gets its own.
+            let gotFocus = XCTNSPredicateExpectation(predicate: focused, object: field)
+            if XCTWaiter().wait(for: [gotFocus], timeout: 5) == .completed { field.typeText(text); return }
+        }
+        XCTFail("\(field) still had no keyboard focus after 3 taps", file: file, line: line)
     }
 
     /// The recharge list is lazy, so a card further down exists only once it has been scrolled to.
