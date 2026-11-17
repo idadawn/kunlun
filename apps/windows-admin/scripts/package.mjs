@@ -45,7 +45,8 @@ await build({
       uninstallDisplayName: productName,
       createDesktopShortcut: 'always',
       createStartMenuShortcut: true,
-      deleteAppDataOnUninstall: false,
+      // Uninstalling removes the saved login and window settings; upgrades keep them.
+      deleteAppDataOnUninstall: true,
       installerLanguages: ['zh_CN'],
       language: '2052',
     },
