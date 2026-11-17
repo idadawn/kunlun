@@ -38,12 +38,28 @@ xcodebuild -project apps/ios-member/KunlunMember.xcodeproj \
 
 2026-11-17 用 `-MemberOrigin` 在模拟器上连本机临时后端（演示数据）走通了会员全链路：登录、水票、记录、押金、地址、退出、改密码和离线提示，结果见架构说明第 14 节。真机签名、Siri 语音调用和 TestFlight / App Store 发布仍需后续验收；没有创建会员或更改生产数据。
 
+## 上传 TestFlight / App Store
+
+会员端和员工端用同一个脚本上传，签名用开发者团队的发布证书：
+
+```sh
+KUNLUN_IOS_TEAM=<团队 ID> scripts/ios-release.sh member          # 归档并上传会员端
+KUNLUN_IOS_TEAM=<团队 ID> scripts/ios-release.sh staff export    # 只导出员工端 .ipa，不上传
+```
+
+- 团队 ID 是 developer.apple.com「会员资格详细信息」里的 10 位字母数字。Xcode 设置 → Accounts 里要登录这个团队的账号；账号持有人或管理员才能让 Xcode 自动生成发布证书。
+- 脚本先不签名归档，导出时再用 Apple Distribution 证书和 App Store 描述文件签名。证书和描述文件都由 Xcode 通过登录的账号自动创建，团队里不需要登记设备。
+- 每次上传都要用 App Store Connect 没用过的构建号：在 Xcode 工程里把 `CURRENT_PROJECT_VERSION` 加 1，改版本时再改 `MARKETING_VERSION`。
+- 归档和安装包放在 `~/kunlun-release/ios/<版本>-<构建号>/`（可用 `KUNLUN_IOS_OUT` 指定目录）。归档里有符号文件，看崩溃报告要用，请保留。
+- App Store Connect 里要先建好对应的 App（套装 ID `cn.idalee.kunlun.member`、`cn.idalee.kunlun.staff`）。上传后苹果处理 5–30 分钟，之后出现在 TestFlight。Info.plist 已声明不使用受管制加密，上传时不用回答出口合规问题。
+- 上架 App Store 还需要隐私政策网址、「App 隐私」问卷、iPhone 和 iPad 截图，以及给审核员的会员账号（会员端必须登录才能用）。
+- 首个版本：会员端、员工端都是 1.0.0（构建号 1），2026-11-17 上传。
+
 ## 维护入口
 
 - `Core/`：接口 DTO、网络客户端、会话与加载状态；可在 macOS 上运行单元测试。
 - `App/`：SwiftUI 页面、钥匙串、快捷指令、演示适配器和隐私声明。
 - `UITests/`：原生模拟器 UI 流程。
 - Xcode 使用同步文件夹，向 `App/` 或 `UITests/` 添加文件会自动纳入 target。
-- 发布前设置 Signing Team、确认 Bundle ID 和 App Store Connect 隐私信息；当前未配置发布证书。
 
 实现参考：[Apple Observation](https://developer.apple.com/documentation/SwiftUI/Managing-model-data-in-your-app)、[App Intents](https://developer.apple.com/documentation/appintents/creating-your-first-app-intent)、[UserDefaults 所需理由](https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype)。
