@@ -48,7 +48,8 @@ kunlun/
     ├── android-member/                  # Android 会员端：打包 mobile-h5 会员页面的 WebView 容器
     ├── android-app/                     # Android 员工与会员 H5 调试 APK（Capacitor）
     ├── ios-member/                      # 原生 iOS 会员客户端（SwiftUI）
-    └── ios-staff/                       # iOS 员工端：打包 mobile-h5 员工页面的 WKWebView 容器
+    ├── ios-staff/                       # iOS 员工端：打包 mobile-h5 员工页面的 WKWebView 容器
+    └── windows-admin/                   # Windows 管理端：打开线上 /admin 的 Electron 窗口
 ```
 
 ---
@@ -377,7 +378,16 @@ kunlun/
 - 两个 App 都已有隐私清单和 1024 图标，并声明不使用受管制加密（`ITSAppUsesNonExemptEncryption` 为 false），上传时没有警告。
 - 还没做：会员端上架 App Store 需要隐私政策网址、「App 隐私」问卷、iPhone 和 iPad 截图和审核用会员账号；员工端走 TestFlight 内部测试，要把员工加进 App Store Connect 团队。
 
-## 20. 费用支出与交付按容器说明（2026-11-17）
+## 20. Windows 管理端（2026-11-17）
+
+- 门店电脑是 Windows 10 以上，整天开着管理端，所以 `apps/windows-admin`（`cn.idalee.kunlun.admin`）把它做成可安装的 App。它是一个 Electron 窗口，直接打开线上 `https://kunlun.idalee.cn/admin`，不像员工端、会员端 App 那样把页面打包进去：线上发布后各台电脑打开就是新版，也就没有「先更新线上服务、再发 App」的顺序问题。代价是必须联网，这和浏览器一样，业务数据本来就在服务器上。
+- 窗口里只开这台服务器的 `/admin` 页面（`/` 会跳转过去，所以也放行），其他 `https://` 链接交给系统浏览器，其余的丢掉；`window.open` 打开管理端页面时就在本窗口加载。规则在 `src/rules.js`，`scripts/web-routes.test.mjs` 对照 `WEB_ROUTES` 检查：管理端每个页面和旧链接都能打开，员工端、会员端页面都打不开。页面运行在沙箱里，没有 Node 能力；除写剪贴板和全屏外，其他浏览器权限一律拒绝。
+- 连不上服务器或主页面返回 5xx 时（发布切换时会有几秒 502），换成包内的重试页，每 10 秒自动重连，证书错误单独提示。导出等 blob 下载弹「另存为」，默认存到「下载」文件夹。
+- 服务器地址在打包时写进包内的 `package.json`，只接受 HTTPS；`KUNLUN_DESKTOP_ORIGIN` 只在从源码运行时有效，此时可以用本机 `http://127.0.0.1`。连别的服务器打出的包名字带「（测试）」、App ID 加 `.test`，能和正式版装在同一台电脑上。
+- 安装包是当前用户一键安装的 NSIS（x64，不需要管理员权限），约 113 MB；macOS 上也能打包。还没有代码签名，首次运行会出现 SmartScreen 提示。CI 新增 `windows` 任务，测试网址规则、打包并上传 `windows-admin-installer`。
+- 本机验证：在 macOS 上从源码运行，连临时搭的本机服务，登录、切换页面、刷新后保持登录、拦截员工端/会员端/外部/本地文件地址、导出触发下载、快捷键缩放并在重启后保留、断网和 502 的重试页及恢复后自动回到管理端都实测过。安装包的 exe 图标、版本信息和包内服务器地址也核对过。还没在真的 Windows 电脑上安装运行。
+
+## 21. 费用支出与交付按容器说明（2026-11-17）
 
 - 表 `expenses`（`Operations/Expenses.cs`）：`expense_no`（`ZCyyyyMMddNNNN`，北京时间日期，计数器 `expense`）、`category`（`CONTAINER` 买桶袋 / `PARTS` 配件耗材 / `REPAIR` 维修 / `OTHER` 其他）、`item`、`quantity`、`amount`（NUMERIC(12,2) > 0）、`pay_method`、`spent_on`（购买日期，统计口径）、`remark`、随新购记的 `container_type` 与 `inventory_operation_no`、`status`（`ACTIVE` / `VOIDED`）、经办人、作废人 / 时间 / 原因；`(tenant_id, idempotency_key)` 唯一。启动时给已有管理员补上 `expense:manage`，不加 `token_version`：权限每次请求都从员工行重新读取。
 - 接口：

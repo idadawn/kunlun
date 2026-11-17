@@ -1,0 +1,52 @@
+# Windows 管理端
+
+给门店电脑用的管理后台桌面版，支持 Windows 10 / 11（64 位）。装好后桌面和开始菜单有「绿麒麟水站管理端」图标，双击打开一个独立窗口，里面就是正式环境的管理后台 `https://kunlun.idalee.cn/admin`。
+
+- **页面始终来自服务器**：安装包里只有一个窗口外壳，不带页面。线上发布新版管理端后，门店电脑打开就是新版，不用重装；只有改了外壳本身（图标、窗口行为）才要发新安装包。
+- **只开管理端**：窗口里只能打开这台服务器的 `/admin` 页面。员工端、会员端和别的网站都不会在窗口里打开；其他 `https://` 链接交给系统浏览器，其余链接不处理。
+- **必须联网**：连不上服务器时显示「连不上服务器」，服务器在更新、返回 502 时显示「服务器暂时没有响应」，两种情况都每 10 秒自动重试，恢复后自动回到原来的页面。
+- **登录**：和浏览器一样，关掉窗口就要重新登录。这台电脑用管理员账号，所以不做「记住登录」。
+- **导出**：导出报表、下载价目表 PNG 时弹出「另存为」，默认存到「下载」文件夹。
+- **快捷键**：F5 / Ctrl+R 刷新，Ctrl+Shift+R 强制刷新，Ctrl + 加号 / 减号 / 0 放大、缩小、恢复（Ctrl+滚轮也行），F11 全屏。缩放比例、是否最大化下次打开时保留；第一次打开默认最大化。
+- **单开**：已经打开时再点图标，只会把原窗口切到前面。
+
+## 安装
+
+1. 拿到 `kunlun-admin-setup-<版本>.exe`（CI 的 `windows-admin-installer` 产物，或按下面自己打包），拷到门店电脑上双击。
+2. 安装包没有代码签名，Windows 第一次会提示「Windows 已保护你的电脑」：点「更多信息」→「仍要运行」。没有签名时，每个新版本的安装包第一次运行都会这样提示一次。
+3. 一键安装到当前用户（`%LOCALAPPDATA%\Programs`），不需要管理员权限，装完自动打开。卸载在「设置 → 应用」里找「绿麒麟水站管理端」。
+
+只有 64 位系统能装。在「设置 → 系统 → 关于 → 系统类型」可以看是 64 位还是 32 位。
+
+## 本机调试
+
+在仓库根目录 `pnpm install --frozen-lockfile` 后，按根 README 启动后端和管理端开发服务器，再运行：
+
+```sh
+KUNLUN_DESKTOP_ORIGIN=http://127.0.0.1:5173 pnpm --filter @kunlun/windows-admin start
+```
+
+不设 `KUNLUN_DESKTOP_ORIGIN` 时连正式环境。这个变量只在从源码运行时有效，可以是 `http://127.0.0.1`；装好的 App 不读它。第一次运行时 Electron 会自己下载本机用的运行文件。调试时 F12 打开开发者工具，安装版没有这个快捷键。macOS 上也能这样运行，用来检查窗口行为。
+
+```sh
+pnpm --filter @kunlun/windows-admin test   # 网址规则、服务地址校验、缩放
+pnpm test:web                              # 包含：管理端每个页面都能在窗口里打开，员工端、会员端打不开
+```
+
+## 打包
+
+```sh
+pnpm --filter @kunlun/windows-admin package:win
+```
+
+产物在 `apps/windows-admin/release/kunlun-admin-setup-<版本>.exe`（约 110 MB，自带浏览器内核，不依赖电脑上的浏览器）。在 macOS、Linux 和 Windows 上都能打包，第一次要下载 Windows 版 Electron 和 NSIS。CI 的 `windows` 任务在每次提交时打包并上传为 `windows-admin-installer`。
+
+- 连别的服务器：`KUNLUN_DESKTOP_ORIGIN=https://kunlun-test.idalee.cn pnpm --filter @kunlun/windows-admin package:win`。打包时只接受 `https://` 地址；这样打出的是「绿麒麟水站管理端（测试）」（`kunlun-admin-test-setup-*.exe`），可以和正式版装在同一台电脑上。
+- 只要解包目录不要安装包：在命令末尾加 `--unpacked`，结果在 `release/win-unpacked`。
+- 版本号在 `package.json` 的 `version`，每次发新安装包都要加大，覆盖安装才会认作新版本。
+
+## 以后可以加
+
+- **代码签名**：买到代码签名证书后，在 `scripts/package.mjs` 的 `win` 里配上签名，SmartScreen 提示就会消失或变少。
+- **外壳自动更新**：现在外壳很少需要更新，所以没做。需要时可以用 electron-updater，把新安装包放到 al 上，由外壳自己检查和安装。
+- **员工工作台入口**：如果门店电脑也要用 `/staff`，可以在外壳里加一个入口切换。

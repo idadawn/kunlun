@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>连不上服务器</title>
+<style>
+  :root{--brand:#109880;--brand-dark:#0d7a68;--ink:#0f172a;--text:#475569;--bg:#f8fafc;--line:#e2e8f0}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);
+    font:15px/1.6 "Microsoft YaHei UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif}
+  main{width:min(440px,calc(100vw - 32px));background:#fff;border:1px solid var(--line);border-radius:16px;padding:36px 32px;text-align:center;box-shadow:0 10px 30px rgba(15,23,42,.06)}
+  .mark{width:56px;height:56px;border-radius:16px;background:#def7f1;display:grid;place-items:center;margin:0 auto 18px}
+  .mark svg{width:30px;height:30px;stroke:var(--brand);fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+  h1{font-size:20px;margin:0 0 8px}
+  p{margin:0;color:var(--text)}
+  .status{margin-top:14px;font-size:13px;color:#94a3b8;min-height:21px}
+  button{margin-top:22px;border:0;border-radius:10px;background:var(--brand);color:#fff;font:inherit;font-weight:600;padding:10px 28px;cursor:pointer}
+  button:hover{background:var(--brand-dark)}
+  button:disabled{opacity:.6;cursor:default}
+</style>
+</head>
+<body>
+<main>
+  <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3c3.5 4.2 6 7.4 6 10.6A6 6 0 0 1 6 13.6C6 10.4 8.5 7.2 12 3z"/><path d="M9.5 15.5c.6-2 2-3 4-3.3"/></svg></div>
+  <h1 id="title">连不上服务器</h1>
+  <p id="detail">请检查这台电脑的网络。网络恢复后会自动重新打开。</p>
+  <div class="status" id="status" role="status"></div>
+  <button id="retry" type="button">重新连接</button>
+</main>
+<script>
+  const params = new URLSearchParams(location.search);
+  const target = params.get('url');
+  const MESSAGES = {
+    network: ['连不上服务器', '请检查这台电脑的网络。网络恢复后会自动重新打开。'],
+    server: ['服务器暂时没有响应', '可能正在更新，通常一两分钟就好，会自动重试。'],
+    certificate: ['服务器证书有问题', '为了安全没有打开页面。请联系管理员检查服务器的 HTTPS 证书。'],
+  };
+  const [title, detail] = MESSAGES[params.get('reason')] || MESSAGES.network;
+  document.getElementById('title').textContent = title;
+  document.getElementById('detail').textContent = detail;
+  document.title = title;
+
+  const status = document.getElementById('status');
+  const button = document.getElementById('retry');
+  const RETRY_SECONDS = 10;
+  let left = RETRY_SECONDS;
+
+  // The shell only lets this navigation through to its own admin pages.
+  function retry() {
+    if (!target) return;
+    button.disabled = true;
+    status.textContent = '正在连接…';
+    location.replace(target);
+  }
+  function tick() {
+    if (!navigator.onLine) { status.textContent = '这台电脑没有联网'; left = RETRY_SECONDS; return; }
+    if (--left <= 0) { retry(); return; }
+    status.textContent = left + ' 秒后自动重试';
+  }
+  button.addEventListener('click', retry);
+  addEventListener('online', retry);
+  tick();
+  setInterval(tick, 1000);
+</script>
+</body>
+</html>
