@@ -1,0 +1,13 @@
+# Installed as /etc/systemd/system/kunlun-db-offsite@.service; instances: prod, test. kunlun-db-backup@<env>.service
+# starts it after every successful backup (OnSuccess=). See deploy/al/README.md.
+[Unit]
+Description=Copy new Kunlun %i database backups to Alibaba Cloud OSS
+Wants=network-online.target
+After=network-online.target
+# A failed upload emails the failure, like a failed backup (kunlun-db-backup-notify@.service).
+OnFailure=kunlun-db-backup-notify@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/kunlun-db-offsite %i
+TimeoutStartSec=30min

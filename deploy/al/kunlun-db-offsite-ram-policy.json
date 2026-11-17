@@ -1,0 +1,28 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "oss:PutObject",
+      "Resource": [
+        "acs:oss:*:*:BUCKET/prod/*",
+        "acs:oss:*:*:BUCKET/test/*"
+      ],
+      "Condition": {
+        "IpAddress": {
+          "acs:SourceIp": "AL_PUBLIC_IP"
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": "oss:GetBucketLifecycle",
+      "Resource": "acs:oss:*:*:BUCKET",
+      "Condition": {
+        "IpAddress": {
+          "acs:SourceIp": "AL_PUBLIC_IP"
+        }
+      }
+    }
+  ]
+}

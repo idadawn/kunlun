@@ -4,6 +4,8 @@ Description=Back up the Kunlun %i PostgreSQL database
 After=docker.service
 # A failed or timed-out run emails the failure (kunlun-db-backup-notify@.service); a successful run sends nothing.
 OnFailure=kunlun-db-backup-notify@%n.service
+# A successful run starts kunlun-db-offsite@<env>.service, which copies the new backup to Alibaba Cloud OSS.
+OnSuccess=kunlun-db-offsite@%i.service
 
 [Service]
 Type=oneshot

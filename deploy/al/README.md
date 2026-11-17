@@ -47,12 +47,12 @@ ssh al 'curl -fsS http://10.78.1.201/api/v2.0/ping'
 
 ### 数据库备份
 
-2026-11-17 确认的策略（PRD 第 16 章第 15 条）：每天 03:30（Asia/Shanghai）分别备份生产库 `kunlun_prod` 和测试库 `kunlun_test`，生产保留 14 天、测试保留 7 天，最多丢失约一天的数据。备份只存放在 al 上；服务器外副本尚未确定，目前防不了整机或云盘损坏。不要使用 `down -v`，也不要将生产备份放进仓库。
+2026-11-17 确认的策略（PRD 第 16 章第 15 条）：每天 03:30（Asia/Shanghai）分别备份生产库 `kunlun_prod` 和测试库 `kunlun_test`，生产保留 14 天、测试保留 7 天，最多丢失约一天的数据。每份备份成功后再复制一份到阿里云 OSS（北京，与 al 不在同一地域），用来防整机或云盘损坏，见「服务器外副本」。不要使用 `down -v`，也不要将生产备份放进仓库。
 
 - 本目录的 `kunlun-db-backup.sh` 安装为 `/usr/local/sbin/kunlun-db-backup`，`kunlun-db-backup@.service` 和 `kunlun-db-backup@.timer` 放在 `/etc/systemd/system/`，启用 `kunlun-db-backup@prod.timer` 与 `kunlun-db-backup@test.timer`。服务器关机错过的运行会在开机后补跑。
 - 每次运行先 `umask 077`；根分区剩余不足 1 GiB 时拒绝运行（磁盘与其他站点共用）。`docker compose exec -T database pg_dump -Fc` 写入临时文件，在容器内用 `pg_restore -f /dev/null` 完整读回后才改名为 `kunlun_prod-YYYYmmdd-HHMMSS.dump`。备份成功后才删除超过保留期的旧文件，连续失败也不会删掉最后的好备份。
 - 备份目录 `/var/backups/kunlun/{prod,test}` 为 700、文件为 600，仅 root 可读。备份只含业务库：角色由 `init-database.sh` 按 `.env` 创建，`.env` 不在备份内。
-- 每次结果在 `/var/log/kunlun-db-backup.log` 记一行（`OK`、`FAILED`、`pruned`、`RESTORE-CHECK`、`NOTIFY`），详细输出在 journal。失败的单元会出现在 `systemctl --failed`，并发邮件通知，见「备份失败邮件」。
+- 每次结果在 `/var/log/kunlun-db-backup.log` 记一行（`OK`、`FAILED`、`pruned`、`RESTORE-CHECK`、`NOTIFY`、`OFFSITE`），详细输出在 journal。失败的单元会出现在 `systemctl --failed`，并发邮件通知，见「备份失败邮件」。
 
 ```sh
 ssh al 'systemctl list-timers "kunlun-db-backup@*"; tail -n 20 /var/log/kunlun-db-backup.log'
@@ -66,7 +66,39 @@ ssh al 'systemctl start kunlun-db-backup@prod && tail -n 1 /var/log/kunlun-db-ba
 ssh al 'install -d -m 700 /var/backups/kunlun/prod/keep && cp -p /var/backups/kunlun/prod/kunlun_prod-<时间>.dump /var/backups/kunlun/prod/keep/'
 ```
 
-更新脚本或单元时，把本目录的三个脚本和三个单元传到 al 上仅 root 可读的临时目录：脚本去掉 `.sh`、`.py` 后 `install -m 700` 到 `/usr/local/sbin/`，单元 `install -m 644` 到 `/etc/systemd/system/`，再 `systemctl daemon-reload`。首次安装还需 `systemctl enable --now kunlun-db-backup@prod.timer kunlun-db-backup@test.timer`，并按「备份失败邮件」建好配置文件；`kunlun-db-backup-notify@.service` 不需要 enable。
+更新脚本或单元时，把本目录的四个脚本和四个单元传到 al 上仅 root 可读的临时目录：脚本去掉 `.sh`、`.py` 后 `install -m 700` 到 `/usr/local/sbin/`，单元 `install -m 644` 到 `/etc/systemd/system/`，再 `systemctl daemon-reload`。首次安装还需 `systemctl enable --now kunlun-db-backup@prod.timer kunlun-db-backup@test.timer`，按「备份失败邮件」建好配置文件，按「服务器外副本」装好 ossutil 并写好桶名和 AccessKey；`kunlun-db-backup-notify@.service` 和 `kunlun-db-offsite@.service` 都不需要 enable。
+
+### 服务器外副本（阿里云 OSS）
+
+2026-11-17 起，每份备份成功后再复制一份到阿里云 OSS 的私有桶，用来防 al 整机或云盘损坏。桶在华北2（北京），与 al 所在的华北6（乌兰察布）不在同一地域。al 用不了其他地域的 OSS 内网，所以经公网 Endpoint `oss-cn-beijing.aliyuncs.com`（HTTPS）上传，每天约 200 KB。桶名只写在 al 上，不进仓库。
+
+- `kunlun-db-backup@.service` 设了 `OnSuccess=kunlun-db-offsite@%i.service`。备份成功后（定时或手动 `systemctl start` 都算），systemd 启动 `kunlun-db-offsite@prod.service`（或 `@test`），由本目录的 `kunlun-db-offsite.sh`（安装为 `/usr/local/sbin/kunlun-db-offsite`）把保留期内还没上传的备份传到桶里的 `prod/<文件名>`、`test/<文件名>`。已上传的文件名记在 `/var/lib/kunlun-db-offsite/{prod,test}.uploaded`，某次没传成的会在下次一起补传。`keep/` 不单独上传，里面的文件在生成时已经传过。
+- 上传用 ossutil 2.4.1（`/usr/local/bin/ossutil`）的 `api put-object --forbid-overwrite=true`，ossutil 默认校验 OSS 返回的 CRC64。文件的 SHA-256 记在对象元数据 `sha256` 里，下载后可以核对。
+- 上传用专用 RAM 用户，只授本目录 `kunlun-db-offsite-ram-policy.json` 这一条策略（`BUCKET` 换成桶名，`AL_PUBLIC_IP` 换成 al 的弹性公网 IP）：只能往这个桶的 `prod/*`、`test/*` 执行 `oss:PutObject`，另有只读的 `oss:GetBucketLifecycle` 用来核对保留期，两条都只认 al 的公网 IP。它不能列举、下载、覆盖或删除对象，al 被入侵也毁不掉 OSS 上已有的副本。
+- AccessKey 只写在 al 的 `/etc/kunlun-db-offsite/ossutil.conf`（目录 700、文件 600），桶名在同目录的 `bucket`。这些值不进仓库，也不要贴到聊天里。
+- 桶的设置：标准存储、同城冗余、私有、阻止公共访问，不开版本控制（开了会让禁止覆盖写失效）。「禁止文件覆盖写」规则覆盖整个桶，对所有用户生效。生命周期按上传时间删除：`prod/` 14 天、`test/` 7 天，与 al 上一致。
+- 结果记入 `/var/log/kunlun-db-backup.log`（`OFFSITE OK`、`OFFSITE FAILED`）。上传失败时单元进入 failed，并像备份失败一样发邮件（`kunlun-db-offsite@.service` 也设了 `OnFailure=kunlun-db-backup-notify@%n.service`）。修好后执行 `systemctl start kunlun-db-offsite@prod` 补传。
+- 生命周期只看上传时间：al 停止上传后，桶里的副本也会在 14 天内删完。al 整机丢失时，要在这之前把需要的副本下载下来。
+
+```sh
+ssh al 'grep OFFSITE /var/log/kunlun-db-backup.log | tail -n 5; cat /var/lib/kunlun-db-offsite/prod.uploaded'
+ssh al 'ossutil -c /etc/kunlun-db-offsite/ossutil.conf api get-bucket-lifecycle --bucket "$(cat /etc/kunlun-db-offsite/bucket)"'
+```
+
+新服务器上先装 ossutil（校验值取自[官方安装页](https://help.aliyun.com/zh/oss/developer-reference/install-ossutil2)），再 `install -d -m 700 /etc/kunlun-db-offsite`，把桶名写进其中的 `bucket`（600）：
+
+```sh
+ssh al 'set -e; t=$(mktemp -d); cd "$t"; curl -fsSLo o.zip https://gosspublic.alicdn.com/ossutil/v2/2.4.1/ossutil-2.4.1-linux-amd64.zip; echo "57ee4c56796a40144acd6b0b96b53b4ba75e5cec09c01d8d0313c09a5524022f  o.zip" | sha256sum -c -; unzip -q o.zip; install -m 755 ossutil-2.4.1-linux-amd64/ossutil /usr/local/bin/ossutil; cd /; rm -rf "$t"; ossutil version'
+```
+
+首次写入或更换 AccessKey：先在 RAM 控制台给该用户新建 AccessKey，在自己的终端运行下面第一条命令输入（Secret 不回显，不进聊天，也不进命令历史）；再手动备份一次，确认日志末尾是 `OFFSITE OK`；最后在控制台禁用并删除旧 Key。
+
+```sh
+ssh -t al 'umask 077 && read -rp "AccessKey ID: " id && read -rsp "AccessKey Secret（输入不显示）: " secret && echo && printf "[default]\naccessKeyID = %s\naccessKeySecret = %s\nregion = cn-beijing\nendpoint = https://oss-cn-beijing.aliyuncs.com\n" "$id" "$secret" > /etc/kunlun-db-offsite/ossutil.conf && echo 已保存'
+ssh al 'systemctl start kunlun-db-backup@prod && tail -n 2 /var/log/kunlun-db-backup.log'
+```
+
+2026-11-17 部署验证：用上传用的 Key 在 al 上写 `test/` 成功；覆盖（带不带禁止覆盖请求头）都返回 409 `FileAlreadyExists`；读取、列举、删除以及写到 `prod/`、`test/` 以外都返回 403；读出的生命周期为 `prod/` 14 天、`test/` 7 天。随后补传了当天已有的 3 份备份。手动 `systemctl start kunlun-db-backup@prod` 后，journal 记下 `Triggering OnSuccess= dependencies`，同一秒内 `kunlun_prod-20261117-092546.dump` 已传到 OSS。`test/` 下 3 个 `offsite-probe-*` 探针文件 7 天后由生命周期删除。
 
 ### 备份失败邮件
 
@@ -102,6 +134,17 @@ ssh al 'kunlun-db-restore-check prod'
 
 本目录的 `kunlun-db-restore-check.sh` 安装为 `/usr/local/sbin/kunlun-db-restore-check`。它用与线上相同的 postgres 镜像启动无网络的临时容器，按 `init-database.sh` 的方式建应用角色和库，执行 `pg_restore --single-transaction --exit-on-error`，再逐表对比与线上库的行数，结束后连同数据卷删除临时容器，不写线上库。第二个参数可指定备份文件。恢复报错或缺表即判定失败；备份之后的新写入会让个别表行数不同（如 `auth_audit_logs`），需人工确认。结果同样记入 `/var/log/kunlun-db-backup.log`。
 
+演练 OSS 上的副本：在 OSS 控制台下载 `prod/` 下的一份备份（上传用的 RAM 用户读不了，要用自己的账号），传到 al 的临时目录，与原文件核对 SHA-256 后演练，结束后删掉临时目录和本机下载的文件。原文件已过保留期被清理时，改与控制台文件详情里的 `x-oss-meta-sha256` 核对。
+
+```sh
+ssh al 'install -d -m 700 /root/kunlun-offsite-check'
+scp ~/Downloads/kunlun_prod-<时间>.dump al:/root/kunlun-offsite-check/from-oss-kunlun_prod-<时间>.dump
+ssh al 'sha256sum /root/kunlun-offsite-check/*.dump /var/backups/kunlun/prod/kunlun_prod-<时间>.dump'
+ssh al 'kunlun-db-restore-check prod /root/kunlun-offsite-check/from-oss-kunlun_prod-<时间>.dump; rm -rf /root/kunlun-offsite-check'
+```
+
+2026-11-17 演练 OSS 副本：从控制台下载的 `kunlun_prod-20261117-092546.dump`（80K）与 al 上原文件 SHA-256 一致，恢复成功，24 张表行数与线上逐表一致（日志记为 `RESTORE-CHECK OK backup=from-oss-kunlun_prod-20261117-092546.dump`）。
+
 2026-11-17 首次演练：`kunlun_prod-20261117-083602.dump`（80K，24 张表）和 `kunlun_test-20261117-083542.dump`（92K，25 张表）均恢复成功，行数与线上逐表一致。下面两种恢复方式也已在临时容器中照原样走通。
 
 ### 恢复数据库
@@ -120,6 +163,8 @@ docker compose start api
 核对 `/healthz`、管理员登录和关键数据后，再执行 `docker compose exec -T database dropdb -U postgres kunlun_prod_before_restore`。
 
 数据卷丢失时：用原 `.env` 执行 `docker compose up -d --wait database`，`init-database.sh` 会重建 `kunlun_app` 和空的 `kunlun_prod`；用上面的 `pg_restore` 命令把备份恢复到 `kunlun_prod`（`-d kunlun_prod`），再 `up -d --wait`。`.env` 也丢失时按「发布」第 4 步重新生成；JWT 密钥变化后所有人需要重新登录。
+
+al 整机或云盘丢失时，服务器上的备份目录也没了：到 OSS 控制台下载 `prod/` 下最新的备份（上传用的 RAM 用户没有读权限，要用自己的账号），在新服务器按「发布」部署，再按上面「数据卷丢失时」恢复。
 
 ### 应用回退
 
