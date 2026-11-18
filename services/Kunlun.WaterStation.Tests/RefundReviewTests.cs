@@ -62,12 +62,17 @@ public sealed class RefundReviewTests(TestHost host)
         Assert.Equal(HttpStatusCode.BadRequest, (await ApplyDeposit(clerk, mid, 2)).StatusCode);
 
         var id = request.GetProperty("id").GetGuid();
+        Assert.Equal(HttpStatusCode.Forbidden, (await clerk.GetAsync("/api/admin/alerts")).StatusCode);
+        var alerts = await admin.GetFromJsonAsync<JsonElement>("/api/admin/alerts");
+        Assert.Contains(id, alerts.GetProperty("pendingReviewIds").EnumerateArray().Select(x => x.GetGuid()));
         Assert.Equal(HttpStatusCode.Forbidden, (await clerk.PostAsJsonAsync($"/api/refund-requests/{id}/approve", new ApproveRefundRequest(null, null))).StatusCode);
         var pending = await Requests(admin, $"status=PENDING&q={memberNo}");
         Assert.Equal(1, pending.GetProperty("total").GetInt64());
 
         var approved = await Ok(await admin.PostAsJsonAsync($"/api/refund-requests/{id}/approve", new ApproveRefundRequest("CASH", "核对无误")));
         Assert.Equal(100m, approved.GetProperty("refundAmount").GetDecimal());
+        var afterReview = await admin.GetFromJsonAsync<JsonElement>("/api/admin/alerts");
+        Assert.DoesNotContain(id, afterReview.GetProperty("pendingReviewIds").EnumerateArray().Select(x => x.GetGuid()));
         Assert.Equal(50m, await DepositBalance(admin, mid));
         Assert.Equal(0, (await Bucket(admin, mid)).GetProperty("pendingRefundQty").GetInt32());
         var replay = await Ok(await admin.PostAsJsonAsync($"/api/refund-requests/{id}/approve", new ApproveRefundRequest(null, null)));

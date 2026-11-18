@@ -10,6 +10,24 @@ public static class OverviewEndpoints
 {
     public static void MapOverviewEndpoints(this WebApplication app)
     {
+        app.MapGet("/api/admin/alerts", async (ClaimsPrincipal user, NpgsqlDataSource db, CancellationToken ct) =>
+        {
+            if (!user.HasClaim("subject_type", "STAFF") || !user.HasClaim("role", "ADMIN") ||
+                !Guid.TryParse(user.FindFirstValue("tenant_id"), out var tenantId)) return Results.Forbid();
+            await using var conn = await db.OpenConnectionAsync(ct);
+            await using var cmd = Command(conn, null, """
+                SELECT (SELECT count(*) FROM plugin_kunlun_waterstation.water_orders WHERE tenant_id=@tid),
+                       ARRAY(SELECT id FROM plugin_kunlun_waterstation.refund_requests
+                             WHERE tenant_id=@tid AND status='PENDING' AND
+                                 ((@deposits AND kind IN ('DEPOSIT','COLLECT','DAMAGE')) OR
+                                  (@recharges AND kind IN ('RECHARGE','GIFT'))))
+                """, ("tid", tenantId), ("deposits", user.HasClaim("perm", KunlunPermissions.DepositRefundApprove)),
+                ("recharges", user.HasClaim("perm", KunlunPermissions.RechargeRefund)));
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            await reader.ReadAsync(ct);
+            return Results.Ok(new { orderTotal = reader.GetInt64(0), pendingReviewIds = reader.GetFieldValue<Guid[]>(1) });
+        }).RequireAuthorization();
+
         app.MapGet("/api/reports/overview", async (ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>
         {
             if (!user.HasClaim("perm", KunlunPermissions.ReportExport)) return Results.Forbid();

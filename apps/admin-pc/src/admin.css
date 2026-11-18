@@ -22,6 +22,13 @@
 .search-mini input{border:0;background:none;outline:0;width:180px;font-size:12.5px;color:var(--text)}
 .icon-btn{border:0;background:transparent;color:var(--text);width:36px;height:36px;display:grid;place-items:center;border-radius:9px;position:relative}
 .icon-btn:hover{background:var(--line-soft)}
+.alert-preferences{display:grid;gap:12px;white-space:normal}
+.alert-preferences label,.alert-preferences>div{display:flex;align-items:center;gap:8px}
+.alert-preferences>div{justify-content:space-between}
+.alert-preferences small{color:var(--muted)}
+.alert-preferences input{accent-color:var(--brand-600)}
+.admin-alerts{position:fixed;left:20px;bottom:20px;z-index:20;display:flex;align-items:center;gap:16px;max-width:calc(100vw - 40px);padding:8px 10px 8px 16px;background:#fff;border:1px solid var(--line);border-left:3px solid var(--brand-600);border-radius:var(--r-lg);box-shadow:var(--shadow-lg)}
+.admin-alerts>div{display:grid;justify-items:start;gap:8px}
 .icon-btn .dot{position:absolute;right:7px;top:7px;width:6px;height:6px;background:var(--orange-500);border:2px solid #fff;box-sizing:content-box;border-radius:50%}
 .user{display:flex;align-items:center;gap:9px}
 .avatar{width:36px;height:36px;border-radius:50%;background:var(--brand-100);color:var(--brand-700);display:grid;place-items:center;font-weight:700;flex:none}

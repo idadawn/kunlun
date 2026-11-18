@@ -4,6 +4,7 @@ import { KUNLUN_BRAND, containerLabel, pathFor, resolveRoute } from '@kunlun/sha
 import { ChangePasswordDialog, DialogProvider, Icon, Logo, useAuth, useDialogs, useToast, type IconName } from '@kunlun/ui';
 import { PAGE_NAMES, useGo } from './common';
 import { AdminDataProvider, useAdminData } from './data';
+import { AdminAlerts } from './AdminAlerts';
 import { Dashboard } from './pages/Dashboard';
 import { Members } from './pages/Members';
 import { Orders } from './pages/Orders';
@@ -170,7 +171,7 @@ function Topbar({ page, collapsed, toggle }: { page: string; collapsed: boolean;
           <input placeholder="搜索会员姓名、手机号、会员编号" aria-label="搜索会员" value={search} onChange={e => setSearch(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') { setMemberQuery(search.trim()); setSearch(''); go('members'); } }} />
         </label>
-        <button type="button" className="icon-btn" title="待处理水单" aria-label="待处理水单" onClick={() => go('orders')}><Icon name="bell" /><i className="dot" /></button>
+        <AdminAlerts key={user.subjectId} />
         <button type="button" className="btn sm" onClick={() => dialogs.open(close => <ChangePasswordDialog onClose={close} />)}>修改密码</button>
         <div className="user" role="button" tabIndex={0} style={{ cursor: 'pointer' }} title="点击退出管理员登录"
           onClick={() => { if (confirm(`当前登录管理员：${user.displayName} (${user.codeOrNo})\n确定退出登录并返回登录界面吗？`)) void logout(); }}

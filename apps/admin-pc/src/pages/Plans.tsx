@@ -14,8 +14,14 @@ export function Plans() {
   const dialogs = useDialogs();
   const run = useRun();
   const [status, setStatus] = useState<ActiveStatus | 'ALL'>('ACTIVE');
+  const [water, setWater] = useState<WaterType>('');
+  const [mode, setMode] = useState<FulfillMode | ''>('');
   const [generating, setGenerating] = useState(false);
-  const plans = all.filter(p => status === 'ALL' || p.status === status);
+  const plans = all.filter(p =>
+    (status === 'ALL' || p.status === status) &&
+    (!water || p.waterType === water) &&
+    (!mode || p.fulfillMode === mode)
+  );
   // 自提 groups first, then 配送, each in product order (as on the price list).
   const groups = MODES.flatMap(mode => products.map(product => ({
     mode, product,
@@ -38,18 +44,31 @@ export function Plans() {
     <div className="page-head"><div><h2>充值套餐</h2><p>按水品与领取方式分组，清晰对比每档充值权益</p></div></div>
     <div id="plansContent">
       <div className="plan-toolbar">
-        <div className="plan-status-control">
-          <label htmlFor="planStatusFilter" className="plan-filter-label">套餐状态</label>
-          <select className="select" id="planStatusFilter" value={status} onChange={e => setStatus(e.target.value as typeof status)}>
-            <option value="ACTIVE">启用中</option><option value="DISABLED">已停用</option><option value="ALL">全部</option>
-          </select>
+        <div className="plan-filters">
+          <label>套餐状态
+            <select className="select" id="planStatusFilter" value={status} onChange={e => setStatus(e.target.value as typeof status)}>
+              <option value="ACTIVE">启用中</option><option value="DISABLED">已停用</option><option value="ALL">全部</option>
+            </select>
+          </label>
+          <label>水品
+            <select className="select" value={water} onChange={e => setWater(e.target.value)}>
+              <option value="">全部水品</option>
+              {products.map(p => <option key={p.waterType} value={p.waterType}>{p.name}</option>)}
+            </select>
+          </label>
+          <label>配送方式
+            <select className="select" value={mode} onChange={e => setMode(e.target.value as typeof mode)}>
+              <option value="">全部方式</option>
+              {MODES.map(m => <option key={m} value={m}>{modeLabel(m)}</option>)}
+            </select>
+          </label>
         </div>
         <div className="plan-toolbar-actions">
           <button type="button" className="btn plan-poster-button" disabled={generating} aria-busy={generating} onClick={poster}>{generating ? '正在生成…' : <><Icon name="export" />生成价目表图片</>}</button>
           <button type="button" className="btn primary" onClick={() => edit()}><Icon name="plus" />新增套餐</button>
         </div>
       </div>
-      <div className="plan-list-meta"><span>共 <b>{plans.length}</b> 个{statusText}套餐</span><span>{groups.length} 个水品与领取方式组合</span></div>
+      <div className="plan-list-meta" role="status"><span>共 <b>{plans.length}</b> 个{statusText}套餐</span><span>{groups.length} 个水品与领取方式组合</span></div>
       <div className="plans-grid">
         {groups.length ? groups.map(g => {
           const delivery = g.mode === 'DELIVERY';
@@ -79,7 +98,7 @@ export function Plans() {
               <footer className="plan-group-foot"><Icon name={delivery ? 'truck' : 'store'} size="sm" /><span>{rule}</span></footer>
             </article>
           );
-        }) : <div className="plan-empty">暂无对应套餐，可切换套餐状态查看。</div>}
+        }) : <div className="plan-empty">没有符合当前筛选条件的套餐。</div>}
       </div>
     </div>
   </>;
