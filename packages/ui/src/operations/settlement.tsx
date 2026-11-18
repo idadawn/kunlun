@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   KUNLUN_PERMISSIONS as P, containerLabel, money, payMethodLabel, shortDateTime,
-  type PayMethod, type PermissionCode, type SettlementContainerInput, type SettlementContainerLine, type SettlementPreview, type SettlementSlip,
+  type PayMethod, type PermissionCode, type SettlementContainerInput, type SettlementContainerLine, type SettlementDamageHistoryItem, type SettlementPreview, type SettlementSlip,
 } from '@kunlun/shared';
 import { useAuth } from '../auth';
 import { Dialog, Field, FormDialog, useDialogs, useToast } from '../feedback';
@@ -116,11 +116,16 @@ export function SettlementDialog({ memberId, memberName, onClose, onDone }: { me
         })}
       </section>
 
-      {!!slip.damages?.length && <section className="settle-section"><h3>历史破损待核对</h3>{slip.damages.map(d => <div key={d.reference} className="settle-card">
-        <b>{d.name} · {d.quantity} 个 · ¥{money(d.value)}</b><p>{d.reference} · {d.reason}</p>
-        <div className="seg-switch" role="group" aria-label={d.reference}>{[true,false].map(charge =>
-          <button key={String(charge)} type="button" aria-pressed={decisions[d.reference] === charge} onClick={() => setDecisions(v => ({ ...v, [d.reference]: charge }))}>{charge ? '本次收费' : '本次免收'}</button>)}</div>
-      </div>)}</section>}
+      <section className="settle-section">
+        <h3>历史破损核对</h3>
+        {slip.damageHistory && <DamageHistory history={slip.damageHistory} />}
+        {!!slip.damages?.length && <><h4>本次待处理 {slip.damages.reduce((n, d) => n + d.quantity, 0)} 个</h4>
+          {slip.damages.map(d => <div key={d.reference} className="settle-card">
+            <b>{d.name} · {d.quantity} 个 · ¥{money(d.value)}</b><p>{d.reference} · {d.reason}</p>
+            <div className="seg-switch" role="group" aria-label={d.reference}>{[true,false].map(charge =>
+              <button key={String(charge)} type="button" aria-pressed={decisions[d.reference] === charge} onClick={() => setDecisions(v => ({ ...v, [d.reference]: charge }))}>{charge ? '本次收费' : '本次免收'}</button>)}</div>
+          </div>)}</>}
+      </section>
       {slip.notes.map(n => <p key={n} className="membership-note settle-note">{n}</p>)}
 
       <div className="settle-total">
@@ -254,6 +259,34 @@ function ContainerLines({ line: c, pooled }: { line: SettlementContainerLine; po
   );
 }
 
+const damageStatus = {
+  WAIVED: '审核已免赔', REJECTED: '免赔未通过', PAID: '已赔付', PENDING: '免赔待审核',
+  UNREVIEWED: '无免赔审核记录', PENDING_SCRAP: '待确认报废', SETTLED_CHARGED: '已结算收费', SETTLED_WAIVED: '已结算免收',
+} satisfies Record<SettlementDamageHistoryItem['status'], string>;
+
+function DamageHistory({ history }: { history: SettlementDamageHistoryItem[] }) {
+  const counts = new Map<SettlementDamageHistoryItem['status'], number>();
+  let total = 0;
+  for (const item of history) {
+    total += item.quantity;
+    counts.set(item.status, (counts.get(item.status) ?? 0) + item.quantity);
+  }
+  const waived = (counts.get('WAIVED') ?? 0) + (counts.get('SETTLED_WAIVED') ?? 0);
+  const others = Array.from(counts).filter(([status]) => status !== 'WAIVED' && status !== 'SETTLED_WAIVED');
+  return <div className="settle-card">
+    <b>累计破损 {total} 个 · 已免赔 {waived} 个</b>
+    {total > 0 && <>
+      {others.length > 0 && <p>{others.map(([status, qty]) => `${damageStatus[status]} ${qty} 个`).join(' · ')}</p>}
+      <details><summary>查看破损明细</summary>
+        {history.map(row => <div className="settle-line" key={`${row.reference}-${row.status}`}>
+          <span><b>{row.name} · {row.quantity} 个</b><small>{row.reference}{row.reason && ` · ${row.reason}`}</small></span>
+          <span>{damageStatus[row.status]}</span>
+        </div>)}
+      </details>
+    </>}
+  </div>;
+}
+
 /** 退款单：结算完马上弹出，之后在会员档案里也能再打开。 */
 export function SettlementSlipDialog({ slip, onClose }: { slip: SettlementSlip; onClose: () => void }) {
   const collected = slip.amount < 0;
@@ -281,6 +314,7 @@ export function SettlementSlipDialog({ slip, onClose }: { slip: SettlementSlip; 
           </div>
         ))}
       </section>
+      {slip.damageHistory && <section className="settle-section"><h3>结算前的历史破损</h3><DamageHistory history={slip.damageHistory} /></section>}
       {slip.notes.map(n => <p key={n} className="membership-note settle-note">{n}</p>)}
       <div className="settle-total">
         <PoolLines slip={slip} />

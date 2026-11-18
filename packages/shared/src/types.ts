@@ -951,7 +951,16 @@ export interface SettlementContainerLine {
 
 /** 退款结算单: before it is done (preview) the numbers and who/when are null. */
 export interface DamageDecision { reference: string; charge: boolean }
+export interface SettlementDamageHistoryItem {
+  reference: string;
+  name: string;
+  quantity: number;
+  status: 'WAIVED' | 'REJECTED' | 'PAID' | 'PENDING' | 'UNREVIEWED' | 'PENDING_SCRAP' | 'SETTLED_CHARGED' | 'SETTLED_WAIVED';
+  reason: string;
+}
 export interface SettlementSlip {
+  /** Snapshot before settlement. Older receipts contain only the records decided on that slip. */
+  damageHistory?: SettlementDamageHistoryItem[];
   revision?: string;
   pool?: { before: number; kept: number; charges: number; transfer: number; supplement: number; refund: number; transferNo?: string; collectionNo?: string; refundNo?: string };
   damages?: Array<{ reference: string; name: string; quantity: number; value: number; reason: string; charge: boolean | null }>;

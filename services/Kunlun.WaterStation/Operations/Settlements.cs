@@ -245,6 +245,7 @@ public static class Settlements
         public List<string> Blockers { get; } = [];
         public List<string> Notes { get; } = [];
         public List<HistoricalDamage> Damages { get; } = [];
+        public List<MemberDamageHistory.Item> DamageHistory { get; set; } = [];
         public decimal Deposit { get; set; }
         public decimal Kept => Containers.Sum(c => c.KeptDeposit);
         public decimal Charges => Containers.Sum(c => c.ChargeDeducted + c.DamageDeducted) + Damages.Where(d => d.Charge == true).Sum(d => d.Value);
@@ -329,39 +330,17 @@ public static class Settlements
         }
         if (choices.Any(input => plan.Containers.All(c => c.ContainerType != input.ContainerType))) throw new BusinessRuleException("会员持有数量已变化，请重新打开结算", 409);
 
-        await using (var cmd = Command(conn, tx, """
-            WITH damaged AS (
-              SELECT request_no AS ref,container_type,quantity,concat_ws(' · ',order_no,reason) AS reason FROM plugin_kunlun_waterstation.refund_requests
-              WHERE tenant_id=@tid AND member_id=@mid AND kind='DAMAGE' AND status='REJECTED'
-              UNION ALL
-              SELECT damage_no,container_type,
-                     CASE WHEN fee_paid IS FALSE THEN quantity
-                          ELSE (CASE WHEN deposit_waived THEN quantity ELSE uncovered_qty END)
-                                - (CASE WHEN uncovered_note LIKE '报废费用给了；%' THEN uncovered_qty ELSE 0 END) END,
-                     concat_ws(' · ',reason,NULLIF(uncovered_note,''),scrap_reason) FROM plugin_kunlun_waterstation.container_damages
-              WHERE tenant_id=@tid AND member_id=@mid AND (fee_paid IS FALSE OR (fee_paid IS NULL AND status='SCRAPPED' AND (deposit_waived OR uncovered_qty>0)))
-                AND handover_order_no IS NULL AND idempotency_key NOT LIKE 'settlement:%'
-            )
-            SELECT d.ref,d.container_type,p.name,d.quantity,d.quantity*c.unit_deposit,d.reason FROM damaged d
-            JOIN plugin_kunlun_waterstation.container_configs c ON c.tenant_id=@tid AND c.container_type=d.container_type
-            JOIN plugin_kunlun_waterstation.water_products p ON p.tenant_id=@tid AND p.container_id=d.container_type
-            WHERE d.quantity>0 AND NOT EXISTS (SELECT 1 FROM plugin_kunlun_waterstation.settlement_damage_decisions s WHERE s.tenant_id=@tid AND s.reference=d.ref)
-            ORDER BY d.ref
-            """, ("tid", tid), ("mid", mid)))
-        await using (var r = await cmd.ExecuteReaderAsync(ct))
-            while (await r.ReadAsync(ct))
-            {
-                var reference = r.GetString(0);
-                plan.Damages.Add(new(reference,r.GetString(1),r.GetString(2),r.GetInt32(3),r.GetDecimal(4),r.GetString(5),
-                    decisions?.FirstOrDefault(d => d.Reference == reference)?.Charge));
-            }
+        plan.DamageHistory = await MemberDamageHistory.Read(conn, tx, tid, mid, ct);
+        foreach (var item in plan.DamageHistory.Where(d => d.NeedsDecision))
+            plan.Damages.Add(new(item.Reference, item.ContainerType, item.Name, item.Quantity, item.Quantity * item.UnitDeposit, item.Reason,
+                decisions?.FirstOrDefault(d => d.Reference == item.Reference)?.Charge));
         if (decisions is not null && (decisions.Select(d => d.Reference).Distinct().Count() != decisions.Length ||
                 decisions.Any(d => plan.Damages.All(item => item.Reference != d.Reference))))
             throw new BusinessRuleException("历史破损记录已变化，请重新核对", 409);
         if (plan.Tickets.Count == 0 && plan.RefundValue == 0 && plan.Damages.Count == 0 &&
             plan.Funding == 0 && plan.Containers.All(c => c.Damaged + c.Returned == 0 && c.ChargeDeducted == 0))
             plan.Blockers.Add("这位会员没有待结算的变动");
-        plan.Revision = ContainerInventory.Hash(new { plan.Deposit, plan.Tickets, plan.Containers, plan.Damages });
+        plan.Revision = ContainerInventory.Hash(new { plan.Deposit, plan.Tickets, plan.Containers, plan.Damages, plan.DamageHistory });
         return plan;
     }
 
@@ -412,6 +391,7 @@ public static class Settlements
             c.DamageDeducted, c.ChargeDeducted, c.KeptDeposit, c.ScrapNos
         }),
         damages = plan.Damages, revision = plan.Revision,
+        damageHistory = plan.DamageHistory.Select(d => new { d.Reference, d.Name, d.Quantity, d.Status, d.Reason }),
         pool = new { before = plan.Deposit, kept = plan.Kept, charges = plan.Charges, transfer = plan.Funding + Math.Min(0,plan.Amount),
             supplement = Math.Max(0,-plan.Amount), refund = plan.RefundAmount, plan.TransferNo, plan.CollectionNo, plan.RefundNo },
         notes = plan.Notes

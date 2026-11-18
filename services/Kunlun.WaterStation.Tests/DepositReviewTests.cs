@@ -199,6 +199,12 @@ public sealed class DepositReviewTests(TestHost host)
             var historical = preview.GetProperty("slip").GetProperty("damages").EnumerateArray().ToArray();
             var rejectedRef = row.GetProperty("requestNo").GetString()!;
             Assert.Equal(rejectedRef, Assert.Single(historical).GetProperty("reference").GetString());
+            var breakdown = preview.GetProperty("slip").GetProperty("damageHistory").EnumerateArray().ToArray();
+            var quantities = breakdown.GroupBy(d => d.GetProperty("status").GetString()!)
+                .ToDictionary(g => g.Key, g => g.Sum(d => d.GetProperty("quantity").GetInt32()));
+            Assert.Equal((3,1,1), (quantities["WAIVED"], quantities["REJECTED"], quantities["PAID"]));
+            Assert.Equal(paidFor.GetProperty("orderNo").GetString(), Assert.Single(breakdown, d => d.GetProperty("status").GetString()=="PAID").GetProperty("reference").GetString());
+            Assert.Equal(5, quantities.Values.Sum());
             Assert.Equal(5, (await Buckets(admin,mid)).GetProperty("damageQty").GetInt32());
             var settled = await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement",
                 new SettlementRequest(Key(),"CASH", DamageDecisions:[new(rejectedRef,true)])));

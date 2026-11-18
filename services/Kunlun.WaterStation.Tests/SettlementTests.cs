@@ -379,7 +379,12 @@ public sealed class SettlementTests(TestHost host)
         var receipt = await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement",request));
         Assert.Equal(charge ? 95m : 100m, M(receipt,"amount"));
         Assert.Equal(receipt.GetProperty("id").GetGuid(), (await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement",request))).GetProperty("id").GetGuid());
-        Assert.Empty((await Ok(await Preview(admin,mid))).GetProperty("slip").GetProperty("damages").EnumerateArray());
+        var after = (await Ok(await Preview(admin,mid))).GetProperty("slip");
+        Assert.Empty(after.GetProperty("damages").EnumerateArray());
+        var history = after.GetProperty("damageHistory").EnumerateArray().ToArray();
+        Assert.Equal(2, history.Sum(d => I(d,"quantity")));
+        Assert.Contains(history, d => d.GetProperty("status").GetString()=="PAID");
+        Assert.Contains(history, d => d.GetProperty("status").GetString()==(charge ? "SETTLED_CHARGED" : "SETTLED_WAIVED"));
         await Reconciled(admin);
     }
 
