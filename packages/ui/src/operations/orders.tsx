@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import {
-  KUNLUN_PERMISSIONS as P, containerKind, containerOf, containerUnit, money, unitOf, waterFallbackLabel,
+  KUNLUN_PERMISSIONS as P, containerKind, containerOf, containerUnit, money, waterFallbackLabel,
   type FulfillOrderRequest, type PayMethod, type WaterOrder,
 } from '@kunlun/shared';
 import { useAuth } from '../auth';
@@ -79,7 +79,7 @@ export function FulfillDialog({ order, onClose, onDone }: { order?: WaterOrder; 
   };
   return (
     <FormDialog title={pickup ? '自提核销' : '确认配送交付'} submitLabel={due > 0 && choice.pays !== null ? paid > 0 ? '收押金并交付' : '记欠押金并交付' : '确认交付并扣票'} onClose={onClose} onSubmit={submit}>
-      {order && <p>{order.orderNo} · 下单 {order.orderQty}{unitOf(order.waterType)}{!pickup && order.addressSnapshot?.address ? ` · ${order.addressSnapshot.address}` : ''}</p>}
+      {order && <p>{order.orderNo}{!pickup && order.addressSnapshot?.address ? ` · ${order.addressSnapshot.address}` : ''}</p>}
       {order && container && (
         <p className="fulfill-container">
           <b>{order.productSnapshot?.waterLabel || waterFallbackLabel(order.waterType)} · 配套{containerKind(container) === 'BAG' ? '水袋' : '桶'}</b>
@@ -90,10 +90,11 @@ export function FulfillDialog({ order, onClose, onDone }: { order?: WaterOrder; 
       {order?.remark && <p className="membership-note">备注：{order.remark}</p>}
       {pickup && <Field label="会员出示的六位取水码" htmlFor="pickupCode"><input id="pickupCode" className="input" required pattern="[0-9]{6}" inputMode="numeric" maxLength={6} value={code} onChange={e => setCode(e.target.value)} /></Field>}
       <div className="fulfill-quantities">
+        {order && <div><Field label="下单数量" htmlFor="orderedQty"><input id="orderedQty" className="input" readOnly value={order.orderQty} /></Field></div>}
         <div><Field label="交付数量" htmlFor="fulfillQty"><NumberInput id="fulfillQty" className="input" inputMode="numeric" min={1} step={1} required value={actual} onChange={setActual} /></Field></div>
         <div><Field label={`收回空${unit}`} htmlFor="emptyIn"><NumberInput id="emptyIn" className="input" inputMode="numeric" min={0} step={1} required value={emptyIn} onChange={setEmptyIn} /></Field></div>
       </div>
-      {(!order || quantityChanged) && <Field label="数量不一致时填写原因" htmlFor="diffReason"><input id="diffReason" className="input" required={!!quantityChanged} maxLength={500} value={diffReason} onChange={e => setDiffReason(e.target.value)} /></Field>}
+      {(!order || quantityChanged) && <Field label={order ? "交付备注（数量不一致，必填）" : "交付备注（数量不一致时必填）"} htmlFor="diffReason"><input id="diffReason" className="input" required={!!quantityChanged} maxLength={500} value={diffReason} onChange={e => setDiffReason(e.target.value)} /></Field>}
       {ownEmpties > 0 && position && (
         <p className="membership-note">会员名下只有 {position.held} 个{unit}，多收的 {ownEmpties} 个算会员自带的{unit}换给店里，这 {ownEmpties} 个不用交押金；不是自带的请改回 {position.held}。</p>
       )}

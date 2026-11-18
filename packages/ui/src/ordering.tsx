@@ -168,6 +168,12 @@ export function HandoverDeposit({ id, type, position, fullOut, emptyIn, value, o
   const due = depositGap(position, fullOut, emptyIn);
   const paid = collected ? 0 : paidOf(value, due);
   const owed = Math.max(0, due - paid);
+  useEffect(() => {
+    if (emptyIn === 0 && (value.damaged || value.compensated !== null || value.reason || value.damagedQty !== 1))
+      onChange({ ...value, damaged: false, damagedQty: 1, compensated: null, reason: '' });
+    else if (emptyIn > 0 && value.damagedQty > emptyIn)
+      onChange({ ...value, damagedQty: emptyIn });
+  }, [emptyIn, value, onChange]);
   const set = (patch: Partial<HandoverChoice>) => onChange({ ...value, ...patch });
   return (
     <div className="handover">
@@ -194,7 +200,7 @@ export function HandoverDeposit({ id, type, position, fullOut, emptyIn, value, o
           </div>
         )}
       </div>
-      {(emptyIn > 0 || value.damaged) && <div className={`handover-damage${value.damaged ? ' active' : ''}`}>
+      {emptyIn > 0 && <div className={`handover-damage${value.damaged ? ' active' : ''}`}>
         <Question label={`收回的空${unit}有破损吗？`} value={value.damaged} yes="有" no="没有" onChange={damaged => set({ damaged })} />
         {value.damaged && <>
           <div className="handover-question">
