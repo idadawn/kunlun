@@ -223,6 +223,10 @@ a{color:var(--brand-600);text-decoration:none}
 /* Counter controls: pay method in one tap, counts with − and +, the review switches. */
 .pay-buttons{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px}.pay-buttons button{height:38px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--text);font-size:13px;cursor:pointer}.pay-buttons button[aria-pressed=true]{border-color:var(--brand-500);background:var(--brand-50);color:var(--brand-700);font-weight:600}
 .movement-counts{display:grid;grid-template-columns:1fr 1fr;gap:12px}.movement-counts>div{display:flex;flex-direction:column;gap:8px}
+.movement-quantities{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.movement-quantities>div{display:grid;gap:8px}
+.movement-quantities .stepper{display:grid;grid-template-columns:28px minmax(0,64px) 28px;gap:clamp(4px,1.5vw,10px)}
+.movement-quantities .stepper-input{width:100%;min-width:0}
 .review-switches{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:18px}.review-switches-foot{grid-column:1/-1;font-size:12px;color:var(--muted)}
 .switch-card{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 18px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface);box-shadow:var(--shadow-sm)}.switch-card b{display:block;font-size:14px;color:var(--ink)}.switch-card small{display:block;margin-top:4px;font-size:12px;color:var(--muted);line-height:1.6}
 .switch{position:relative;flex:none;width:46px;height:26px;border:0;border-radius:999px;background:var(--line);cursor:pointer;transition:background .15s}.switch span{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:var(--shadow-sm);transition:transform .15s}
