@@ -231,7 +231,7 @@ export function ReturnedDamageFields({ id, unit, emptyIn, value, onChange: set, 
           <div className="slot-chips reason-chips" role="group" aria-label="常用原因">
             {NOT_COMPENSATED_REASONS.map(r => <button key={r} type="button" className={value.reason.trim() === r ? 'active' : ''} aria-pressed={value.reason.trim() === r} onClick={() => set({ reason: r })}>{r}</button>)}
           </div>
-          {damageReviewed && <small className="deposit-hint">不赔付要管理员在「审核」里批准；驳回就要去找顾客赔。</small>}
+          {damageReviewed && <small className="deposit-hint">免赔申请由管理员审核。驳回后，破损桶袋会计回会员持有数量。</small>}
         </>}
       </>}
     </div>

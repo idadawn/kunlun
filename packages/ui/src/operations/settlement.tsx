@@ -260,7 +260,7 @@ function ContainerLines({ line: c, pooled }: { line: SettlementContainerLine; po
 }
 
 const damageStatus = {
-  WAIVED: '审核已免赔', REJECTED: '免赔未通过', PAID: '已赔付', PENDING: '免赔待审核',
+  RETURNED: '已退回会员，按持有结算', WAIVED: '审核已免赔', REJECTED: '免赔未通过', PAID: '已赔付', PENDING: '免赔待审核',
   UNREVIEWED: '无免赔审核记录', PENDING_SCRAP: '待确认报废', SETTLED_CHARGED: '已结算收费', SETTLED_WAIVED: '已结算免收',
 } satisfies Record<SettlementDamageHistoryItem['status'], string>;
 

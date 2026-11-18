@@ -8,17 +8,17 @@ namespace Kunlun.WaterStation.Operations;
 /// <summary>Amount: what staff settled on paying back; without it a refund pays what the books say (remaining tickets or deposit at the original price).</summary>
 public sealed record ApplyRefundRequest(string Kind, Guid MemberId, string? ContainerType, int? Quantity, Guid? BatchId, string PayMethod, string? Reason, string IdempotencyKey, decimal? Amount = null);
 /// <summary>Amount: what the reviewer pays back; required when the applicant typed one in, so nobody approves a figure they did not see.</summary>
-public sealed record ApproveRefundRequest(string? PayMethod, string? Note, decimal? Amount = null);
+public sealed record ApproveRefundRequest(string? PayMethod, string? Note, decimal? Amount = null, bool ScrapDamage = false);
 public sealed record RejectRefundRequest(string Note);
 
 /// <summary>
 /// 审核申请：押金退款、水费退款（退清剩余权益）、充值时的手动赠送（kind=GIFT）、员工收的押金（kind=COLLECT）和交付时登记的
 /// 损坏不赔付（kind=DAMAGE）都记在这张表里。
-/// 后台「审核开关」决定店员办理时要不要等管理员：要审核时先登记为申请，管理员通过时才在同一事务里退款或让赠票到账，驳回不动任何账目；
+/// 后台「审核开关」决定店员办理时要不要等管理员：要审核时先登记为申请，管理员通过时才在同一事务里退款或让赠票到账；
 /// 不要审核时店员当场办完，同样记一条已通过的申请。管理员自己办理的退款直接生效，也记为已通过，保证每笔退款都有记录；
 /// 手动赠送、收押金和损坏不赔付不分谁办的，开关打开时一律等管理员在审核页批准（门店共用一个管理员账号登记，要再看一眼）。
 /// 收押金待审核时还没有押金批次：交付时照样算进押金覆盖，批准时才按收款时的单价和时间记成押金批次，驳回就作废，会员手里多出的就是欠押金。
-/// 损坏不赔付只是要管理员点头，批准、驳回都不动账，驳回后由管理员提醒员工去找顾客赔。
+/// 免赔通过时可一并报废；驳回时将待报废的桶袋退回会员名下。
 /// 提交退款：押金需 deposit:refund_apply，水费需 recharge:create；审核：押金退款、收押金和损坏需 deposit:refund_approve，水费和赠送需 recharge:refund。
 /// 退多少钱默认按账（剩余付费票或押金按原价），办理的人可以改：申请时填的记为 requested_amount，审核通过时以审核人确认的金额为准。
 /// </summary>
@@ -110,6 +110,7 @@ public static class RefundRequests
         app.MapPost("/api/refund-requests", Apply).RequireAuthorization();
         app.MapPost("/api/refund-requests/{id:guid}/approve", Approve).RequireAuthorization();
         app.MapPost("/api/refund-requests/{id:guid}/reject", Reject).RequireAuthorization();
+        app.MapPost("/api/refund-requests/{id:guid}/return-damage", RestoreRejectedDamage).RequireAuthorization();
         app.MapGet("/api/refund-requests", async (string? status, string? kind, string? q, Guid? memberId, int? page, int? pageSize,
             ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>
         {
@@ -127,13 +128,14 @@ public static class RefundRequests
                 CASE WHEN rr.kind = 'RECHARGE' AND rr.status = 'PENDING' AND b.status = 'ACTIVE'
                       AND (b.source = 'PURCHASE' OR (b.source = 'OPENING' AND b.paid_amount > 0))
                      THEN round(b.paid_amount * b.remaining_buy / b.fixed_qty, 2) END,
-                rr.unit_price, rr.order_no, sd.charge, sd.amount, ms.settlement_no,mv.ledger_no
-                """, """
+                rr.unit_price, rr.order_no, sd.charge, sd.amount, ms.settlement_no,mv.ledger_no,d.status
+                """, $"""
                 plugin_kunlun_waterstation.refund_requests rr
                 JOIN plugin_kunlun_waterstation.members m ON m.id = rr.member_id
                 LEFT JOIN plugin_kunlun_waterstation.ticket_batches b ON b.id = rr.batch_id
                 LEFT JOIN plugin_kunlun_waterstation.recharge_orders ro ON ro.id = b.recharge_id
                 LEFT JOIN plugin_kunlun_waterstation.recharge_refunds rf ON rr.kind = 'RECHARGE' AND rf.refund_no = rr.refund_no
+                LEFT JOIN plugin_kunlun_waterstation.container_damages d ON {ContainerCirculation.ReviewLink}
                 LEFT JOIN plugin_kunlun_waterstation.container_ledgers mv ON mv.id=rr.movement_id AND mv.tenant_id=rr.tenant_id
                 LEFT JOIN plugin_kunlun_waterstation.settlement_damage_decisions sd ON rr.kind='DAMAGE' AND sd.tenant_id=rr.tenant_id AND sd.reference=rr.request_no
                 LEFT JOIN plugin_kunlun_waterstation.member_settlements ms ON ms.id=sd.settlement_id AND ms.member_id=rr.member_id
@@ -188,7 +190,8 @@ public static class RefundRequests
                 settlementCharged = r.IsDBNull(33) ? (bool?)null : r.GetBoolean(33),
                 settlementAmount = r.IsDBNull(34) ? (decimal?)null : r.GetDecimal(34),
                 settlementNo = r.IsDBNull(35) ? null : r.GetString(35),
-                movementNo = r.IsDBNull(36) ? null : r.GetString(36)
+                movementNo = r.IsDBNull(36) ? null : r.GetString(36),
+                damageStatus = r.IsDBNull(37) ? null : r.GetString(37)
             }, ct);
         }).RequireAuthorization();
     }
@@ -326,18 +329,25 @@ public static class RefundRequests
         await using var tx = await conn.BeginTransactionAsync(ct);
         var (kind, mid) = await Find(conn, tx, tid, id, ct);
         if (!CanReview(user, kind)) return Denied(ReviewDenied(kind));
+        if (req.ScrapDamage && kind != "DAMAGE") throw new BusinessRuleException("仅破损免赔申请可同时报废");
+        if (req.ScrapDamage && !ContainerInventory.Authorized(user)) return Denied("报废需要袋桶维护权限");
         if (kind is not ("DEPOSIT" or "RECHARGE") && req.Amount is not null) throw new BusinessRuleException("只有退款能填实退金额");
         // Same lock order as every money path: member first, then the request and the ledgers it touches.
         await LockMember(conn, tx, tid, mid, ct);
         Pending row; decimal? requested;
-        await using (var cmd = Command(conn, tx, """
-            SELECT status,container_type,quantity,batch_id,pay_method,reason,refund_no,refund_amount,unit_price,idempotency_key,applicant_name,created_at,requested_amount
-            FROM plugin_kunlun_waterstation.refund_requests WHERE tenant_id=@tid AND id=@id FOR UPDATE
+        await using (var cmd = Command(conn, tx, $"""
+            SELECT rr.status,rr.container_type,rr.quantity,rr.batch_id,rr.pay_method,rr.reason,rr.refund_no,rr.refund_amount,rr.unit_price,
+                   rr.idempotency_key,rr.applicant_name,rr.created_at,rr.requested_amount,d.status
+            FROM plugin_kunlun_waterstation.refund_requests rr
+            LEFT JOIN plugin_kunlun_waterstation.container_damages d ON {ContainerCirculation.ReviewLink}
+            WHERE rr.tenant_id=@tid AND rr.id=@id FOR UPDATE OF rr
             """, ("tid", tid), ("id", id)))
         await using (var r = await cmd.ExecuteReaderAsync(ct))
         {
             await r.ReadAsync(ct);
             var status = r.GetString(0);
+            if (status == "APPROVED" && req.ScrapDamage && (r.IsDBNull(13) || r.GetString(13) != "SCRAPPED"))
+                throw new BusinessRuleException("免赔已通过，请到袋桶台账核对报废状态", 409);
             if (status == "APPROVED")
                 return Results.Ok(new { id, status, refundNo = r.IsDBNull(6) ? null : r.GetString(6), refundAmount = r.IsDBNull(7) ? 0 : r.GetDecimal(7), idempotentReplay = true });
             if (status == "REJECTED") throw new BusinessRuleException("该申请已驳回，不能再审核通过", 409);
@@ -355,6 +365,12 @@ public static class RefundRequests
         var actor = Actor(user);
         var (refundNo, amount) = await Settle(conn, tx, tid, id, row, actor, ct, req.Amount);
         await MarkApproved(conn, tx, tid, id, row.Pay, actor, req.Note?.Trim() ?? "", refundNo, amount, ct);
+        if (req.ScrapDamage)
+        {
+            var damageId = await ContainerCirculation.PendingReviewDamage(conn, tx, tid, id, ct)
+                ?? throw new BusinessRuleException("未找到可报废的关联破损单，请刷新后核对", 409);
+            await ContainerCirculation.Scrap(conn, tx, tid, mid, damageId, "免赔审核通过并报废", true, $"review-scrap:{id:N}", "", user, ct);
+        }
         await tx.CommitAsync(ct);
         return Results.Ok(new { id, status = "APPROVED", refundNo, refundAmount = amount, idempotentReplay = false });
     }
@@ -413,7 +429,7 @@ public static class RefundRequests
         var (kind, mid) = await Find(conn, tx, tid, id, ct);
         if (!CanReview(user, kind)) return Denied(ReviewDenied(kind));
         // A rejected deposit stops counting toward the member's cover, so take the member lock like every deposit change.
-        if (kind == "COLLECT") await LockMember(conn, tx, tid, mid, ct);
+        if (kind is "COLLECT" or "DAMAGE") await LockMember(conn, tx, tid, mid, ct);
         await using (var cmd = Command(conn, tx, "SELECT status FROM plugin_kunlun_waterstation.refund_requests WHERE tenant_id=@tid AND id=@id FOR UPDATE", ("tid", tid), ("id", id)))
         {
             var status = (string)(await cmd.ExecuteScalarAsync(ct))!;
@@ -428,8 +444,32 @@ public static class RefundRequests
         }
         await Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.refund_requests SET status='REJECTED',reviewer_name=@actor,reviewed_at=now(),review_note=@note WHERE tenant_id=@tid AND id=@id",
             ct, ("actor", Actor(user)), ("note", note), ("tid", tid), ("id", id));
+        var returned = kind == "DAMAGE" && await ContainerCirculation.ReturnRejectedDamage(conn, tx, tid, mid, id, Actor(user), ct);
         await tx.CommitAsync(ct);
-        return Results.Ok(new { id, status = "REJECTED", idempotentReplay = false });
+        return Results.Ok(new { id, status = "REJECTED", returnedToMember = returned, idempotentReplay = false });
+    }
+
+    // Older reviews could already be rejected while the return was still awaiting disposal.
+    private static async Task<IResult> RestoreRejectedDamage(Guid id, ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct)
+    {
+        if (!CanReview(user, "DAMAGE")) return Denied(ReviewDenied("DAMAGE"));
+        var tid = repo.DefaultTenantId;
+        await using var conn = await db.OpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        var (kind, mid) = await Find(conn, tx, tid, id, ct);
+        if (kind != "DAMAGE") throw new BusinessRuleException("请选择破损免赔申请");
+        await LockMember(conn, tx, tid, mid, ct);
+        if (!await ContainerCirculation.ReturnRejectedDamage(conn, tx, tid, mid, id, Actor(user), ct))
+        {
+            await using var done = Command(conn, tx, $"""
+                SELECT 1 FROM plugin_kunlun_waterstation.refund_requests rr
+                JOIN plugin_kunlun_waterstation.container_damages d ON {ContainerCirculation.ReviewLink}
+                WHERE rr.id=@id AND rr.tenant_id=@tid AND rr.status='REJECTED' AND d.status='RETURNED'
+                """, ("tid",tid),("id",id));
+            if (await done.ExecuteScalarAsync(ct) is null) throw new BusinessRuleException("这笔记录无法退回，请核对审核、报废和结算状态",409);
+        }
+        await tx.CommitAsync(ct);
+        return Results.Ok(new { id, returnedToMember = true });
     }
 
     private static async Task<(string Kind, Guid MemberId)> Find(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid id, CancellationToken ct)

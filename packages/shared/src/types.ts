@@ -621,7 +621,7 @@ export interface MemberOpeningRecord {
 export interface DepositSummaryRow {
   pool: { total: number; available: number; required: number; shortfall: number; reserved: number; pending: number; pendingCollect: number };
   damageQty: number;
-  damageBreakdown: { total: number; waived: number; paid: number; pending: number; awaitingReview: number; awaitingScrap: number; unverified: number };
+  damageBreakdown: { total: number; waived: number; paid: number; pending: number; awaitingReview: number; awaitingScrap: number; unverified: number; returned: number };
   waterType: WaterType;
   name: string;
   containerKind: ContainerKind;
@@ -761,7 +761,7 @@ export interface ContainerHoldingRow {
  * OPENING: containers a member already had before the system, written down (or corrected) by an opening entry.
  * RECEIVE / STORE_SCRAP: the store's own 新购 and 门店报废, from the stock records; no member is involved.
  */
-export type CirculationBusinessType = 'TURNOVER' | 'DAMAGE_RETURN' | 'SCRAP' | 'SCRAP_WAIVED' | 'OPENING' | 'RECEIVE' | 'STORE_SCRAP';
+export type CirculationBusinessType = 'DAMAGE_REJECTED' | 'TURNOVER' | 'DAMAGE_RETURN' | 'SCRAP' | 'SCRAP_WAIVED' | 'OPENING' | 'RECEIVE' | 'STORE_SCRAP';
 
 export interface CirculationRow {
   damagedReturnQty: number;
@@ -789,9 +789,10 @@ export interface CirculationRow {
   storeAfter: number | null;
 }
 
-export type DamageStatus = 'PENDING' | 'SCRAPPED';
+export type DamageStatus = 'PENDING' | 'SCRAPPED' | 'RETURNED';
 
 export interface ContainerDamageRow {
+  reviewStatus?: RefundRequestStatus | null;
   handoverOrderNo?: string | null;
   movementNo?: string | null;
   feePaid?: boolean | null;
@@ -839,6 +840,7 @@ export interface ReviewSettings {
 
 /** 审核申请：押金退款、退清充值剩余权益、店员手动赠送的水票、员工收的押金或交付时的损坏不赔付；不需要审核时当场记为已通过。 */
 export interface RefundRequestRow {
+  damageStatus?: DamageStatus | null;
   settlementNo: string | null;
   settlementCharged: boolean | null;
   settlementAmount: number | null;
@@ -967,7 +969,7 @@ export interface SettlementDamageHistoryItem {
   reference: string;
   name: string;
   quantity: number;
-  status: 'WAIVED' | 'REJECTED' | 'PAID' | 'PENDING' | 'UNREVIEWED' | 'PENDING_SCRAP' | 'SETTLED_CHARGED' | 'SETTLED_WAIVED';
+  status: 'RETURNED' | 'WAIVED' | 'REJECTED' | 'PAID' | 'PENDING' | 'UNREVIEWED' | 'PENDING_SCRAP' | 'SETTLED_CHARGED' | 'SETTLED_WAIVED';
   reason: string;
 }
 export interface SettlementSlip {

@@ -8,17 +8,18 @@ internal static class MemberDamageHistory
 {
     internal sealed record Item(string Reference, string ContainerType, string Name, int Quantity, string Status, string Reason, decimal UnitDeposit, bool NeedsDecision);
 
-    internal readonly record struct Breakdown(int Waived, int Paid, int Pending, int AwaitingReview, int AwaitingScrap, int Unverified)
+    internal readonly record struct Breakdown(int Waived, int Paid, int Pending, int AwaitingReview, int AwaitingScrap, int Unverified, int Returned)
     {
-        public int Total => Waived + Paid + Pending + AwaitingReview + AwaitingScrap + Unverified;
+        public int Total => Waived + Paid + Pending + AwaitingReview + AwaitingScrap + Unverified + Returned;
     }
 
-    private const string Facts = """
+    private const string Facts = $"""
         WITH reviews AS (
-          SELECT q.request_no,q.order_no,q.container_type,q.quantity,q.status,q.reason,q.movement_id,mv.ledger_no AS movement_no
-          FROM plugin_kunlun_waterstation.refund_requests q
-          LEFT JOIN plugin_kunlun_waterstation.container_ledgers mv ON mv.id=q.movement_id AND mv.tenant_id=q.tenant_id
-          WHERE q.tenant_id=@tid AND q.member_id=@mid AND kind='DAMAGE'
+          SELECT rr.request_no,rr.order_no,rr.container_type,rr.quantity,rr.status,rr.reason,rr.movement_id,mv.ledger_no AS movement_no,d.status AS damage_status
+          FROM plugin_kunlun_waterstation.refund_requests rr
+          LEFT JOIN plugin_kunlun_waterstation.container_damages d ON {ContainerCirculation.ReviewLink}
+          LEFT JOIN plugin_kunlun_waterstation.container_ledgers mv ON mv.id=rr.movement_id AND mv.tenant_id=rr.tenant_id
+          WHERE rr.tenant_id=@tid AND rr.member_id=@mid AND rr.kind='DAMAGE'
         ), independent_returns AS (
           SELECT d.*,mv.ledger_no AS movement_no,
             CASE WHEN fee_paid IS TRUE THEN quantity
@@ -32,8 +33,8 @@ internal static class MemberDamageHistory
             AND idempotency_key NOT LIKE '%:lost' AND idempotency_key NOT LIKE 'settlement:%:kept'
         ), facts AS (
           SELECT request_no AS ref,container_type,quantity,
-                 CASE status WHEN 'APPROVED' THEN 'WAIVED' WHEN 'REJECTED' THEN 'REJECTED' ELSE 'PENDING' END AS status,
-                 concat_ws(' · ',order_no,movement_no,reason) AS reason, status='REJECTED' AS needs_decision
+                 CASE status WHEN 'APPROVED' THEN 'WAIVED' WHEN 'REJECTED' THEN CASE WHEN damage_status='RETURNED' THEN 'RETURNED' ELSE 'REJECTED' END ELSE 'PENDING' END AS status,
+                 concat_ws(' · ',order_no,movement_no,reason) AS reason, status='REJECTED' AND damage_status IS DISTINCT FROM 'RETURNED' AS needs_decision
           FROM reviews
           UNION ALL
           -- Includes older paid orders without a waiver request. A pre-structured order with only a request is counted above.
@@ -74,13 +75,14 @@ internal static class MemberDamageHistory
               COALESCE(sum(quantity) FILTER (WHERE needs_decision),0)::int,
               COALESCE(sum(quantity) FILTER (WHERE status='PENDING'),0)::int,
               COALESCE(sum(quantity) FILTER (WHERE status='PENDING_SCRAP'),0)::int,
-              COALESCE(sum(quantity) FILTER (WHERE status='UNREVIEWED' AND NOT needs_decision),0)::int
+              COALESCE(sum(quantity) FILTER (WHERE status='UNREVIEWED' AND NOT needs_decision),0)::int,
+              COALESCE(sum(quantity) FILTER (WHERE status='RETURNED'),0)::int
             FROM history GROUP BY container_type
             """, ("tid", tid), ("mid", mid));
         var counts = new Dictionary<string, Breakdown>();
         await using var r = await cmd.ExecuteReaderAsync(ct);
         while (await r.ReadAsync(ct))
-            counts.Add(r.GetString(0), new(r.GetInt32(1), r.GetInt32(2), r.GetInt32(3), r.GetInt32(4), r.GetInt32(5), r.GetInt32(6)));
+            counts.Add(r.GetString(0), new(r.GetInt32(1), r.GetInt32(2), r.GetInt32(3), r.GetInt32(4), r.GetInt32(5), r.GetInt32(6), r.GetInt32(7)));
         return counts;
     }
 

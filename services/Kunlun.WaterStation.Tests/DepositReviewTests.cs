@@ -56,9 +56,10 @@ public sealed class DepositReviewTests(TestHost host)
         admin.PutAsJsonAsync("/api/settings/review", new SaveReviewSettingsRequest(true, true, deposit, damage));
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task Standalone_Return_Splits_Damaged_Stock_And_Tracks_One_Waiver(bool approve)
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    public async Task Standalone_Return_Splits_Damaged_Stock_And_Tracks_One_Waiver(bool approve, bool historical)
     {
         using var admin = await Login("YG0001");
         await Ok(await Switches(admin, deposit: false, damage: true));
@@ -99,15 +100,56 @@ public sealed class DepositReviewTests(TestHost host)
             Assert.Equal(no, review.GetProperty("movementNo").GetString());
             Assert.Equal("PENDING", review.GetProperty("status").GetString());
             Assert.Equal(1, Qty((await Bags()).GetProperty("damageBreakdown"), "awaitingReview"));
+            var scrapPath = $"/api/containers/damages/{slip.GetProperty("id")}/scrap";
+            await Error(await admin.PostAsJsonAsync(scrapPath, new ScrapContainerDamageRequest("等审核",Key(),false)), HttpStatusCode.Conflict);
             var decision = approve ? "approve" : "reject";
-            await Ok(await admin.PostAsJsonAsync($"/api/refund-requests/{review.GetProperty("id")}/{decision}", new { note = "核对完毕" }));
+            var url = $"/api/refund-requests/{review.GetProperty("id")}/{decision}";
+            var payload = new { note = "核对完毕", scrapDamage = approve };
+            if (historical)
+            {
+                // Before stock dispositions existed, rejection changed only the review row.
+                using var db = host.OpenDatabase();
+                using var cmd = db.CreateCommand();
+                cmd.CommandText = "UPDATE plugin_kunlun_waterstation.refund_requests SET status='REJECTED' WHERE id=@id";
+                cmd.Parameters.AddWithValue("id", review.GetProperty("id").GetGuid());
+                await cmd.ExecuteNonQueryAsync();
+                var repair = $"/api/refund-requests/{review.GetProperty("id")}/return-damage";
+                foreach (var response in await Task.WhenAll(admin.PostAsync(repair,null), admin.PostAsync(repair,null)))
+                    await Ok(response);
+            }
+            else
+            {
+                await Ok(await admin.PostAsJsonAsync(url, payload));
+                Assert.True((await Ok(await admin.PostAsJsonAsync(url, payload))).GetProperty("idempotentReplay").GetBoolean());
+            }
+            var decidedStock = await Stock();
+            if (approve)
+            {
+                var scrapped = Assert.Single((await admin.GetFromJsonAsync<JsonElement>($"/api/containers/damages?q={no}&status=SCRAPPED&page=1")).GetProperty("rows").EnumerateArray());
+                Assert.Equal("APPROVED", scrapped.GetProperty("reviewStatus").GetString());
+                Assert.Equal(Qty(before,"scrappedQty")+1, Qty(decidedStock,"scrappedQty"));
+                Assert.Equal(Qty(before,"damagedQty"), Qty(decidedStock,"damagedQty"));
+                await Error(await admin.PostAsJsonAsync(scrapPath,new ScrapContainerDamageRequest("重复报废",Key(),false)), HttpStatusCode.Conflict);
+            }
+            if (!approve)
+            {
+                Assert.Equal(Qty(before,"damagedQty"), Qty(decidedStock,"damagedQty"));
+                Assert.Equal(Qty(after,"withCustomersQty")+1, Qty(decidedStock,"withCustomersQty"));
+                Assert.Equal(Qty(after,"inStationQty"), Qty(decidedStock,"inStationQty"));
+                Assert.Equal(Qty(after,"totalQty"), Qty(decidedStock,"totalQty"));
+                var returned = Assert.Single((await admin.GetFromJsonAsync<JsonElement>($"/api/containers/damages?q={no}&status=RETURNED&page=1")).GetProperty("rows").EnumerateArray());
+                Assert.Equal("REJECTED", returned.GetProperty("reviewStatus").GetString());
+                var reversal = Assert.Single((await admin.GetFromJsonAsync<JsonElement>($"/api/containers/circulation?q={review.GetProperty("requestNo")}&page=1")).GetProperty("rows").EnumerateArray());
+                Assert.Equal("DAMAGE_REJECTED",reversal.GetProperty("businessType").GetString());
+                Assert.Equal((1,3),(Qty(reversal,"deltaHeld"),Qty(reversal,"heldAfter")));
+            }
             await Ok(await admin.PostAsJsonAsync(path, request with { IdempotencyKey = Key(), EmptyInM = 1, DamageCompensated = true, DamageReason = null }));
             var bag = await Bags();
             var counts = bag.GetProperty("damageBreakdown");
-            Assert.Equal((1,2,1), (Qty(bag,"heldQty"), Qty(bag,"damageQty"), Qty(counts,"paid")));
-            Assert.Equal(1, Qty(counts,approve ? "waived" : "pending"));
+            Assert.Equal((approve ? 1 : 2,2,1), (Qty(bag,"heldQty"), Qty(bag,"damageQty"), Qty(counts,"paid")));
+            Assert.Equal(1, Qty(counts,approve ? "waived" : "returned"));
             var preview = await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement/preview", new SettlementPreviewRequest()));
-            Assert.Equal(approve ? 0 : 1, preview.GetProperty("slip").GetProperty("damages").GetArrayLength());
+            Assert.Empty(preview.GetProperty("slip").GetProperty("damages").EnumerateArray());
             Assert.Equal(0m, await DepositBalance(admin,mid));
         }
         finally { await Ok(await Switches(admin, deposit: false, damage: false)); }
@@ -234,17 +276,22 @@ public sealed class DepositReviewTests(TestHost host)
             await Ok(await admin.PostAsJsonAsync($"/api/refund-requests/{row.GetProperty("id").GetGuid()}/reject", new RejectRefundRequest("要顾客赔")));
             Assert.Equal(150m, await DepositBalance(admin, mid));
 
-            await Ok(await admin.PostAsJsonAsync($"/api/containers/damages/{damage.GetProperty("id")}/scrap",
-                new ScrapContainerDamageRequest("无法修复",Key(),false)));
+            await Error(await admin.PostAsJsonAsync($"/api/containers/damages/{damage.GetProperty("id")}/scrap",
+                new ScrapContainerDamageRequest("无法修复",Key(),false)), HttpStatusCode.Conflict);
+            var rejected = await Buckets(admin,mid);
+            Assert.Equal(8, Qty(rejected,"heldQty"));
+            var historicReturn = $"/api/refund-requests/{row.GetProperty("id")}/return-damage";
+            await Ok(await admin.PostAsync(historicReturn, null));
+            Assert.Equal(8, Qty(await Buckets(admin,mid),"heldQty"));
             var afterScrap = await Stock();
             Assert.Equal(Qty(stockBefore,"damagedQty"), Qty(afterScrap,"damagedQty"));
-            Assert.Equal(Qty(stockBefore,"scrappedQty") + 1, Qty(afterScrap,"scrappedQty"));
+            Assert.Equal(Qty(stockBefore,"scrappedQty"), Qty(afterScrap,"scrappedQty"));
             Assert.Equal(150m, await DepositBalance(admin,mid));
 
             await Ok(await courier.PostAsJsonAsync($"/api/orders/{await Order(admin, mid, 1)}/fulfill",
                 new FulfillWaterOrderRequest(1,1,1,DamagedQty:1,DamageCompensated:false,DamageReason:"袋桶老化")));
             var awaiting = (await Buckets(admin, mid)).GetProperty("damageBreakdown");
-            Assert.Equal((1, 1), (Qty(awaiting,"awaitingReview"), Qty(awaiting,"pending")));
+            Assert.Equal((1, 1), (Qty(awaiting,"awaitingReview"), Qty(awaiting,"returned")));
             var pendingWaiver = (await Requests(admin,"DAMAGE",memberNo)).EnumerateArray().Single(r => r.GetProperty("status").GetString()=="PENDING");
             await Ok(await admin.PostAsJsonAsync($"/api/refund-requests/{pendingWaiver.GetProperty("id")}/approve", new ApproveRefundRequest(null,"同意免赔")));
             // Damage the customer pays for asks nothing; with the switch off an unpaid one is recorded as approved.
@@ -257,26 +304,24 @@ public sealed class DepositReviewTests(TestHost host)
             Assert.Equal("APPROVED", waived.GetProperty("damageReviewStatus").GetString());
             var preview = await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement/preview", new SettlementPreviewRequest()));
             var historical = preview.GetProperty("slip").GetProperty("damages").EnumerateArray().ToArray();
-            var rejectedRef = row.GetProperty("requestNo").GetString()!;
-            Assert.Equal(rejectedRef, Assert.Single(historical).GetProperty("reference").GetString());
+            Assert.Empty(historical);
             var breakdown = preview.GetProperty("slip").GetProperty("damageHistory").EnumerateArray().ToArray();
             var quantities = breakdown.GroupBy(d => d.GetProperty("status").GetString()!)
                 .ToDictionary(g => g.Key, g => g.Sum(d => d.GetProperty("quantity").GetInt32()));
-            Assert.Equal((3,1,1), (quantities["WAIVED"], quantities["REJECTED"], quantities["PAID"]));
+            Assert.Equal((3,1,1), (quantities["WAIVED"], quantities["RETURNED"], quantities["PAID"]));
             Assert.Equal(paidFor.GetProperty("orderNo").GetString(), Assert.Single(breakdown, d => d.GetProperty("status").GetString()=="PAID").GetProperty("reference").GetString());
             Assert.Equal(5, quantities.Values.Sum());
             var profile = await Buckets(admin, mid);
             var counts = profile.GetProperty("damageBreakdown");
             Assert.Equal(5, Qty(profile,"damageQty"));
-            Assert.Equal((5,3,1,1), (Qty(counts,"total"), Qty(counts,"waived"), Qty(counts,"paid"), Qty(counts,"pending")));
-            var settled = await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement",
-                new SettlementRequest(Key(),"CASH", DamageDecisions:[new(rejectedRef,true)])));
+            Assert.Equal((5,3,1,1), (Qty(counts,"total"), Qty(counts,"waived"), Qty(counts,"paid"), Qty(counts,"returned")));
+            await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement", new SettlementRequest(Key(),"CASH")));
             var rows = (await admin.GetFromJsonAsync<JsonElement>($"/api/refund-requests?memberId={mid}&kind=DAMAGE&page=1")).GetProperty("rows").EnumerateArray().ToArray();
             Assert.Equal(3,rows.Length);
             Assert.All(rows,r => Assert.Equal(mid,r.GetProperty("memberId").GetGuid()));
             var resolved = rows.Single(r => r.GetProperty("status").GetString()=="REJECTED");
-            Assert.Equal(settled.GetProperty("settlementNo").GetString(),resolved.GetProperty("settlementNo").GetString());
-            Assert.True(resolved.GetProperty("settlementCharged").GetBoolean());
+            Assert.Equal("RETURNED",resolved.GetProperty("damageStatus").GetString());
+            Assert.Equal(JsonValueKind.Null,resolved.GetProperty("settlementNo").ValueKind);
             Assert.All(rows.Where(r => r.GetProperty("status").GetString()=="APPROVED"),r => Assert.Equal(JsonValueKind.Null,r.GetProperty("settlementNo").ValueKind));
 
         }
