@@ -10,6 +10,7 @@ public static class OverviewEndpoints
 {
     public static void MapOverviewEndpoints(this WebApplication app)
     {
+        app.MapGet("/api/reports/operating-period", OperatingPeriodReport.Get).RequireAuthorization();
         app.MapGet("/api/reports/overview", async (ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>
         {
             if (!user.HasClaim("perm", KunlunPermissions.ReportExport)) return Results.Forbid();
