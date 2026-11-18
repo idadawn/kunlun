@@ -65,10 +65,11 @@ public sealed class OperatingPeriodTests(TestHost host)
         var previous = await Report("last-week");
         var member = await Post("/api/members", new CreateMemberRequest("经营统计", $"133{Random.Shared.Next(10000000, 99999999)}", "测试地址", null, "101"));
         var id = member.GetProperty("id").GetGuid();
-        var plan = Guid.Parse("30000000-0000-0000-0000-000000000103");
-        var purchase = await Post("/api/recharges", new CreateRechargeOrderRequest(id, plan, "CASH", Key()));
+        // Use a package with an exact cent price, so other tests’ redemptions cannot affect a rounded difference.
+        var plan = WaterProducts.PlanId("101");
+        await Post("/api/recharges", new CreateRechargeOrderRequest(id, plan, "CASH", Key()));
         await Post("/api/deposits/collect", new CollectDepositRequest(id, "BUCKET", 1, "CASH", Key()));
-        var order = await Post("/api/orders", new CreateWaterOrderRequest(id, "BUCKET_18_9L", "DELIVERY", 2, Key()));
+        var order = await Post("/api/orders", new CreateWaterOrderRequest(id, "BUCKET_18_9L", "PICKUP", 2, Key()));
         await Post($"/api/orders/{order.GetProperty("id").GetGuid()}/fulfill", new FulfillWaterOrderRequest(1, 1, 0, DiffReason: "实送一桶"));
         // Entered today, but spent on the last Sunday.
         await Post("/api/expenses", new CreateExpenseRequest("PARTS", "配件", 19.75m, "CASH", Key(), SpentOn: previous.GetProperty("end").Deserialize<DateOnly>()));
@@ -77,11 +78,10 @@ public sealed class OperatingPeriodTests(TestHost host)
         Assert.Equal(Cash(before, "rechargeRevenue") + 100m, Cash(today, "rechargeRevenue"));
         Assert.Equal(Cash(before, "balance") + 100m, Cash(today, "balance"));
         Assert.Equal(Cash(today, "rechargeRevenue"), Sum(today, "receipts"));
-        Assert.Equal(Sum(before, "deliveries") + 1, Sum(today, "deliveries"));
+        Assert.Equal(Sum(before, "pickups") + 1, Sum(today, "pickups"));
         Assert.Equal(Sum(before, "buckets") + 1, Sum(today, "buckets"));
         Assert.Equal(Sum(before, "newMembers") + 1, Sum(today, "newMembers"));
-        var fixedQty = purchase.GetProperty("buyQty").GetInt32();
-        Assert.Equal(Redeemed(before) + decimal.Round(100m / fixedQty, 2, MidpointRounding.AwayFromZero), Redeemed(today));
+        Assert.Equal(Redeemed(before) + 6.25m, Redeemed(today));
 
         var lastWeek = await Report("last-week");
         Assert.Equal(Cash(previous, "balance") - 19.75m, Cash(lastWeek, "balance"));
