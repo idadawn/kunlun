@@ -63,9 +63,9 @@ internal static class OperatingPeriodReport
                 date_trunc(@grain, LEAST(@now, @until - interval '1 microsecond') AT TIME ZONE 'Asia/Shanghai'),
                 ('1 ' || @grain)::interval) AS slot
             ), charges AS (
-              SELECT date_trunc(@grain, created_at AT TIME ZONE 'Asia/Shanghai') AS slot, sum(paid_amount) AS receipts
-              FROM plugin_kunlun_waterstation.recharge_orders
-              WHERE tenant_id=@tid AND created_at >= @from AND created_at < @until GROUP BY 1
+              SELECT date_trunc(@grain, received_at AT TIME ZONE 'Asia/Shanghai') AS slot, sum(paid_amount) AS receipts
+              FROM plugin_kunlun_waterstation.water_receipts
+              WHERE tenant_id=@tid AND received_at >= @from AND received_at < @until GROUP BY 1
             ), orders AS (
               SELECT date_trunc(@grain, o.completed_at AT TIME ZONE 'Asia/Shanghai') AS slot, o.id, o.actual_qty, o.fulfill_mode,
                      COALESCE(o.product_snapshot->>'containerType', p.container_type) AS kind
@@ -82,9 +82,10 @@ internal static class OperatingPeriodReport
               JOIN plugin_kunlun_waterstation.ticket_batches b ON b.id=a.batch_id AND b.tenant_id=@tid
               WHERE a.status='CONSUMED' AND a.consumed_buy > 0 AND b.paid_amount > 0 GROUP BY o.slot
             ), members AS (
-              SELECT date_trunc(@grain, created_at AT TIME ZONE 'Asia/Shanghai') AS slot, count(*) AS joined
+              SELECT date_trunc(@grain, opened AT TIME ZONE 'Asia/Shanghai') AS slot, count(*) AS joined
               FROM plugin_kunlun_waterstation.members
-              WHERE tenant_id=@tid AND created_at >= @from AND created_at < @until GROUP BY 1
+              CROSS JOIN LATERAL (SELECT COALESCE(card_opened_on::timestamp AT TIME ZONE 'Asia/Shanghai',created_at) AS opened) dates
+              WHERE tenant_id=@tid AND opened >= @from AND opened < @until GROUP BY 1
             )
             SELECT to_char(slot, CASE @grain WHEN 'hour' THEN 'HH24:00' WHEN 'month' THEN 'FMMM"月"' ELSE 'MM/DD' END),
                    COALESCE(receipts,0), COALESCE(buckets,0), COALESCE(bags,0), COALESCE(deliveries,0), COALESCE(pickups,0), COALESCE(joined,0), COALESCE(redemption_value,0)

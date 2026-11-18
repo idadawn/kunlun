@@ -44,6 +44,7 @@ export interface CurrentUser {
 }
 
 export interface MemberProfile {
+  cardOpenedOn?: string | null;
   id: string;
   memberNo: string;
   name: string;
@@ -257,6 +258,9 @@ export interface ContainerSummaryItem {
 export interface FinanceSummaryReport {
   brand: string;
   rechargeRevenueTotal: number;
+  openingRevenueTotal: number;
+  datedOpeningUnused: number;
+  undatedOpeningOut: number;
   rechargeRefundedTotal: number;
   rechargeRefundCount: number;
   rechargeNetReceived: number;
@@ -356,6 +360,8 @@ export interface PlanSnapshot {
 }
 
 export interface RechargeLedgerRow {
+  id: string;
+  cardOpenedOn: string | null;
   rechargeNo: string;
   memberName: string;
   memberNo: string;
@@ -364,7 +370,7 @@ export interface RechargeLedgerRow {
   paidAmount: number;
   buyQty: number;
   giftQty: number;
-  payMethod: PayMethod;
+  payMethod: PayMethod | 'OPENING';
   operatorName: string;
   createdAt: string;
   /** Set once the batch's remaining tickets were refunded. */
@@ -561,6 +567,7 @@ export interface OpeningDepositInput { containerType: ContainerType; quantity: n
 export interface OpeningHoldingInput { containerType: ContainerType; quantity: number }
 
 export interface SaveOpeningBody {
+  cardDate?: { value: string | null; expected: string | null };
   idempotencyKey: string;
   tickets?: OpeningTicketInput[];
   deposits?: OpeningDepositInput[];
@@ -574,6 +581,7 @@ export interface OpeningDepositAmount { quantity: number; unitPrice: number; amo
 
 /** One change an opening entry made, with the figure before and after. */
 export type OpeningItem =
+  | { kind: 'CARD_DATE'; before: string | null; after: string | null }
   | { kind: 'TICKETS'; action: 'CREATE' | 'ADJUST' | 'REMOVE'; batchId: string; waterType: WaterType; name: string; fulfillMode: FulfillMode; unit: string; paidAmount?: number; packageQty?: number | null; before: number; after: number }
   | { kind: 'DEPOSIT_TOTAL'; before: number; after: number }
   | { kind: 'DEPOSIT'; action: 'CREATE' | 'ADJUST' | 'REMOVE'; containerType: ContainerType; depositNo: string; before: OpeningDepositAmount | null; after: OpeningDepositAmount | null }
@@ -602,6 +610,7 @@ export interface OpeningDeposit {
 }
 
 export interface MemberOpeningRecord {
+  cardOpenedOn: string | null;
   depositAmount: number;
   lockedDepositAmount: number;
   deposits: OpeningDeposit[];
@@ -1059,6 +1068,7 @@ export interface ExpenseSummary {
   voidedCount: number;
   categories: Array<{ category: ExpenseCategory; total: number; count: number }>;
   rechargeRevenue: number;
+  openingRevenue: number;
   rechargeRefunded: number;
   rechargeNet: number;
   balance: number;

@@ -504,3 +504,24 @@ a{color:var(--brand-600);text-decoration:none}
 .member-damage-breakdown span{white-space:nowrap}
 .member-damage-breakdown b{color:var(--ink);font-variant-numeric:tabular-nums}
 .member-damage-breakdown .outstanding,.member-damage-breakdown .outstanding b{color:var(--gold-600)}
+
+/* 补录上系统前的数据：套餐余量一行一笔，押金和手里的桶袋每种桶袋一块 */
+.membership-dialog.opening-dialog{width:min(720px,96vw)}
+.opening-section{display:flex;flex-direction:column;gap:10px;padding:14px 0 4px;border-top:1px solid var(--line-soft)}
+.opening-section:first-child{border-top:0;padding-top:0}
+.opening-section-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}
+.opening-section-head h3{margin:0;font-size:15px;color:var(--ink)}
+.opening-section-head small{color:var(--muted);font-size:12px}
+.opening-row{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border:1px solid var(--line-soft);border-radius:var(--r-md);background:var(--bg)}
+.opening-row.new{background:#fff;border-style:dashed;border-color:var(--brand-300)}
+.opening-row.removing{opacity:.7;background:var(--red-50)}
+.opening-row-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:4px 10px}
+.opening-row-head b{color:var(--ink);font-size:13.5px}
+.opening-row-head small{color:var(--muted);font-size:12px}
+.opening-row .membership-note,.opening-row .profile-warn{margin:0}
+.membership-fields .opening-inline label,.opening-inline label{font-weight:500;font-size:13px}
+.opening-inline{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;font-size:13px;color:var(--text)}
+.membership-fields .opening-inline .input.opening-money{width:110px}
+.membership-fields .opening-inline .input.opening-count{width:90px}
+.opening-change{color:var(--gold-600);font-size:12px;font-weight:600}
+.opening-add{align-self:flex-start}

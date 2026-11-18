@@ -97,7 +97,7 @@ function Liabilities({ finance: f, overview }: { finance: FinanceSummaryReport; 
   const used = net > 0 ? Math.min(100, Math.max(0, earned / net * 100)) : 0;
   // Packages members bought before the system: owed back like recharges, but that money never came in as 水费实收.
   const openingUnused = Number(f.openingUnusedValue ?? 0);
-  const openingRefunded = Number(f.openingRefundedTotal ?? 0) + Number(f.openingTransferred ?? 0);
+  const openingRefunded = Number(f.undatedOpeningOut ?? 0);
   const unused = Number(f.unusedRechargeValue) + openingUnused;
   return (
     <div className="card liability-card">
@@ -136,11 +136,11 @@ function Liabilities({ finance: f, overview }: { finance: FinanceSummaryReport; 
           <div className="liability-split-text">
             <span>水费净收<b>¥{money(net)}</b></span>
             <span>= 会员已经用掉的（真正的收入）<b className="earned">¥{money(earned)}</b></span>
-            <span>+ 还没用完的（可能要退）<b className="unused">¥{money(f.unusedRechargeValue)}</b></span>
-            {openingRefunded > 0 && <span>− 上系统前套餐退款及转押金<b className="unused">¥{money(openingRefunded)}</b></span>}
+            <span>+ 还没用完的（可能要退）<b className="unused">¥{money(Number(f.unusedRechargeValue) + Number(f.datedOpeningUnused ?? 0))}</b></span>
+            {openingRefunded > 0 && <span>− 未归期开卡水费的退款及转押金<b className="unused">¥{money(openingRefunded)}</b></span>}
           </div>
           {net > 0 && <div className="liability-bar" role="img" aria-label={`水费净收中会员已用掉 ${Math.round(used)}%`}><i style={{ width: `${used}%` }} /></div>}
-          {openingUnused > 0 && <small className="liability-note">上系统前买的套餐还没用完 ¥{money(openingUnused)}：当时收的钱没进系统，不在水费净收里，会员要退时一样得退。</small>}
+          {openingUnused > 0 && <small className="liability-note">上系统前买的套餐还没用完 ¥{money(openingUnused)}：其中已填开卡日期的套餐按开卡日计入实收。</small>}
         </div>
       </div>
     </div>

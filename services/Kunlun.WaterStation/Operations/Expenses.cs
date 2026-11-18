@@ -295,8 +295,9 @@ public static class Expenses
               'categories', COALESCE((SELECT json_agg(json_build_object('category',category,'total',total,'count',n) ORDER BY total DESC)
                  FROM (SELECT category, sum(amount) AS total, count(*) AS n FROM plugin_kunlun_waterstation.expenses e
                        WHERE e.tenant_id=@tid AND e.status='ACTIVE' AND {{Window}} GROUP BY category) c), '[]'::json),
-              'rechargeRevenue', (SELECT COALESCE(sum(paid_amount),0) FROM plugin_kunlun_waterstation.recharge_orders
-                 WHERE tenant_id=@tid AND (@from IS NULL OR created_at >= @from) AND (@to IS NULL OR created_at < @to)),
+              'receipts', (SELECT json_build_object('total',COALESCE(sum(paid_amount),0),'opening',COALESCE(sum(paid_amount) FILTER (WHERE historical),0))
+                 FROM plugin_kunlun_waterstation.water_receipts WHERE tenant_id=@tid
+                   AND (@from IS NULL OR received_at >= @from) AND (@to IS NULL OR received_at < @to)),
               'transferred', (SELECT COALESCE(sum(transferred_amount),0) FROM plugin_kunlun_waterstation.recharge_refunds
                  WHERE tenant_id=@tid AND (@from IS NULL OR created_at >= @from) AND (@to IS NULL OR created_at < @to)),
               'rechargeRefunded', (SELECT COALESCE(sum(amount),0) FROM plugin_kunlun_waterstation.recharge_refunds
@@ -309,7 +310,8 @@ public static class Expenses
         using var doc = JsonDocument.Parse((string)(await cmd.ExecuteScalarAsync(ct))!);
         var root = doc.RootElement;
         var expense = root.GetProperty("expenseTotal").GetDecimal();
-        var revenue = root.GetProperty("rechargeRevenue").GetDecimal();
+        var receipts = root.GetProperty("receipts");
+        var revenue = receipts.GetProperty("total").GetDecimal();
         var transferred = root.GetProperty("transferred").GetDecimal();
         var refunded = root.GetProperty("rechargeRefunded").GetDecimal();
         return new
@@ -324,6 +326,7 @@ public static class Expenses
                 count = c.GetProperty("count").GetInt64()
             }).ToArray(),
             rechargeRevenue = revenue,
+            openingRevenue = receipts.GetProperty("opening").GetDecimal(),
             rechargeRefunded = refunded,
             transferred,
             rechargeNet = revenue - refunded - transferred,

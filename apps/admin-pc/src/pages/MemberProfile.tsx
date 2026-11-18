@@ -6,13 +6,13 @@ import {
   type TicketBatch, type WaterOrder,
 } from '@kunlun/shared';
 import {
-  AddressBook, MemberDamageBreakdown, MemberDamageReviews, BatchCards, Icon, RefundBatchDialog, SettlementDialog, SettlementRecords, canSettle, useAuth, useDialogs, useLoader,
+  AddressBook, OpeningDialog, MemberDamageBreakdown, MemberDamageReviews, BatchCards, Icon, RefundBatchDialog, SettlementDialog, SettlementRecords, canSettle, useAuth, useDialogs, useLoader,
   useRun, useSettlements,
 } from '@kunlun/ui';
 import { StatCard, useOperations } from '../common';
 import { useAdminData } from '../data';
 import { useMemberStatusActions } from '../memberStatus';
-import { OpeningCard, OpeningDialog } from '../opening';
+import { OpeningCard } from '../opening';
 
 /** Rows shown in each tab of 最近记录. */
 const RECENT = 8;
@@ -182,6 +182,7 @@ function Profile({ member: m }: { member: MemberProfile }) {
             <div className="detail-row"><span>会员编号</span><b>{m.memberNo}</b></div>
             <div className="detail-row"><span>联系电话</span><b>{m.phone}</b></div>
             <div className="detail-row"><span>默认收货地址</span><b className="detail-wrap">{m.defaultAddress || '未设置'}</b></div>
+            <div className="detail-row"><span>开卡日期</span><b>{m.cardOpenedOn ?? '未补录'}</b></div>
             <div className="detail-row"><span>建档时间</span><b>{(m.createdAt || '').slice(0, 10) || '—'}</b></div>
             {m.remark && <div className="detail-row"><span>备注</span><b className="detail-wrap">{m.remark}</b></div>}
           </div>
@@ -267,8 +268,8 @@ function RecentRecords({ member: m }: { member: MemberProfile }) {
       <table className="profile-table">
         <thead><tr><th>充值单号 / 时间</th><th>套餐</th><th>实付</th><th>到账水票</th></tr></thead>
         <tbody>{rows.map(r => (
-          <tr key={r.rechargeNo}>
-            <td><span className="order-no">{r.rechargeNo}</span><small>{shortDateTime(r.createdAt)}</small></td>
+          <tr key={r.id || r.rechargeNo}>
+            <td><span className="order-no">{r.rechargeNo}</span><small>{r.cardOpenedOn ? `开卡 ${r.cardOpenedOn}` : shortDateTime(r.createdAt)}</small></td>
             <td>{r.planName}</td>
             <td><b>¥{money(r.paidAmount)}</b><small>{payMethodLabel(r.payMethod)}</small></td>
             <td>{r.buyQty}{r.giftQty > 0 ? ` + 赠 ${r.giftQty}` : ''} 张{r.refundNo && <> <span className="tag gray">已退 ¥{money(r.refundAmount ?? 0)}</span></>}</td>

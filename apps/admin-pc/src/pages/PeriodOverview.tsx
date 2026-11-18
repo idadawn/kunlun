@@ -47,6 +47,7 @@ function PeriodFigures({ period, metric, setMetric }: { period: OperatingPeriod 
         <div className="card-head"><h3 className="card-title">收支构成</h3><button type="button" className="text-btn" onClick={() => go('expenses')}>费用支出台账 ›</button></div>
         <dl>
           <div><dt>水费实收</dt><dd>¥ {yuan(cash.rechargeRevenue)}</dd></div>
+          {cash.openingRevenue > 0 && <div><dt>其中补录开卡水费</dt><dd>¥ {yuan(cash.openingRevenue)}</dd></div>}
           <div><dt>水费退款</dt><dd>¥ {yuan(cash.rechargeRefunded)}</dd></div>
           <div><dt>水费转押金</dt><dd>¥ {yuan(cash.transferred)}</dd></div>
           <div><dt>费用支出 <small>{cash.expenseCount} 笔</small></dt><dd>¥ {yuan(cash.expenseTotal)}</dd></div>

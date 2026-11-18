@@ -92,9 +92,9 @@ function MemberList({ onOpen }: { onOpen: (id: string) => void }) {
       <div className="table-toolbar"><div><b>会员列表</b><small>{filtered ? `符合条件 ${memberTotal} 位会员` : `共 ${memberTotal} 位会员`} · 可按姓名、手机号或会员编号搜索</small></div></div>
       <div style={{ overflowX: 'auto' }}>
         <table>
-          <thead><tr><th>会员</th><th>联系电话</th><th>默认收货地址</th><th>水票（自提 / 配送）</th><th>押金余额</th><th>持有桶 / 袋</th><th>建档时间</th><th>操作</th></tr></thead>
+          <thead><tr><th>会员</th><th>联系电话</th><th>默认收货地址</th><th>水票（自提 / 配送）</th><th>押金余额</th><th>持有桶 / 袋</th><th>开卡日期</th><th>建档时间</th><th>操作</th></tr></thead>
           <tbody>
-            {rows.length === 0 ? <EmptyRow colSpan={8}>{loaded ? '没有符合条件的会员' : '正在加载会员…'}</EmptyRow> : rows.map((m, i) => (
+            {rows.length === 0 ? <EmptyRow colSpan={9}>{loaded ? '没有符合条件的会员' : '正在加载会员…'}</EmptyRow> : rows.map((m, i) => (
               <tr key={m.id}>
                 <td><div className="member-cell"><div className="member-avatar" style={PALETTE[i % PALETTE.length]}>{m.name[0]}</div><div><b>{m.name}</b>{m.status === 'DISABLED' && <span className="tag gray" style={{ marginLeft: 6 }} title={m.disableReason ?? undefined}>已停用</span>}<small>{m.memberNo}</small></div></div></td>
                 <td>{m.phone}</td>
@@ -102,6 +102,7 @@ function MemberList({ onOpen }: { onOpen: (id: string) => void }) {
                 <td><TicketCell tickets={m.tickets} /></td>
                 <td>¥ {money(m.depositAmount)}</td>
                 <td>{m.heldBuckets} 桶 / {m.heldBags} 袋</td>
+                <td>{m.cardOpenedOn ?? '—'}</td>
                 <td>{(m.createdAt || '').slice(0, 10) || '—'}</td>
                 <td className="row-actions">
                   <button type="button" className="link" onClick={() => onOpen(m.id)}>360° 档案</button>

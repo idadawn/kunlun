@@ -34,7 +34,7 @@ public static class ReportEndpoints
             var tenantId = authRepo.DefaultTenantId;
             await using var conn = await db.OpenConnectionAsync(ct);
 
-            decimal rechargeRevenueTotal;
+            decimal rechargeRevenueTotal, openingRevenueTotal;
             long rechargeOrderCount;
             long ticketsSoldBuyQty, ticketsGiftedQty;
 
@@ -42,7 +42,8 @@ public static class ReportEndpoints
                 SELECT COUNT(*),
                        COALESCE(SUM(paid_amount), 0.00),
                        COALESCE(SUM(buy_qty), 0),
-                       COALESCE(SUM(gift_qty), 0)
+                       COALESCE(SUM(gift_qty), 0),
+                       (SELECT COALESCE(sum(paid_amount),0) FROM plugin_kunlun_waterstation.water_receipts WHERE tenant_id=@tid AND historical)
                 FROM plugin_kunlun_waterstation.recharge_orders
                 WHERE tenant_id = @tid
                 """, conn))
@@ -51,7 +52,8 @@ public static class ReportEndpoints
                 await using var r = await rcgCmd.ExecuteReaderAsync(ct);
                 await r.ReadAsync(ct);
                 rechargeOrderCount = r.GetInt64(0);
-                rechargeRevenueTotal = r.GetDecimal(1);
+                openingRevenueTotal = r.GetDecimal(4);
+                rechargeRevenueTotal = r.GetDecimal(1) + openingRevenueTotal;
                 ticketsSoldBuyQty = r.GetInt64(2);
                 ticketsGiftedQty = r.GetInt64(3);
             }
@@ -87,7 +89,7 @@ public static class ReportEndpoints
             // 会员还没用完的水费：在用充值批次的剩余付费票按原实付单价折算，与退清单个批次同一口径
             // （MembershipEndpoints.RemainingValue）；赠票退款时收回、不退钱；历史余额没有原价，只统计张数。
             // 上系统前补录的套餐（OPENING）有原价的另算：钱是上系统前收的，不在水费实收里，但会员要回去时同样得退。
-            decimal unusedRechargeValue, openingUnusedValue;
+            decimal unusedRechargeValue, openingUnusedValue, datedOpeningUnused;
             long unusedPaidTicketQty, unusedGiftTicketQty, legacyTicketQty, openingPaidTicketQty;
             await using (var unused = TicketBatches.Command(conn, null, """
                 SELECT COALESCE(sum(round(paid_amount * remaining_buy / fixed_qty, 2)) FILTER (WHERE source = 'PURCHASE'), 0.00),
@@ -95,9 +97,11 @@ public static class ReportEndpoints
                        COALESCE(sum(remaining_gift) FILTER (WHERE source = 'PURCHASE'), 0),
                        COALESCE(sum(remaining_buy + remaining_gift) FILTER (WHERE source <> 'PURCHASE' AND NOT (source = 'OPENING' AND paid_amount > 0)), 0),
                        COALESCE(sum(round(paid_amount * remaining_buy / fixed_qty, 2)) FILTER (WHERE source = 'OPENING' AND paid_amount > 0), 0.00),
-                       COALESCE(sum(remaining_buy) FILTER (WHERE source = 'OPENING' AND paid_amount > 0), 0)
-                FROM plugin_kunlun_waterstation.ticket_batches
-                WHERE tenant_id = @tid AND status = 'ACTIVE'
+                       COALESCE(sum(remaining_buy) FILTER (WHERE source = 'OPENING' AND paid_amount > 0), 0),
+                       COALESCE(sum(round(paid_amount * remaining_buy / fixed_qty, 2)) FILTER (WHERE source='OPENING' AND paid_amount>0 AND dated.id IS NOT NULL),0)
+                FROM plugin_kunlun_waterstation.ticket_batches b
+                LEFT JOIN (SELECT id FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND card_opened_on IS NOT NULL) dated ON dated.id=b.member_id
+                WHERE b.tenant_id = @tid AND b.status = 'ACTIVE'
                 """, ("tid", tenantId)))
             await using (var r = await unused.ExecuteReaderAsync(ct))
             {
@@ -108,6 +112,7 @@ public static class ReportEndpoints
                 legacyTicketQty = r.GetInt64(3);
                 openingUnusedValue = r.GetDecimal(4);
                 openingPaidTicketQty = r.GetInt64(5);
+                datedOpeningUnused = r.GetDecimal(6);
             }
 
             decimal depositRefundedTotal;
@@ -142,11 +147,13 @@ public static class ReportEndpoints
             }
 
             // Refunds of packages from before the system are money paid out here too, but they never came in as recharges.
-            decimal rechargeRefundedTotal, openingRefundedTotal, openingTransferred;
+            decimal rechargeRefundedTotal, openingRefundedTotal, openingTransferred, undatedOpeningOut;
             long rechargeRefundCount, openingRefundCount;
             await using (var refunds = TicketBatches.Command(conn, null, """
-                SELECT count(*),COALESCE(sum(f.amount),0),count(*) FILTER (WHERE b.source='OPENING'),COALESCE(sum(f.amount) FILTER (WHERE b.source='OPENING'),0),COALESCE(sum(f.transferred_amount) FILTER (WHERE b.source='OPENING'),0)
+                SELECT count(*),COALESCE(sum(f.amount),0),count(*) FILTER (WHERE b.source='OPENING'),COALESCE(sum(f.amount) FILTER (WHERE b.source='OPENING'),0),COALESCE(sum(f.transferred_amount) FILTER (WHERE b.source='OPENING'),0),
+                       COALESCE(sum(f.amount+f.transferred_amount) FILTER (WHERE b.source='OPENING' AND m.card_opened_on IS NULL),0)
                 FROM plugin_kunlun_waterstation.recharge_refunds f JOIN plugin_kunlun_waterstation.ticket_batches b ON b.id=f.batch_id
+                JOIN plugin_kunlun_waterstation.members m ON m.id=b.member_id AND m.tenant_id=b.tenant_id
                 WHERE f.tenant_id=@tid
                 """, ("tid", tenantId)))
             await using (var r = await refunds.ExecuteReaderAsync(ct))
@@ -157,6 +164,7 @@ public static class ReportEndpoints
                 openingRefundCount = r.GetInt64(2);
                 openingRefundedTotal = r.GetDecimal(3);
                 openingTransferred = r.GetDecimal(4);
+                undatedOpeningOut = r.GetDecimal(5);
             }
             decimal depositDeductedTotal;
             long depositDeductCount;
@@ -189,7 +197,7 @@ public static class ReportEndpoints
             return Results.Ok(new
             {
                 brand = "绿麒麟水站｜小分子团弱碱活性水",
-                rechargeRevenueTotal,
+                rechargeRevenueTotal, openingRevenueTotal, datedOpeningUnused, undatedOpeningOut,
                 rechargeRefundedTotal,
                 rechargeRefundCount,
                 rechargeNetReceived = rechargeRevenueTotal - depositTransferTotal - rechargeRefundedTotal,
@@ -222,7 +230,7 @@ public static class ReportEndpoints
                 // 押金和没用完的水费（含上系统前买的）都是会员可以要回去的钱，不是收入；水费净收里扣掉系统里充值没用完的，
                 // 再加回退给上系统前套餐的钱（那笔钱当初没进系统），才是会员在系统里已经用掉的水费。
                 potentialRefundTotal = unrefundedDepositPoolFromLots + unusedRechargeValue + openingUnusedValue,
-                rechargeEarnedTotal = rechargeRevenueTotal - (depositTransferTotal - openingTransferred) - (rechargeRefundedTotal - openingRefundedTotal) - unusedRechargeValue,
+                rechargeEarnedTotal = rechargeRevenueTotal - depositTransferTotal - rechargeRefundedTotal + undatedOpeningOut - unusedRechargeValue - datedOpeningUnused,
                 expenseTotal,
                 expenseCount,
                 rechargeNetAfterExpenses = rechargeRevenueTotal - depositTransferTotal - rechargeRefundedTotal - expenseTotal,
@@ -258,7 +266,7 @@ public static class ReportEndpoints
                 case "members":
                 {
                     // 水票按水品和领取方式列在一格里，如「15L 桶装水·配送 8；5L 袋装水·自提 6（预占 1）」
-                    sb.AppendLine("会员卡号,姓名,手机号,默认地址,水票余额,在用水桶,在用水袋,押金余额(元),状态");
+                    sb.AppendLine("会员卡号,姓名,手机号,默认地址,水票余额,在用水桶,在用水袋,押金余额(元),状态,补录开卡日期,补录开卡水费(元)");
                     await using var cmd = new NpgsqlCommand("""
                         SELECT m.member_no, m.name, m.phone, COALESCE(m.default_address, ''),
                                COALESCE((SELECT string_agg(COALESCE(p.name, t.water_type) || '·' || CASE t.fulfill_mode WHEN 'DELIVERY' THEN '配送' ELSE '自提' END
@@ -267,7 +275,8 @@ public static class ReportEndpoints
                                          FROM plugin_kunlun_waterstation.member_tickets t
                                          LEFT JOIN plugin_kunlun_waterstation.water_products p ON p.tenant_id = t.tenant_id AND p.water_type = t.water_type
                                          WHERE t.tenant_id = m.tenant_id AND t.member_id = m.id AND t.available + t.reserved > 0), ''),
-                               m.held_buckets, m.held_bags, m.deposit_amount, m.status
+                               m.held_buckets, m.held_bags, m.deposit_amount, m.status,to_char(m.card_opened_on,'YYYY-MM-DD'),
+                               (SELECT COALESCE(sum(b.paid_amount),0) FROM plugin_kunlun_waterstation.ticket_batches b WHERE b.tenant_id=m.tenant_id AND b.member_id=m.id AND b.source='OPENING')
                         FROM plugin_kunlun_waterstation.members m
                         WHERE m.tenant_id = @tid
                         ORDER BY m.member_no
@@ -276,7 +285,7 @@ public static class ReportEndpoints
                     await using var r = await cmd.ExecuteReaderAsync(ct);
                     while (await r.ReadAsync(ct))
                     {
-                        sb.AppendLine($"{Csv(r.GetString(0))},{Csv(r.GetString(1))},{Csv(r.GetString(2))},{Csv(r.GetString(3))},{Csv(r.GetString(4))},{r.GetInt32(5)},{r.GetInt32(6)},{r.GetDecimal(7):F2},{r.GetString(8)}");
+                        sb.AppendLine($"{Csv(r.GetString(0))},{Csv(r.GetString(1))},{Csv(r.GetString(2))},{Csv(r.GetString(3))},{Csv(r.GetString(4))},{r.GetInt32(5)},{r.GetInt32(6)},{r.GetDecimal(7):F2},{r.GetString(8)},{(r.IsDBNull(9) ? "" : r.GetString(9))},{r.GetDecimal(10):F2}");
                     }
                     break;
                 }
@@ -388,10 +397,10 @@ public static class ReportEndpoints
                 }
                 case "recharges":
                 {
-                    sb.AppendLine("充值单号,会员ID,原套餐名称,实收金额,付费票,赠票,收款方式,操作人,时间");
-                    await using var cmd = TicketBatches.Command(conn, null, "SELECT recharge_no,member_id,plan_snapshot->>'name',paid_amount,buy_qty,gift_qty,pay_method,operator_name,created_at FROM plugin_kunlun_waterstation.recharge_orders WHERE tenant_id=@tid ORDER BY created_at DESC", ("tid", tenantId));
+                    sb.AppendLine("充值单号,会员ID,原套餐名称,实收金额,套餐付费票,赠票,收款方式,操作人,时间,补录开卡日期");
+                    await using var cmd = TicketBatches.Command(conn, null, "SELECT recharge_no,member_id,plan_snapshot->>'name',paid_amount,buy_qty,gift_qty,pay_method,operator_name,received_at,card_opened_on FROM plugin_kunlun_waterstation.water_receipts WHERE tenant_id=@tid ORDER BY received_at DESC,id", ("tid", tenantId));
                     await using var r = await cmd.ExecuteReaderAsync(ct);
-                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{r.GetGuid(1)},{Csv(r.IsDBNull(2) ? "" : r.GetString(2))},{r.GetDecimal(3):F2},{r.GetInt32(4)},{r.GetInt32(5)},{r.GetString(6)},{Csv(r.GetString(7))},{r.GetDateTime(8):O}");
+                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{r.GetGuid(1)},{Csv(r.IsDBNull(2) ? "" : r.GetString(2))},{r.GetDecimal(3):F2},{r.GetInt32(4)},{r.GetInt32(5)},{r.GetString(6)},{Csv(r.GetString(7))},{r.GetDateTime(8):O},{(r.IsDBNull(9) ? "" : r.GetFieldValue<DateOnly>(9).ToString("yyyy-MM-dd"))}");
                     break;
                 }
                 case "recharge-refunds":
@@ -439,22 +448,21 @@ public static class ReportEndpoints
             await using var conn = await db.OpenConnectionAsync(ct);
             return await Paging.From(page, pageSize, legacyLimit: 30).Query(conn, """
                 r.recharge_no, m.name, m.member_no, r.plan_snapshot->>'name',
-                r.paid_amount, r.buy_qty, r.gift_qty, r.pay_method, r.operator_name, r.created_at, r.plan_snapshot::text,
+                r.paid_amount, r.buy_qty, r.gift_qty, r.pay_method, r.operator_name, r.received_at, r.plan_snapshot::text,
                 rf.refund_no, rf.amount, rf.created_at,
-                g.status, g.quantity, g.reviewer_name, g.review_note, g.reviewed_at
+                g.status, g.quantity, g.reviewer_name, g.review_note, g.reviewed_at,r.id,r.card_opened_on
                 """, """
-                plugin_kunlun_waterstation.recharge_orders r
+                plugin_kunlun_waterstation.water_receipts r
                 JOIN plugin_kunlun_waterstation.members m ON m.id = r.member_id
-                LEFT JOIN plugin_kunlun_waterstation.ticket_batches b ON b.recharge_id = r.id
-                LEFT JOIN plugin_kunlun_waterstation.recharge_refunds rf ON rf.batch_id = b.id
-                LEFT JOIN plugin_kunlun_waterstation.refund_requests g ON g.batch_id = b.id AND g.kind = 'GIFT'
+                LEFT JOIN plugin_kunlun_waterstation.recharge_refunds rf ON rf.batch_id = r.batch_id
+                LEFT JOIN plugin_kunlun_waterstation.refund_requests g ON g.batch_id = r.batch_id AND g.kind = 'GIFT'
                 WHERE r.tenant_id = @tid
-                  AND (@from IS NULL OR r.created_at >= @from)
-                  AND (@to IS NULL OR r.created_at < @to)
+                  AND (@from IS NULL OR r.received_at >= @from)
+                  AND (@to IS NULL OR r.received_at < @to)
                   AND (@pay IS NULL OR r.pay_method = @pay)
                   AND (@q IS NULL OR r.recharge_no ILIKE @q OR m.name ILIKE @q OR m.member_no ILIKE @q OR m.phone ILIKE @q
                        OR r.plan_snapshot->>'name' ILIKE @q OR r.operator_name ILIKE @q)
-                """, "r.created_at DESC, r.id", p =>
+                """, "r.received_at DESC, r.id", p =>
             {
                 p.AddWithValue("tid", authRepo.DefaultTenantId);
                 p.Add(Paging.Time("from", from));
@@ -463,6 +471,8 @@ public static class ReportEndpoints
                 p.Add(Paging.Like("q", q));
             }, reader => new
             {
+                id = reader.GetGuid(19),
+                cardOpenedOn = reader.IsDBNull(20) ? (DateOnly?)null : reader.GetFieldValue<DateOnly>(20),
                 rechargeNo = reader.GetString(0),
                 memberName = reader.GetString(1),
                 memberNo = reader.GetString(2),
