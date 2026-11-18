@@ -77,11 +77,7 @@ export function DepositEstimate({ type, position, qty, title }: {
  * What staff record at hand-over: the amount received when a deposit is due,
  * and whether any container came back damaged, whether the customer pays for it, and why not.
  */
-export interface HandoverChoice {
-  /** 客户是否支付押金, null until staff answer. */
-  pays: boolean | null;
-  /** Actual yuan received, defaulting to the estimated shortfall. */
-  amount?: string;
+export interface DamageChoice {
   damaged: boolean;
   damagedQty: number;
   /** 是否赔付, null until staff answer. */
@@ -89,7 +85,13 @@ export interface HandoverChoice {
   /** Why a damaged container is not paid for. */
   reason: string;
 }
-export const EMPTY_HANDOVER: HandoverChoice = { pays: null, damaged: false, damagedQty: 1, compensated: null, reason: '' };
+export const EMPTY_DAMAGE: DamageChoice = { damaged: false, damagedQty: 1, compensated: null, reason: '' };
+
+export interface HandoverChoice extends DamageChoice {
+  pays: boolean | null;
+  amount?: string;
+}
+export const EMPTY_HANDOVER: HandoverChoice = { pays: null, ...EMPTY_DAMAGE };
 
 /** A shortfall is advisory. Only an explicitly recorded payment is collected. */
 export function paidOf(choice: HandoverChoice, due: number) {
@@ -99,6 +101,10 @@ export function paidOf(choice: HandoverChoice, due: number) {
 /** What the hand-over answers still lack, or '' when they are complete. */
 export function handoverProblem(choice: HandoverChoice, due: number, unit: string, returned: number) {
   if (due > 0 && choice.pays && paidOf(choice, due) <= 0) return '请输入实际收到的押金，最多两位小数';
+  return damageProblem(choice, unit, returned);
+}
+
+export function damageProblem(choice: DamageChoice, unit: string, returned: number) {
   if (choice.damaged && (choice.damagedQty < 1 || choice.damagedQty > returned)) return `本次收回 ${returned} 个空${unit}，请核对破损数量`;
   if (choice.damaged && choice.compensated === null) return `先选损坏的${unit}是否赔付`;
   if (choice.damaged && choice.compensated === false && !choice.reason.trim()) return `损坏的${unit}不赔付，要写上原因`;
@@ -118,7 +124,7 @@ export function composeHandoverNote(choice: HandoverChoice, { unit, paid, owed }
 }
 
 /** The damage answers as the hand-over request carries them; nothing when no container is damaged. */
-export function damageFields(choice: HandoverChoice) {
+export function damageFields(choice: DamageChoice) {
   if (!choice.damaged) return {};
   return { damagedQty: choice.damagedQty, damageCompensated: choice.compensated, damageReason: choice.compensated ? null : choice.reason.trim() };
 }
@@ -168,12 +174,6 @@ export function HandoverDeposit({ id, type, position, fullOut, emptyIn, value, o
   const due = depositGap(position, fullOut, emptyIn);
   const paid = collected ? 0 : paidOf(value, due);
   const owed = Math.max(0, due - paid);
-  useEffect(() => {
-    if (emptyIn === 0 && (value.damaged || value.compensated !== null || value.reason || value.damagedQty !== 1))
-      onChange({ ...value, damaged: false, damagedQty: 1, compensated: null, reason: '' });
-    else if (emptyIn > 0 && value.damagedQty > emptyIn)
-      onChange({ ...value, damagedQty: emptyIn });
-  }, [emptyIn, value, onChange]);
   const set = (patch: Partial<HandoverChoice>) => onChange({ ...value, ...patch });
   return (
     <div className="handover">
@@ -200,24 +200,40 @@ export function HandoverDeposit({ id, type, position, fullOut, emptyIn, value, o
           </div>
         )}
       </div>
-      {emptyIn > 0 && <div className={`handover-damage${value.damaged ? ' active' : ''}`}>
-        <Question label={`收回的空${unit}有破损吗？`} value={value.damaged} yes="有" no="没有" onChange={damaged => set({ damaged })} />
-        {value.damaged && <>
-          <div className="handover-question">
-            <b>损坏了几个</b>
-            <Stepper value={value.damagedQty} min={1} max={Math.max(1, emptyIn)} showZero label={`${title ?? ''}损坏的${unit}个数`} onChange={n => set({ damagedQty: n })} />
+      <ReturnedDamageFields id={id} unit={unit} emptyIn={emptyIn} value={value} onChange={set} damageReviewed={damageReviewed} title={title} />
+    </div>
+  );
+}
+
+export function ReturnedDamageFields({ id, unit, emptyIn, value, onChange: set, damageReviewed, title }: {
+  id: string; unit: string; emptyIn: number; value: DamageChoice; onChange: (patch: Partial<DamageChoice>) => void;
+  damageReviewed: boolean; title?: string;
+}) {
+  useEffect(() => {
+    if (emptyIn === 0 && (value.damaged || value.compensated !== null || value.reason || value.damagedQty !== 1))
+      set(EMPTY_DAMAGE);
+    else if (emptyIn > 0 && value.damagedQty > emptyIn)
+      set({ damagedQty: emptyIn });
+  }, [emptyIn, value, set]);
+  if (emptyIn <= 0) return null;
+  return (
+    <div className={`handover-damage${value.damaged ? ' active' : ''}`}>
+      <Question label={`归还的${unit}有破损吗？`} value={value.damaged} yes="有" no="没有" onChange={damaged => set(damaged ? { damaged: true } : EMPTY_DAMAGE)} />
+      {value.damaged && <>
+        <div className="handover-question">
+          <b>损坏了几个</b>
+          <Stepper value={value.damagedQty} min={1} max={Math.max(1, emptyIn)} showZero label={`${title ?? ''}损坏的${unit}个数`} onChange={n => set({ damagedQty: n })} />
+        </div>
+        <Question label="是否赔付？" value={value.compensated} yes="赔付" no="不赔付" onChange={compensated => set({ compensated })} />
+        {value.compensated === false && <>
+          <label htmlFor={`${id}-reason`}>不赔付的原因<em>必填</em></label>
+          <input id={`${id}-reason`} className="input" maxLength={200} placeholder="写一句为什么不赔" value={value.reason} onChange={e => set({ reason: e.target.value })} />
+          <div className="slot-chips reason-chips" role="group" aria-label="常用原因">
+            {NOT_COMPENSATED_REASONS.map(r => <button key={r} type="button" className={value.reason.trim() === r ? 'active' : ''} aria-pressed={value.reason.trim() === r} onClick={() => set({ reason: r })}>{r}</button>)}
           </div>
-          <Question label="是否赔付？" value={value.compensated} yes="赔付" no="不赔付" onChange={compensated => set({ compensated })} />
-          {value.compensated === false && <>
-            <label htmlFor={`${id}-reason`}>不赔付的原因<em>必填</em></label>
-            <input id={`${id}-reason`} className="input" maxLength={200} placeholder="写一句为什么不赔" value={value.reason} onChange={e => set({ reason: e.target.value })} />
-            <div className="slot-chips reason-chips" role="group" aria-label="常用原因">
-              {NOT_COMPENSATED_REASONS.map(r => <button key={r} type="button" className={value.reason.trim() === r ? 'active' : ''} aria-pressed={value.reason.trim() === r} onClick={() => set({ reason: r })}>{r}</button>)}
-            </div>
-            {damageReviewed && <small className="deposit-hint">不赔付要管理员在「审核」里批准；驳回就要去找顾客赔。</small>}
-          </>}
+          {damageReviewed && <small className="deposit-hint">不赔付要管理员在「审核」里批准；驳回就要去找顾客赔。</small>}
         </>}
-      </div>}
+      </>}
     </div>
   );
 }

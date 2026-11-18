@@ -265,20 +265,35 @@ public static class FinanceEndpoints
 
             var tid = Guid.Parse(user.FindFirstValue("tenant_id")!);
             var ctype = req.ContainerType;
-            if (!ProductContainers.ValidId(ctype) || req.FullOutN < 0 || req.EmptyInM < 0 || req.FullOutN + req.EmptyInM == 0)
+            if (!ProductContainers.ValidId(ctype) || req.FullOutN < 0 || req.EmptyInM < 0 || (req.FullOutN == 0 && req.EmptyInM == 0))
                 throw new BusinessRuleException("请填写有效的容器类型和领还数量");
+            if (req.DamagedQty < 0 || req.DamagedQty > req.EmptyInM || req.DamagedQty > 10000)
+                throw new BusinessRuleException("破损数量不能超过本次归还数量或 10000 个");
+            if (req.DamagedQty > 0 && req.DamageCompensated is null)
+                throw new BusinessRuleException("请选择破损桶袋是否已赔付");
+            var damageReason = req.DamageCompensated == false ? req.DamageReason?.Trim() : "领还登记时归还破损桶袋";
+            if (req.DamagedQty > 0 && string.IsNullOrWhiteSpace(damageReason)) throw new BusinessRuleException("请填写不赔付的原因");
+            if (damageReason?.Length > 200) throw new BusinessRuleException("破损原因不能超过 200 字");
             var key = req.IdempotencyKey ?? Guid.NewGuid().ToString("N");
             var ledgerNo = "CM" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)))[..28];
             await using var conn = await ds.OpenConnectionAsync(ct);
             await using var tx = await conn.BeginTransactionAsync(ct);
             await TicketBatches.LockRequest(conn, tx, tid, "container", key, ct);
             await TicketBatches.LockMember(conn, tx, tid, req.MemberId, ct);
-            await using (var replay = TicketBatches.Command(conn, tx, "SELECT member_id,container_type,full_out_qty,empty_in_qty,held_after FROM plugin_kunlun_waterstation.container_ledgers WHERE tenant_id=@tid AND ledger_no=@no", ("tid", tid), ("no", ledgerNo)))
+            await using (var replay = TicketBatches.Command(conn, tx, """
+                SELECT c.member_id,c.container_type,c.full_out_qty,c.empty_in_qty,c.held_after,COALESCE(c.order_no,''),
+                       COALESCE(d.quantity,0),d.fee_paid,d.reason
+                FROM plugin_kunlun_waterstation.container_ledgers c
+                LEFT JOIN plugin_kunlun_waterstation.container_damages d ON d.movement_id=c.id AND d.tenant_id=c.tenant_id
+                WHERE c.tenant_id=@tid AND c.ledger_no=@no
+                """, ("tid", tid), ("no", ledgerNo)))
             await using (var r = await replay.ExecuteReaderAsync(ct))
             {
                 if (await r.ReadAsync(ct))
                 {
-                    if (r.GetGuid(0) != req.MemberId || r.GetString(1) != ctype || r.GetInt32(2) != req.FullOutN || r.GetInt32(3) != req.EmptyInM)
+                    if (r.GetGuid(0) != req.MemberId || r.GetString(1) != ctype || r.GetInt32(2) != req.FullOutN || r.GetInt32(3) != req.EmptyInM ||
+                        r.GetString(5) != (req.OrderNo ?? "") || r.GetInt32(6) != req.DamagedQty ||
+                        (req.DamagedQty > 0 && (r.GetBoolean(7) != req.DamageCompensated || r.GetString(8) != damageReason)))
                         throw new BusinessRuleException("请求标识已用于其他领还操作", 409);
                     return Results.Ok(new { ledgerNo, currentHeld = r.GetInt32(4), idempotentReplay = true });
                 }
@@ -287,18 +302,32 @@ public static class FinanceEndpoints
             await using var read = TicketBatches.Command(conn, tx, "SELECT deposit_amount FROM plugin_kunlun_waterstation.members WHERE id=@id AND tenant_id=@tid", ("id", req.MemberId), ("tid", tid));
             var deposit = (decimal)(await read.ExecuteScalarAsync(ct))!;
             var delta = req.FullOutN - req.EmptyInM;
+            if ((long)held + delta > int.MaxValue) throw new BusinessRuleException("领用数量超出范围");
             var nextHeld = held + delta;
             if (nextHeld < 0) throw new BusinessRuleException("归还数量超过会员当前持有和本次领出数量");
             await using var cover = TicketBatches.Command(conn, tx, "SELECT COALESCE(sum(remaining_qty-reserved_damage_qty),0) FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@ct", ("tid", tid), ("mid", req.MemberId), ("ct", ctype));
             // Deposits taken but not yet approved count too: the customer already paid them.
             var covered = Convert.ToInt32(await cover.ExecuteScalarAsync(ct)) + await RefundRequests.PendingCollectQty(conn, tx, tid, req.MemberId, ctype, ct);
-            if (!await ContainerInventory.MoveToMembers(conn, tx, tid, ctype, delta, ct))
+            if (!await ContainerInventory.MoveToMembers(conn, tx, tid, ctype, delta, ct, req.DamagedQty))
                 throw new BusinessRuleException("会员持有桶袋的汇总需要核对，请联系管理员");
             await ProductContainers.SetHeld(conn, tx, tid, req.MemberId, ctype, nextHeld, ct);
-            await TicketBatches.Exec(conn, tx, """
+            var actor = user.FindFirstValue("display_name") ?? "员工";
+            await using var move = TicketBatches.Command(conn, tx, """
                 INSERT INTO plugin_kunlun_waterstation.container_ledgers(tenant_id,ledger_no,member_id,container_type,order_no,full_out_qty,empty_in_qty,delta_held,held_after,covered_deposit_qty_after,operator_name,remark)
-                VALUES(@tid,@no,@mid,@ct,@order,@out,@in,@delta,@held,@covered,@operator,'独立领还')
-                """, ct, ("tid", tid), ("no", ledgerNo), ("mid", req.MemberId), ("ct", ctype), ("order", req.OrderNo ?? ""), ("out", req.FullOutN), ("in", req.EmptyInM), ("delta", delta), ("held", nextHeld), ("covered", covered), ("operator", user.FindFirstValue("display_name") ?? "员工"));
+                VALUES(@tid,@no,@mid,@ct,@order,@out,@in,@delta,@held,@covered,@operator,'独立领还') RETURNING id
+                """, ("tid", tid), ("no", ledgerNo), ("mid", req.MemberId), ("ct", ctype), ("order", req.OrderNo ?? ""), ("out", req.FullOutN), ("in", req.EmptyInM), ("delta", delta), ("held", nextHeld), ("covered", covered), ("operator", actor));
+            var movementId = (long)(await move.ExecuteScalarAsync(ct))!;
+            if (req.DamagedQty > 0)
+            {
+                var damage = await ContainerCirculation.RecordMovementDamage(conn, tx, tid, req.MemberId, ctype, req.DamagedQty,
+                    damageReason!, movementId, actor, req.DamageCompensated == true, ct);
+                if (req.DamageCompensated == false)
+                {
+                    var settings = await ReviewSettings.Read(conn, tx, tid, ct);
+                    await RefundRequests.RequestDamage(conn, tx, tid, req.MemberId, ctype, req.DamagedQty, damageReason!, null,
+                        damage.Id, actor, settings.DamageReview, ct, movementId);
+                }
+            }
             await tx.CommitAsync(ct);
             return Results.Ok(new { ledgerNo, memberId = req.MemberId, currentHeld = nextHeld, holdingDelta = delta, depositAmountUnchanged = deposit, idempotentReplay = false });
         }).RequireAuthorization();

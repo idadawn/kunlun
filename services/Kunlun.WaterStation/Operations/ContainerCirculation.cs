@@ -28,7 +28,7 @@ public static class ContainerCirculation
     internal const string DamagedReturns = """
         CASE WHEN c.business_type='DAMAGE_RETURN' THEN c.empty_in_qty ELSE COALESCE((
           SELECT d.quantity FROM plugin_kunlun_waterstation.container_damages d
-          WHERE d.tenant_id=c.tenant_id AND d.handover_order_no=c.order_no AND c.ledger_no='CL-'||c.order_no),0) END
+          WHERE d.tenant_id=c.tenant_id AND (d.movement_id=c.id OR (d.handover_order_no=c.order_no AND c.ledger_no='CL-'||c.order_no))),0) END
         """;
 
     /// <summary>
@@ -80,6 +80,8 @@ public static class ContainerCirculation
             ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS deposit_waived BOOLEAN NOT NULL DEFAULT FALSE;
             ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS uncovered_qty INT NOT NULL DEFAULT 0 CHECK(uncovered_qty>=0);
             ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS fee_paid BOOLEAN;
+            ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS movement_id BIGINT REFERENCES plugin_kunlun_waterstation.container_ledgers(id);
+            CREATE UNIQUE INDEX IF NOT EXISTS container_damages_movement ON plugin_kunlun_waterstation.container_damages(movement_id) WHERE movement_id IS NOT NULL;
             ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS handover_order_no VARCHAR(32) REFERENCES plugin_kunlun_waterstation.water_orders(order_no);
             CREATE UNIQUE INDEX IF NOT EXISTS container_damages_handover ON plugin_kunlun_waterstation.container_damages(tenant_id,handover_order_no) WHERE handover_order_no IS NOT NULL;
             ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS uncovered_note TEXT NOT NULL DEFAULT '';
@@ -143,13 +145,14 @@ public static class ContainerCirculation
             var args=FilterArgs(repo.DefaultTenantId,q,containerType,page).Append(("status",(object)(status??""))).ToArray();
             const string from="""
                 FROM plugin_kunlun_waterstation.container_damages d JOIN plugin_kunlun_waterstation.members m ON m.id=d.member_id AND m.tenant_id=d.tenant_id
+                LEFT JOIN plugin_kunlun_waterstation.container_ledgers mv ON mv.id=d.movement_id AND mv.tenant_id=d.tenant_id
                 WHERE d.tenant_id=@tid AND (@type='' OR d.container_type=@type) AND (@status='' OR d.status=@status)
-                  AND (@q='' OR m.name ILIKE @search OR m.phone ILIKE @search OR m.member_no ILIKE @search OR d.damage_no ILIKE @search OR d.handover_order_no ILIKE @search)
+                  AND (@q='' OR m.name ILIKE @search OR m.phone ILIKE @search OR m.member_no ILIKE @search OR d.damage_no ILIKE @search OR d.handover_order_no ILIKE @search OR mv.ledger_no ILIKE @search)
                 """;
             await using var count=Command(conn,null,"SELECT count(*) "+from,args);var total=Convert.ToInt64(await count.ExecuteScalarAsync(ct));
-            await using var cmd=Command(conn,null,"SELECT d.id,d.damage_no,m.name,m.member_no,d.container_type,d.quantity,d.deposit_amount,d.status,d.reason,d.operator_name,d.created_at,d.lot_breakdown::text,COALESCE(d.scrap_no,''),COALESCE(d.scrap_reason,''),d.deposit_waived,d.uncovered_qty,d.uncovered_note,d.fee_paid,d.handover_order_no "+from+" ORDER BY d.created_at DESC,d.id LIMIT 20 OFFSET @offset",args);
+            await using var cmd=Command(conn,null,"SELECT d.id,d.damage_no,m.name,m.member_no,d.container_type,d.quantity,d.deposit_amount,d.status,d.reason,d.operator_name,d.created_at,d.lot_breakdown::text,COALESCE(d.scrap_no,''),COALESCE(d.scrap_reason,''),d.deposit_waived,d.uncovered_qty,d.uncovered_note,d.fee_paid,d.handover_order_no,mv.ledger_no "+from+" ORDER BY d.created_at DESC,d.id LIMIT 20 OFFSET @offset",args);
             var rows=new List<object>();await using var r=await cmd.ExecuteReaderAsync(ct);
-            while(await r.ReadAsync(ct))rows.Add(new{id=r.GetGuid(0),damageNo=r.GetString(1),memberName=r.GetString(2),memberNo=r.GetString(3),containerType=r.GetString(4),quantity=r.GetInt32(5),depositAmount=r.GetDecimal(6),status=r.GetString(7),reason=r.GetString(8),operatorName=r.GetString(9),createdAt=r.GetDateTime(10),lotBreakdown=JsonSerializer.Deserialize<JsonElement>(r.GetString(11)),scrapNo=r.GetString(12),scrapReason=r.GetString(13),depositWaived=r.GetBoolean(14),uncoveredQty=r.GetInt32(15),uncoveredNote=r.GetString(16),feePaid=r.IsDBNull(17)?(bool?)null:r.GetBoolean(17),handoverOrderNo=r.IsDBNull(18)?null:r.GetString(18)});
+            while(await r.ReadAsync(ct))rows.Add(new{id=r.GetGuid(0),damageNo=r.GetString(1),memberName=r.GetString(2),memberNo=r.GetString(3),containerType=r.GetString(4),quantity=r.GetInt32(5),depositAmount=r.GetDecimal(6),status=r.GetString(7),reason=r.GetString(8),operatorName=r.GetString(9),createdAt=r.GetDateTime(10),lotBreakdown=JsonSerializer.Deserialize<JsonElement>(r.GetString(11)),scrapNo=r.GetString(12),scrapReason=r.GetString(13),depositWaived=r.GetBoolean(14),uncoveredQty=r.GetInt32(15),uncoveredNote=r.GetString(16),feePaid=r.IsDBNull(17)?(bool?)null:r.GetBoolean(17),handoverOrderNo=r.IsDBNull(18)?null:r.GetString(18),movementNo=r.IsDBNull(19)?null:r.GetString(19)});
             return Results.Ok(new{rows,total,page=page??1,pageSize=20});
         }).RequireAuthorization();
     }
@@ -233,9 +236,13 @@ public static class ContainerCirculation
         int quantity, string reason, string orderNo, string actor, bool feePaid, CancellationToken ct) =>
         InsertDamage(conn, tx, tid, mid, type, quantity, reason, $"handover:{orderNo}", "", actor, [], 0, "", feePaid, orderNo, ct);
 
+    internal static Task<DamageResult> RecordMovementDamage(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, string type,
+        int quantity, string reason, long movementId, string actor, bool feePaid, CancellationToken ct) =>
+        InsertDamage(conn, tx, tid, mid, type, quantity, reason, $"movement:{movementId}", "", actor, [], 0, "", feePaid, null, ct, movementId);
+
     private static async Task<DamageResult> InsertDamage(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, string type,
         int quantity, string reason, string key, string hash, string actor, List<DamageDepositLot> lots, int uncovered, string uncoveredNote,
-        bool? feePaid, string? orderNo, CancellationToken ct)
+        bool? feePaid, string? orderNo, CancellationToken ct, long? movementId = null)
     {
         var id = Guid.NewGuid();
         var no = "PS" + id.ToString("N")[..28];
@@ -245,9 +252,9 @@ public static class ContainerCirculation
             ?new{id,damageNo=no,MemberId=mid,ContainerType=type,Quantity=quantity,depositAmount=amount,status="PENDING",lotBreakdown=lots,uncoveredQty=uncovered,uncoveredNote}
             :new{id,damageNo=no,MemberId=mid,ContainerType=type,Quantity=quantity,depositAmount=amount,status="PENDING",lotBreakdown=lots};
         await Exec(conn,tx,"""
-            INSERT INTO plugin_kunlun_waterstation.container_damages(id,tenant_id,damage_no,idempotency_key,request_hash,member_id,container_type,quantity,deposit_amount,lot_breakdown,reason,operator_name,report_receipt,uncovered_qty,uncovered_note,fee_paid,handover_order_no)
-            VALUES(@id,@tid,@no,@key,@hash,@mid,@type,@qty,@amount,@lots::jsonb,@reason,@actor,@receipt::jsonb,@uncovered,@uncoveredNote,@feePaid,@orderNo)
-            """,ct,("id",id),("tid",tid),("no",no),("key",key),("hash",hash),("mid",mid),("type",type),("qty",quantity),("amount",amount),("lots",Json(lots)),("reason",reason),("actor",actor),("receipt",Json(receipt)),("uncovered",uncovered),("uncoveredNote",uncoveredNote),("feePaid",(object?)feePaid??DBNull.Value),("orderNo",(object?)orderNo??DBNull.Value));
+            INSERT INTO plugin_kunlun_waterstation.container_damages(id,tenant_id,damage_no,idempotency_key,request_hash,member_id,container_type,quantity,deposit_amount,lot_breakdown,reason,operator_name,report_receipt,uncovered_qty,uncovered_note,fee_paid,handover_order_no,movement_id)
+            VALUES(@id,@tid,@no,@key,@hash,@mid,@type,@qty,@amount,@lots::jsonb,@reason,@actor,@receipt::jsonb,@uncovered,@uncoveredNote,@feePaid,@orderNo,@movement)
+            """,ct,("id",id),("tid",tid),("no",no),("key",key),("hash",hash),("mid",mid),("type",type),("qty",quantity),("amount",amount),("lots",Json(lots)),("reason",reason),("actor",actor),("receipt",Json(receipt)),("uncovered",uncovered),("uncoveredNote",uncoveredNote),("feePaid",(object?)feePaid??DBNull.Value),("orderNo",(object?)orderNo??DBNull.Value),("movement",(object?)movementId??DBNull.Value));
         return new(id,no,amount,uncovered,receipt);
     }
 

@@ -30,7 +30,7 @@ export function MemberDamageReviews({ memberId, version }: { memberId: string; v
             <strong>{r.status === 'PENDING' ? '待审核' : r.status === 'APPROVED' ? '已同意免赔' : '未同意免赔'}</strong></div>
           <p>{r.settlementNo ? `${r.settlementNo} · ${r.settlementCharged ? `已收 ¥${money(r.settlementAmount ?? 0)}` : '结算时免收'}` :
             r.status === 'APPROVED' ? '退款结算免收' : r.status === 'REJECTED' ? '退款时待处理' : '等待审核结果'}</p>
-          <small>{shortDateTime(r.createdAt)} · {r.orderNo || r.requestNo} · {r.reason}</small>
+          <small>{shortDateTime(r.createdAt)} · {r.orderNo || r.movementNo || r.requestNo} · {r.reason}</small>
           {r.reviewedAt && <small>{shortDateTime(r.reviewedAt)} · {r.reviewerName}{r.reviewNote && ` · ${r.reviewNote}`}</small>}
         </article>)}
         {data.total > data.pageSize && <div className="membership-actions">

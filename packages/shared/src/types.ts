@@ -793,6 +793,7 @@ export type DamageStatus = 'PENDING' | 'SCRAPPED';
 
 export interface ContainerDamageRow {
   handoverOrderNo?: string | null;
+  movementNo?: string | null;
   feePaid?: boolean | null;
   id: string;
   damageNo: string;
@@ -880,6 +881,7 @@ export interface RefundRequestRow {
   unitPrice: number | null;
   /** A damage waiver: the order handed over when the damage was found. */
   orderNo: string | null;
+  movementNo?: string | null;
 }
 
 export interface RefundRequestQuery extends PageQuery {

@@ -179,7 +179,7 @@ function RequestContent({ row: r }: { row: RefundRequestRow }) {
   if (!r.containerType && (r.kind === 'DEPOSIT' || r.kind === 'COLLECT')) return <>会员押金池</>;
   if (r.kind === 'DEPOSIT') return <>{container} × {r.quantity}</>;
   if (r.kind === 'COLLECT') return <>{container} × {r.quantity}{r.unitPrice != null && <><br /><small>押金 ¥{money(r.unitPrice)}/个</small></>}</>;
-  if (r.kind === 'DAMAGE') return <>损坏 {container} × {r.quantity}{r.orderNo && <><br /><small className="container-reference" title={r.orderNo}>水单 {r.orderNo}</small></>}</>;
+  if (r.kind === 'DAMAGE') return <>损坏 {container} × {r.quantity}{r.orderNo && <><br /><small className="container-reference" title={r.orderNo}>水单 {r.orderNo}</small></>}{r.movementNo && <><br /><small>领还单 {r.movementNo}</small></>}</>;
   const unit = r.waterType ? unitOf(r.waterType) : '张';
   const recharge = <>
     <small>{r.planName ?? '充值批次'}</small><br />
@@ -265,7 +265,7 @@ function ReviewDialog({ row: r, onClose, onDone }: { row: RefundRequestRow; onCl
           : kind === 'COLLECT'
             ? <p>{container}：{r.applicantName} 收了 {r.quantity} 个{piece}的押金{r.unitPrice != null ? `，每个 ¥${money(r.unitPrice)}` : ''}{r.payMethod ? `，${payMethodLabel(r.payMethod)}` : ''}</p>
             : kind === 'DAMAGE'
-              ? <p>{r.orderNo ? `水单 ${r.orderNo} ` : ''}交付时损坏 {r.quantity} 个{piece}（{container}），顾客不赔付</p>
+              ? <p>{r.movementNo ? `领还单 ${r.movementNo} 归还时` : `水单 ${r.orderNo ?? ''} 交付时`}损坏 {r.quantity} 个{piece}（{container}），顾客不赔付</p>
               : kind === 'DEPOSIT'
                 ? <p>退还 {container}押金 {r.quantity} 个</p>
                 : <p>退清 {r.planName}（{r.rechargeNo}）：退付费票 {r.remainingBuy ?? 0}，收回赠票 {r.remainingGift ?? 0}</p>}

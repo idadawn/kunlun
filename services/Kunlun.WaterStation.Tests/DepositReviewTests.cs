@@ -55,6 +55,64 @@ public sealed class DepositReviewTests(TestHost host)
     private static Task<HttpResponseMessage> Switches(HttpClient admin, bool deposit, bool damage) =>
         admin.PutAsJsonAsync("/api/settings/review", new SaveReviewSettingsRequest(true, true, deposit, damage));
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Standalone_Return_Splits_Damaged_Stock_And_Tracks_One_Waiver(bool approve)
+    {
+        using var admin = await Login("YG0001");
+        await Ok(await Switches(admin, deposit: false, damage: true));
+        try
+        {
+            var (mid, _) = await Member(admin, "独立归还验收");
+            const string path = "/api/containers/movements";
+            async Task<JsonElement> Stock() => (await admin.GetFromJsonAsync<JsonElement>("/api/containers/summary"))
+                .EnumerateArray().Single(r => r.GetProperty("containerType").GetString() == "BAG");
+            async Task<JsonElement> Bags() => (await admin.GetFromJsonAsync<JsonElement>($"/api/members/{mid}/deposit-summary"))
+                .EnumerateArray().Single(r => r.GetProperty("containerType").GetString() == "BAG");
+            static int Qty(JsonElement row, string key) => row.GetProperty(key).GetInt32();
+
+            var issue = new RegisterContainerMovementRequest(mid, "BAG", 5, 0, IdempotencyKey: Key());
+            await Error(await admin.PostAsJsonAsync(path, issue with { DamagedQty = 1, DamageCompensated = true }), HttpStatusCode.BadRequest);
+            await Ok(await admin.PostAsJsonAsync(path, issue));
+            var before = await Stock();
+            var request = new RegisterContainerMovementRequest(mid, "BAG", 0, 3, IdempotencyKey: Key(), DamagedQty: 1,
+                DamageCompensated: false, DamageReason: "自然老化");
+            await Error(await admin.PostAsJsonAsync(path, request with { DamagedQty = 4 }), HttpStatusCode.BadRequest);
+            await Error(await admin.PostAsJsonAsync(path, request with { DamageReason = " " }), HttpStatusCode.BadRequest);
+            var results = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ => admin.PostAsJsonAsync(path, request)));
+            var first = await Ok(results[0]);
+            Assert.Equal(first.GetProperty("ledgerNo").GetString(), (await Ok(results[1])).GetProperty("ledgerNo").GetString());
+            Assert.Equal(2, Qty(first, "currentHeld"));
+            await Error(await admin.PostAsJsonAsync(path, request with { DamageCompensated = true }), HttpStatusCode.Conflict);
+            var after = await Stock();
+            Assert.Equal(Qty(before, "inStationQty") + 2, Qty(after, "inStationQty"));
+            Assert.Equal(Qty(before, "damagedQty") + 1, Qty(after, "damagedQty"));
+            Assert.Equal(Qty(before, "memberHeldQty") - 3, Qty(after, "memberHeldQty"));
+            Assert.Equal(Qty(before, "totalQty"), Qty(after, "totalQty"));
+            var no = first.GetProperty("ledgerNo").GetString();
+            var ledger = Assert.Single((await admin.GetFromJsonAsync<JsonElement>($"/api/containers/circulation?q={no}&page=1")).GetProperty("rows").EnumerateArray());
+            Assert.Equal((3, 1, -3), (Qty(ledger, "emptyInQty"), Qty(ledger, "damagedReturnQty"), Qty(ledger, "deltaHeld")));
+            var slip = Assert.Single((await admin.GetFromJsonAsync<JsonElement>($"/api/containers/damages?q={no}&status=PENDING&page=1")).GetProperty("rows").EnumerateArray());
+            Assert.Equal(no, slip.GetProperty("movementNo").GetString());
+            var review = Assert.Single((await admin.GetFromJsonAsync<JsonElement>($"/api/refund-requests?q={no}&kind=DAMAGE&page=1")).GetProperty("rows").EnumerateArray());
+            Assert.Equal(no, review.GetProperty("movementNo").GetString());
+            Assert.Equal("PENDING", review.GetProperty("status").GetString());
+            Assert.Equal(1, Qty((await Bags()).GetProperty("damageBreakdown"), "awaitingReview"));
+            var decision = approve ? "approve" : "reject";
+            await Ok(await admin.PostAsJsonAsync($"/api/refund-requests/{review.GetProperty("id")}/{decision}", new { note = "核对完毕" }));
+            await Ok(await admin.PostAsJsonAsync(path, request with { IdempotencyKey = Key(), EmptyInM = 1, DamageCompensated = true, DamageReason = null }));
+            var bag = await Bags();
+            var counts = bag.GetProperty("damageBreakdown");
+            Assert.Equal((1,2,1), (Qty(bag,"heldQty"), Qty(bag,"damageQty"), Qty(counts,"paid")));
+            Assert.Equal(1, Qty(counts,approve ? "waived" : "pending"));
+            var preview = await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement/preview", new SettlementPreviewRequest()));
+            Assert.Equal(approve ? 0 : 1, preview.GetProperty("slip").GetProperty("damages").GetArrayLength());
+            Assert.Equal(0m, await DepositBalance(admin,mid));
+        }
+        finally { await Ok(await Switches(admin, deposit: false, damage: false)); }
+    }
+
     [Fact]
     public async Task Deposits_Staff_Take_Wait_For_Approval_And_Cover_The_Handover_Meanwhile()
     {
