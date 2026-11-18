@@ -4,7 +4,7 @@ import { useAuth } from '../auth';
 import { Field, FormDialog, useToast } from '../feedback';
 import { useLoader, useIdempotencyKey } from '../hooks';
 import { Icon } from '../icons';
-import { Stepper } from '../ordering';
+import { Stepper, ReturnedDamageFields, EMPTY_DAMAGE, damageFields, damageProblem } from '../ordering';
 import { MemberPicker, PayButtons, ReasonChips, UnavailableDialog, parseYuan, usePickedMember, useReviewSettings, waitsForReview, type Done } from './common';
 
 export type DepositAction = 'collect' | 'refund';
@@ -76,41 +76,57 @@ export function MovementDialog({ memberId, onClose, onDone }: { memberId?: strin
   const toast = useToast();
   const key = useIdempotencyKey();
   const [member, setMember] = usePickedMember(memberId);
-  const [container, setContainer] = useState<ContainerType>('BUCKET');
-  const [fullOut, setFullOut] = useState(0);
-  const [emptyIn, setEmptyIn] = useState(1);
-  const summary = useLoader(() => member ? api.depositSummary(member.id) : Promise.resolve([]), [api, member?.id]);
+  const [pickedContainer, setContainer] = useState<ContainerType>('BUCKET');
+  const [direction, setDirection] = useState<'issue' | 'return'>('return');
+  const [quantity, setQuantity] = useState(1);
+  const [damage, setDamage] = useState(EMPTY_DAMAGE);
+  const review = useReviewSettings();
+  const returning = direction === 'return';
+  const fullOut = returning ? 0 : quantity;
+  const emptyIn = returning ? quantity : 0;
+  const summary = useLoader(async () => member ? { memberId: member.id, rows: await api.depositSummary(member.id) } : null, [api, member?.id]);
+  const rows = member && summary.data?.memberId === member.id ? summary.data.rows : [];
   if (!can(P.ContainerRegister) && !can(P.OrderFulfill)) return <UnavailableDialog title="登记领还桶袋" message="当前账号没有容器登记权限" onClose={onClose} />;
+  const container = rows.some(r => r.containerType === pickedContainer) ? pickedContainer : rows[0]?.containerType ?? pickedContainer;
   const unit = containerUnit(container);
-  const held = (type: ContainerType) => summary.data?.find(r => r.containerType === type)?.heldQty ?? null;
+  const held = (type: ContainerType) => rows.find(r => r.containerType === type)?.heldQty ?? null;
   const before = held(container);
   const after = before === null ? null : before + fullOut - emptyIn;
   return (
     <FormDialog title="登记领还桶袋" submitLabel="确认登记" onClose={onClose} onSubmit={async () => {
       if (!member) throw new Error('请选择会员');
-      if (fullOut + emptyIn === 0) throw new Error(`请填写领走或还回的${unit}数`);
-      const result = await api.registerMovement({ memberId: member.id, containerType: container, fullOutN: fullOut, emptyInM: emptyIn, idempotencyKey: key });
+      if (before === null) throw new Error(summary.error || '请等待桶袋资料载入后再登记');
+      if (quantity <= 0) throw new Error(`请填写${returning ? '归还' : '领用'}数量`);
+      if (returning && quantity > before) throw new Error(`会员手里只有 ${before} 个${unit}，请核对归还数量`);
+      const problem = returning ? damageProblem(damage, unit, emptyIn) : '';
+      if (problem) throw new Error(problem);
+      const result = await api.registerMovement({ memberId: member.id, containerType: container, fullOutN: fullOut, emptyInM: emptyIn, idempotencyKey: key, ...(returning ? damageFields(damage) : {}) });
       await onDone?.();
-      toast(`已登记，${member.name}手里现有 ${result.currentHeld} 个${containerLabel(container)}`);
+      toast(`已登记，${member.name}手里现有 ${result.currentHeld} 个${unit}`);
     }}>
-      <Field label="会员" htmlFor="moveMember"><MemberPicker id="moveMember" value={member} onChange={setMember} /></Field>
+      <Field label="会员" htmlFor="moveMember"><MemberPicker id="moveMember" value={member} onChange={m => { setMember(m); setDamage(EMPTY_DAMAGE); }} /></Field>
       <label id="moveContainerLabel">水品配套桶袋</label>
       <div className="mode-switch" role="group" aria-labelledby="moveContainerLabel">
-        {(summary.data ?? []).map(row => row.containerType).map(type => (
-          <button key={type} type="button" className={container === type ? 'active' : ''} aria-pressed={container === type} onClick={() => setContainer(type)}>
+        {rows.map(row => row.containerType).map(type => (
+          <button key={type} type="button" className={container === type ? 'active' : ''} aria-pressed={container === type} onClick={() => { if (container !== type) { setContainer(type); setDamage(EMPTY_DAMAGE); } }}>
             <Icon name={containerKind(type) === 'BUCKET' ? 'drop' : 'box'} />
             <span><b>{containerLabel(type)}</b><small>{member ? `会员手里 ${held(type)} 个` : '选择会员后显示手里数量'}</small></span>
           </button>
         ))}
       </div>
-      <div className="movement-counts">
-        <div><Field label={`领走满${unit}（个）`} htmlFor="moveOut"><Stepper id="moveOut" label={`领走满${unit}`} value={fullOut} onChange={setFullOut} max={10000} /></Field></div>
-        <div><Field label={`还回空${unit}（个）`} htmlFor="moveIn"><Stepper id="moveIn" label={`还回空${unit}`} value={emptyIn} onChange={setEmptyIn} max={10000} /></Field></div>
+      <div className="seg-switch" role="group" aria-label="登记类型">
+        {(['issue', 'return'] as const).map(d => <button key={d} type="button" aria-pressed={direction === d}
+          onClick={() => { if (direction !== d) { setDirection(d); setQuantity(1); setDamage(EMPTY_DAMAGE); } }}>{d === 'issue' ? '领用' : '归还'}</button>)}
       </div>
+      <Field label={`${returning ? '归还' : '领用'}数量（个）`} htmlFor="moveQuantity">
+        <Stepper id="moveQuantity" label={returning ? '归还数量' : '领用数量'} value={quantity} onChange={setQuantity} max={10000} />
+      </Field>
+      {returning && before !== null && <ReturnedDamageFields id="movement" unit={unit} emptyIn={emptyIn} value={damage} onChange={patch => setDamage(c => ({ ...c, ...patch }))}
+        damageReviewed={waitsForReview(review, 'damage')} />}
       <div className={`deposit-total${after !== null && after < 0 ? ' warn' : ''}`}>
         <span>登记后会员手里</span>
         <b>{after === null ? '—' : `${before} → ${after} 个`}</b>
-        <small>{after !== null && after < 0 ? `还回的比会员手里的多，请核对数量` : '同时更新店里库存，押金另行收退。'}</small>
+        <small>{after !== null && after < 0 ? `还回的比会员手里的多，请核对数量` : returning && damage.damaged && quantity > 0 ? `归还 ${quantity} 个，其中破损 ${damage.damagedQty} 个记入待报废库存。` : '同时更新店里库存，押金另行收退。'}</small>
       </div>
     </FormDialog>
   );

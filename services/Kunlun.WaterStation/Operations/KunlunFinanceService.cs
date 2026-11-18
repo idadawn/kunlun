@@ -44,7 +44,10 @@ public sealed record RegisterContainerMovementRequest(
     int FullOutN,
     int EmptyInM,
     string? OrderNo = null,
-    string? IdempotencyKey = null);
+    string? IdempotencyKey = null,
+    int DamagedQty = 0,
+    bool? DamageCompensated = null,
+    string? DamageReason = null);
 
 public sealed class KunlunFinanceRepository(NpgsqlDataSource dataSource, KunlunAuthRepository authRepo, IConfiguration config)
 {

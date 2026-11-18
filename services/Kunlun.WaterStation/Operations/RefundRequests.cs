@@ -98,6 +98,8 @@ public static class RefundRequests
             ALTER TABLE plugin_kunlun_waterstation.refund_requests ADD COLUMN IF NOT EXISTS requested_amount NUMERIC(10,2) CHECK(requested_amount >= 0);
             -- 收押金：收款时的单价（批准时按它记押金批次）；损坏不赔付：是哪张水单交付时登记的。
             ALTER TABLE plugin_kunlun_waterstation.refund_requests ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,2);
+            ALTER TABLE plugin_kunlun_waterstation.refund_requests ADD COLUMN IF NOT EXISTS movement_id BIGINT REFERENCES plugin_kunlun_waterstation.container_ledgers(id);
+            CREATE UNIQUE INDEX IF NOT EXISTS refund_requests_damage_movement ON plugin_kunlun_waterstation.refund_requests(movement_id) WHERE movement_id IS NOT NULL;
             ALTER TABLE plugin_kunlun_waterstation.refund_requests ADD COLUMN IF NOT EXISTS order_no VARCHAR(40);
             """, ct);
         await tx.CommitAsync(ct);
@@ -125,20 +127,21 @@ public static class RefundRequests
                 CASE WHEN rr.kind = 'RECHARGE' AND rr.status = 'PENDING' AND b.status = 'ACTIVE'
                       AND (b.source = 'PURCHASE' OR (b.source = 'OPENING' AND b.paid_amount > 0))
                      THEN round(b.paid_amount * b.remaining_buy / b.fixed_qty, 2) END,
-                rr.unit_price, rr.order_no, sd.charge, sd.amount, ms.settlement_no
+                rr.unit_price, rr.order_no, sd.charge, sd.amount, ms.settlement_no,mv.ledger_no
                 """, """
                 plugin_kunlun_waterstation.refund_requests rr
                 JOIN plugin_kunlun_waterstation.members m ON m.id = rr.member_id
                 LEFT JOIN plugin_kunlun_waterstation.ticket_batches b ON b.id = rr.batch_id
                 LEFT JOIN plugin_kunlun_waterstation.recharge_orders ro ON ro.id = b.recharge_id
                 LEFT JOIN plugin_kunlun_waterstation.recharge_refunds rf ON rr.kind = 'RECHARGE' AND rf.refund_no = rr.refund_no
+                LEFT JOIN plugin_kunlun_waterstation.container_ledgers mv ON mv.id=rr.movement_id AND mv.tenant_id=rr.tenant_id
                 LEFT JOIN plugin_kunlun_waterstation.settlement_damage_decisions sd ON rr.kind='DAMAGE' AND sd.tenant_id=rr.tenant_id AND sd.reference=rr.request_no
                 LEFT JOIN plugin_kunlun_waterstation.member_settlements ms ON ms.id=sd.settlement_id AND ms.member_id=rr.member_id
                 WHERE rr.tenant_id = @tid AND (@mid::uuid IS NULL OR rr.member_id=@mid)
                   AND (@status IS NULL OR rr.status = @status)
                   AND (@kind IS NULL OR rr.kind = @kind)
                   AND (@q IS NULL OR rr.request_no ILIKE @q OR m.name ILIKE @q OR m.member_no ILIKE @q OR m.phone ILIKE @q
-                       OR rr.applicant_name ILIKE @q OR rr.refund_no ILIKE @q OR ro.recharge_no ILIKE @q OR rr.order_no ILIKE @q)
+                       OR rr.applicant_name ILIKE @q OR rr.refund_no ILIKE @q OR ro.recharge_no ILIKE @q OR rr.order_no ILIKE @q OR mv.ledger_no ILIKE @q)
                 """, "rr.created_at DESC, rr.id", p =>
             {
                 p.AddWithValue("tid", repo.DefaultTenantId);
@@ -184,7 +187,8 @@ public static class RefundRequests
                 orderNo = r.IsDBNull(32) ? null : r.GetString(32),
                 settlementCharged = r.IsDBNull(33) ? (bool?)null : r.GetBoolean(33),
                 settlementAmount = r.IsDBNull(34) ? (decimal?)null : r.GetDecimal(34),
-                settlementNo = r.IsDBNull(35) ? null : r.GetString(35)
+                settlementNo = r.IsDBNull(35) ? null : r.GetString(35),
+                movementNo = r.IsDBNull(36) ? null : r.GetString(36)
             }, ct);
         }).RequireAuthorization();
     }
@@ -488,18 +492,18 @@ public static class RefundRequests
     /// otherwise recorded as approved. Neither way moves money; the order note says the same.
     /// </summary>
     public static async Task<(string RequestNo, string Status)> RequestDamage(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, string ctype, int qty,
-        string reason, string orderNo, Guid orderId, string actor, bool reviewed, CancellationToken ct)
+        string reason, string? orderNo, Guid sourceId, string actor, bool reviewed, CancellationToken ct, long? movementId = null)
     {
         var no = await BusinessNumbers.RefundRequestNo(conn, tx, ct);
         var status = reviewed ? "PENDING" : "APPROVED";
         await Exec(conn, tx, """
             INSERT INTO plugin_kunlun_waterstation.refund_requests
-              (id,tenant_id,request_no,idempotency_key,request_hash,kind,member_id,container_type,quantity,reason,order_no,status,applicant_name,
+              (id,tenant_id,request_no,idempotency_key,request_hash,kind,member_id,container_type,quantity,reason,order_no,movement_id,status,applicant_name,
                reviewer_name,reviewed_at,review_note)
-            VALUES(@id,@tid,@no,@key,'','DAMAGE',@mid,@ctype,@qty,@reason,@order,@status,@actor,
+            VALUES(@id,@tid,@no,@key,'','DAMAGE',@mid,@ctype,@qty,@reason,@order,@movement,@status,@actor,
                CASE WHEN @status='APPROVED' THEN @actor END,CASE WHEN @status='APPROVED' THEN now() END,CASE WHEN @status='APPROVED' THEN '无需审核' END)
-            """, ct, ("id", Guid.NewGuid()), ("tid", tid), ("no", no), ("key", $"damage:{orderId:N}"), ("mid", mid), ("ctype", ctype), ("qty", qty),
-            ("reason", reason), ("order", orderNo), ("status", status), ("actor", actor));
+            """, ct, ("id", Guid.NewGuid()), ("tid", tid), ("no", no), ("key", $"damage:{sourceId:N}"), ("mid", mid), ("ctype", ctype), ("qty", qty),
+            ("reason", reason), ("order", (object?)orderNo ?? DBNull.Value), ("movement", (object?)movementId ?? DBNull.Value), ("status", status), ("actor", actor));
         return (no, status);
     }
 

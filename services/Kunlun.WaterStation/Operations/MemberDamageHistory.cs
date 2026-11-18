@@ -15,21 +15,25 @@ internal static class MemberDamageHistory
 
     private const string Facts = """
         WITH reviews AS (
-          SELECT request_no,order_no,container_type,quantity,status,reason
-          FROM plugin_kunlun_waterstation.refund_requests WHERE tenant_id=@tid AND member_id=@mid AND kind='DAMAGE'
+          SELECT q.request_no,q.order_no,q.container_type,q.quantity,q.status,q.reason,q.movement_id,mv.ledger_no AS movement_no
+          FROM plugin_kunlun_waterstation.refund_requests q
+          LEFT JOIN plugin_kunlun_waterstation.container_ledgers mv ON mv.id=q.movement_id AND mv.tenant_id=q.tenant_id
+          WHERE q.tenant_id=@tid AND q.member_id=@mid AND kind='DAMAGE'
         ), independent_returns AS (
-          SELECT d.*,
+          SELECT d.*,mv.ledger_no AS movement_no,
             CASE WHEN fee_paid IS TRUE THEN quantity
                  WHEN fee_paid IS FALSE THEN 0
                  ELSE (CASE WHEN status='SCRAPPED' AND NOT deposit_waived THEN quantity-uncovered_qty ELSE 0 END)
                     + (CASE WHEN uncovered_note LIKE '报废费用给了；%' THEN uncovered_qty ELSE 0 END) END AS paid_qty
           FROM plugin_kunlun_waterstation.container_damages d
-          WHERE tenant_id=@tid AND member_id=@mid AND handover_order_no IS NULL
+          LEFT JOIN plugin_kunlun_waterstation.container_ledgers mv ON mv.id=d.movement_id AND mv.tenant_id=d.tenant_id
+          WHERE d.tenant_id=@tid AND d.member_id=@mid AND handover_order_no IS NULL
+            AND NOT EXISTS (SELECT 1 FROM reviews r WHERE r.movement_id=d.movement_id)
             AND idempotency_key NOT LIKE '%:lost' AND idempotency_key NOT LIKE 'settlement:%:kept'
         ), facts AS (
           SELECT request_no AS ref,container_type,quantity,
                  CASE status WHEN 'APPROVED' THEN 'WAIVED' WHEN 'REJECTED' THEN 'REJECTED' ELSE 'PENDING' END AS status,
-                 concat_ws(' · ',order_no,reason) AS reason, status='REJECTED' AS needs_decision
+                 concat_ws(' · ',order_no,movement_no,reason) AS reason, status='REJECTED' AS needs_decision
           FROM reviews
           UNION ALL
           -- Includes older paid orders without a waiver request. A pre-structured order with only a request is counted above.
@@ -44,7 +48,7 @@ internal static class MemberDamageHistory
           WHERE o.tenant_id=@tid AND o.member_id=@mid AND o.handover_damage_qty>0
           UNION ALL
           -- An older scrap may have been partially covered by a deposit; only its unpaid portion can be decided later.
-          SELECT d.damage_no,d.container_type,part.qty,part.status,concat_ws(' · ',d.reason,NULLIF(d.uncovered_note,''),d.scrap_reason),part.needs_decision
+          SELECT d.damage_no,d.container_type,part.qty,part.status,concat_ws(' · ',d.movement_no,d.reason,NULLIF(d.uncovered_note,''),d.scrap_reason),part.needs_decision
           FROM independent_returns d CROSS JOIN LATERAL (VALUES
             (d.paid_qty, CASE WHEN d.idempotency_key LIKE 'settlement:%' THEN 'SETTLED_CHARGED' ELSE 'PAID' END, false),
             (d.quantity-d.paid_qty, CASE WHEN d.idempotency_key LIKE 'settlement:%' THEN 'SETTLED_WAIVED'

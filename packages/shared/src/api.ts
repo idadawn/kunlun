@@ -269,7 +269,7 @@ export class KunlunApi {
   updateUnitDeposit(containerType: ContainerType, unitDeposit: number) {
     return this.put<{ containerType: ContainerType; unitDeposit: number }>(`/api/containers/${containerType}/unit-deposit?newUnitDeposit=${encodeURIComponent(unitDeposit)}`);
   }
-  registerMovement(body: { memberId: string; containerType: ContainerType; fullOutN: number; emptyInM: number; idempotencyKey: string }) {
+  registerMovement(body: { memberId: string; containerType: ContainerType; fullOutN: number; emptyInM: number; idempotencyKey: string; damagedQty?: number; damageCompensated?: boolean | null; damageReason?: string | null }) {
     return this.post<{ ledgerNo: string; currentHeld: number }>('/api/containers/movements', body);
   }
   /**
