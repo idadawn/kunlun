@@ -60,7 +60,7 @@ builder.Services
                 var table = staff ? "staff" : "members";
                 var ds = ctx.HttpContext.RequestServices.GetRequiredService<NpgsqlDataSource>();
                 await using var conn = await ds.OpenConnectionAsync(ctx.HttpContext.RequestAborted);
-                await using var cmd = new NpgsqlCommand($"SELECT status, token_version, {(staff ? "permissions::text" : "'[]'")} FROM plugin_kunlun_waterstation.{table} WHERE id = @id AND tenant_id = @tid", conn);
+                await using var cmd = new NpgsqlCommand($"SELECT status, token_version, {(staff ? "permissions::text, false" : "'[]', must_change_password")} FROM plugin_kunlun_waterstation.{table} WHERE id = @id AND tenant_id = @tid", conn);
                 cmd.Parameters.AddWithValue("id", id);
                 cmd.Parameters.AddWithValue("tid", tenantId);
                 await using var reader = await cmd.ExecuteReaderAsync(ctx.HttpContext.RequestAborted);
@@ -69,6 +69,8 @@ builder.Services
                     ctx.Fail("登录已失效，请重新登录");
                     return;
                 }
+                if (!staff && reader.GetBoolean(3) && ctx.Principal?.Identity is ClaimsIdentity memberIdentity)
+                    memberIdentity.AddClaim(new Claim("must_change_password", "true"));
                 // Staff act with the permissions they hold now, so turning a mobile feature off takes effect on the next request.
                 if (staff && ctx.Principal?.Identity is ClaimsIdentity identity)
                 {
@@ -120,6 +122,17 @@ app.Use(async (context, next) =>
 app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();
+app.Use(async (context, next) =>
+{
+    if (context.User.HasClaim("must_change_password", "true") && context.Request.Path.StartsWithSegments("/api") &&
+        context.GetEndpoint()?.Metadata.GetMetadata<TemporaryPasswordAccess>() is null)
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await context.Response.WriteAsJsonAsync(new { error = "请先修改临时密码后再使用会员服务" });
+        return;
+    }
+    await next();
+});
 app.UseAuthorization();
 
 // Ensure schema and seed data on startup
@@ -181,8 +194,8 @@ app.MapGet("/api/auth/me", async (ClaimsPrincipal user, NpgsqlDataSource ds, Can
         await using var conn = await ds.OpenConnectionAsync(ct);
         mobileFeatures = await MobileFeatures.ForRole(conn, null, Guid.Parse(user.FindFirstValue("tenant_id")!), role, ct);
     }
-    return Results.Ok(new { sub, subjectId = sub, subjectType, displayName, codeOrNo, phone, role, permissions = perms, mobileFeatures });
-}).RequireAuthorization();
+    return Results.Ok(new { sub, subjectId = sub, subjectType, displayName, codeOrNo, phone, role, permissions = perms, mobileFeatures, mustChangePassword = user.HasClaim("must_change_password","true") });
+}).WithMetadata(new TemporaryPasswordAccess()).RequireAuthorization();
 
 // 4. 会员端本人资产查询（强制服务端按当前登录会员过滤，或者员工拥有 member:read 权限）
 app.MapGet("/api/members/{memberId:guid}/profile", async (

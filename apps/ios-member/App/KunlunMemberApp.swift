@@ -63,6 +63,7 @@ enum MemberTab: Hashable { case home, records, assets, account }
             ZStack {
                 Group {
                     if store.restoring { ProgressView("正在验证登录…") }
+                    else if store.identity?.mustChangePassword == true { PasswordView(requiredChange: true) }
                     else if store.identity != nil { MemberTabs() }
                     else {
                         LoginView(onDemo: {

@@ -6,7 +6,7 @@ import {
   type TicketBatch, type WaterOrder,
 } from '@kunlun/shared';
 import {
-  AddressBook, BatchCards, CredentialsDialog, Icon, RefundBatchDialog, SettlementDialog, SettlementRecords, canSettle, useAuth, useDialogs, useLoader,
+  AddressBook, MemberDamageReviews, BatchCards, Icon, RefundBatchDialog, SettlementDialog, SettlementRecords, canSettle, useAuth, useDialogs, useLoader,
   useRun, useSettlements,
 } from '@kunlun/ui';
 import { StatCard, useOperations } from '../common';
@@ -167,6 +167,7 @@ function Profile({ member: m }: { member: MemberProfile }) {
                 {rows.map(r => <ContainerDeposit key={r.containerType} row={r} />)}</>}
           </div>
         </section>
+        <MemberDamageReviews key={m.id} memberId={m.id} version={version} />
         {settlements.data && settlements.data.length > 0 && (
           <section className="card">
             <div className="card-head"><div className="card-title">退款结算单 <small>一次结清水票、押金和桶袋的单子</small></div></div>
@@ -176,9 +177,6 @@ function Profile({ member: m }: { member: MemberProfile }) {
         <section className="card">
           <div className="card-head">
             <div className="card-title">基础资料</div>
-            <div className="profile-head-actions">
-              <button type="button" className="text-btn" onClick={() => dialogs.open(close => <CredentialsDialog subjectType="MEMBER" id={m.id} onClose={close} />)}>设置登录账号</button>
-            </div>
           </div>
           <div className="profile-card-body">
             <div className="detail-row"><span>会员编号</span><b>{m.memberNo}</b></div>

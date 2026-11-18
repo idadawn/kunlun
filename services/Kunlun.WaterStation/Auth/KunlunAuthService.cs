@@ -67,10 +67,11 @@ public sealed record AuthTokenResponse(
     string Role,
     string[] Permissions,
     int TokenVersion,
-    bool IsNewMember = false);
+    bool IsNewMember = false, bool MustChangePassword = false);
 
 public static class PasswordHasher
 {
+    internal static string Temporary() => RandomNumberGenerator.GetString("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789", 12);
     private const int Iterations = 600_000;
     public static string Hash(string password)
     {
@@ -156,6 +157,7 @@ public sealed class KunlunAuthRepository(NpgsqlDataSource dataSource, IConfigura
             CREATE UNIQUE INDEX IF NOT EXISTS staff_username ON staff (tenant_id, lower(username));
             ALTER TABLE members ADD COLUMN IF NOT EXISTS username VARCHAR(32);
             ALTER TABLE members ADD COLUMN IF NOT EXISTS password_hash TEXT;
+            ALTER TABLE members ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;
             ALTER TABLE members ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 1;
             ALTER TABLE members ADD COLUMN IF NOT EXISTS remark VARCHAR(500);
             CREATE UNIQUE INDEX IF NOT EXISTS member_username ON members (tenant_id, lower(username));

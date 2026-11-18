@@ -175,8 +175,10 @@ export class KunlunApi {
     return this.request<Paged<MemberProfile>>('/api/members' + paged(query));
   }
   memberProfile(memberId: string) { return this.request<MemberProfile>(`/api/members/${memberId}/profile`); }
+  memberPhoneAvailability(phone: string) { return this.request<{ available: boolean; message: string | null }>('/api/members/phone-availability' + queryString({ phone })); }
+  resetMemberPassword(id: string) { return this.post<{ phone: string; temporaryPassword: string }>(`/api/members/${id}/reset-password`); }
   createMember(body: { name: string; phone: string; defaultAddress?: string; doorNo?: string; remark?: string }) {
-    return this.post<{ id: string; memberNo: string; name: string; phone: string }>('/api/members', body);
+    return this.post<{ id: string; memberNo: string; name: string; phone: string; temporaryPassword: string }>('/api/members', body);
   }
   /** 停用（要写原因）或重新启用会员；停用后会员端登录失效，员工也办不了他的业务。 */
   setMemberStatus(memberId: string, status: ActiveStatus, reason?: string) {

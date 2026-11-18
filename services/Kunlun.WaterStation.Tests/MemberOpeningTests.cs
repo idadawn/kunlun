@@ -46,6 +46,32 @@ public sealed class MemberOpeningTests(TestHost host)
         (await c.GetFromJsonAsync<JsonElement>("/api/auth/me")).GetProperty("permissions").EnumerateArray().Select(p => p.GetString()!).ToArray();
 
     [Fact]
+    public async Task Opening_Deposit_Total_Accepts_Cents_Preserves_Old_Lots_And_Does_Not_Count_As_A_Collection()
+    {
+        using var c=await Client();
+        var mid=Id(await Member(c));
+        var initial=await Finance(c);
+        await Ok(await Save(c,mid,Request(deposits:[new("BAG",2,Amount:10)])));
+        var adjust=new SaveOpeningRequest(Key(),DepositAmount:7.53m,ExpectedDepositAmount:10,Holdings:[new("BAG",7),new("BUCKET",1)]);
+        var first=await Ok(await Save(c,mid,adjust));
+        Assert.Equal(S(first,"entryNo"),S(await Ok(await Save(c,mid,adjust)),"entryNo"));
+        var history=await c.GetFromJsonAsync<JsonElement>($"/api/members/{mid}/opening");
+        Assert.Equal(7.53m,M(history,"depositAmount"));
+        Assert.Equal(0m,M(history,"lockedDepositAmount"));
+        Assert.Equal(7,I(await Deposit(c,mid,"BAG"),"heldQty"));
+        await Ok(await c.PostAsJsonAsync("/api/deposits/collect",new {memberId=mid,amount=4m,payMethod="CASH",idempotencyKey=Key()}));
+        Assert.Equal(HttpStatusCode.Conflict,(await Save(c,mid,adjust with {IdempotencyKey=Key(),DepositAmount=12})).StatusCode);
+        await Ok(await Save(c,mid,new SaveOpeningRequest(Key(),DepositAmount:8.31m,ExpectedDepositAmount:7.53m)));
+        await Ok(await c.PostAsJsonAsync("/api/deposits/refund",new {memberId=mid,amount=1m,payMethod="CASH",idempotencyKey=Key()}));
+        Assert.Equal(8.31m,M(await c.GetFromJsonAsync<JsonElement>($"/api/members/{mid}/opening"),"lockedDepositAmount"));
+        Assert.Equal(HttpStatusCode.Conflict,(await Save(c,mid,new SaveOpeningRequest(Key(),DepositAmount:0))).StatusCode);
+        var finance=await Finance(c);
+        Assert.Equal(M(initial,"depositOpeningTotal")+8.31m,M(finance,"depositOpeningTotal"));
+        Assert.Equal(M(initial,"depositCollectedTotal")+4m,M(finance,"depositCollectedTotal"));
+        Assert.True(finance.GetProperty("reconciledZeroDiff").GetBoolean());
+    }
+
+    [Fact]
     public async Task Admin_Records_Package_Left_Deposit_And_Buckets_Without_Counting_Them_As_Todays_Money()
     {
         using var c = await Client(); var member = await Member(c); var mid = Id(member); var memberNo = S(member, "memberNo");

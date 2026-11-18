@@ -8,6 +8,8 @@ namespace Kunlun.WaterStation.Auth;
 
 public sealed record CreateStaffRequest(string Name, string Phone, string Username, string Password, string Role);
 
+internal sealed class TemporaryPasswordAccess;
+
 public static class AuthEndpoints
 {
     private static readonly string DummyHash = PasswordHasher.Hash(Guid.NewGuid().ToString());
@@ -90,6 +92,26 @@ public static class AuthEndpoints
         app.MapPost("/api/auth/member/login", (StaffLoginRequest req, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>
             Login(req, "MEMBER", db, repo, ct)).RequireRateLimiting("login");
 
+        app.MapPost("/api/members/{id:guid}/reset-password", async (Guid id, ClaimsPrincipal user, HttpResponse response, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>
+        {
+            if (user.FindFirstValue("subject_type") != "STAFF" || !user.HasClaim("perm", KunlunPermissions.MemberWrite)) return Results.Forbid();
+            var temporaryPassword = PasswordHasher.Temporary();
+            await using var conn = await db.OpenConnectionAsync(ct);
+            await using var cmd = new NpgsqlCommand("""
+                UPDATE plugin_kunlun_waterstation.members SET username=phone,password_hash=@hash,must_change_password=TRUE,token_version=token_version+1
+                WHERE tenant_id=@tid AND id=@id AND status='ACTIVE' RETURNING phone
+                """,conn);
+            cmd.Parameters.AddWithValue("id",id); cmd.Parameters.AddWithValue("tid",repo.DefaultTenantId); cmd.Parameters.AddWithValue("hash",PasswordHasher.Hash(temporaryPassword));
+            try
+            {
+                if (await cmd.ExecuteScalarAsync(ct) is not string phone) return Results.NotFound(new { error = "会员不存在或已停用" });
+                response.Headers.CacheControl = "no-store";
+                return Results.Ok(new { phone, temporaryPassword });
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+            { return Results.Conflict(new { error = "该手机号已被其他会员用作登录账号，请先核对档案" }); }
+        }).RequireAuthorization();
+
         // No phone-only login route: a supplied phone number is not proof of identity.
         app.MapPut("/api/accounts/{subjectType}/{id:guid}/credentials", async (
             string subjectType, Guid id, AccountCredentialsRequest req, ClaimsPrincipal user,
@@ -102,8 +124,9 @@ public static class AuthEndpoints
             if (!ValidUsername(req.Username) || !ValidPassword(req.Password))
                 return Results.BadRequest(new { error = "用户名需为 3–32 位字母、数字、点、横线或下划线；密码需为 8–128 位" });
             var table = subjectType == "STAFF" ? "staff" : "members";
+            var requireChange = subjectType == "MEMBER" ? ", must_change_password=TRUE" : "";
             await using var conn = await db.OpenConnectionAsync(ct);
-            await using var cmd = new NpgsqlCommand($"UPDATE plugin_kunlun_waterstation.{table} SET username = @u, password_hash = @hash, token_version = token_version + 1 WHERE id = @id AND tenant_id = @tid", conn);
+            await using var cmd = new NpgsqlCommand($"UPDATE plugin_kunlun_waterstation.{table} SET username = @u, password_hash = @hash, token_version = token_version + 1{requireChange} WHERE id = @id AND tenant_id = @tid", conn);
             cmd.Parameters.AddWithValue("u", req.Username.Trim().ToLowerInvariant());
             cmd.Parameters.AddWithValue("hash", PasswordHasher.Hash(req.Password));
             cmd.Parameters.AddWithValue("id", id);
@@ -126,10 +149,11 @@ public static class AuthEndpoints
             cmd.Parameters.AddWithValue("tid", Guid.Parse(user.FindFirstValue("tenant_id")!));
             await cmd.ExecuteNonQueryAsync(ct);
             return Results.Ok(new { loggedOut = true });
-        }).RequireAuthorization();
+        }).WithMetadata(new TemporaryPasswordAccess()).RequireAuthorization();
 
         app.MapPost("/api/auth/change-password", async (ChangePasswordRequest req, ClaimsPrincipal user, NpgsqlDataSource db, CancellationToken ct) =>
         {
+            if (req.CurrentPassword == req.NewPassword) return Results.BadRequest(new { error = "新密码必须与原密码不同" });
             if (!ValidPassword(req.NewPassword)) return Results.BadRequest(new { error = "新密码需为 8–128 位" });
             var table = user.FindFirstValue("subject_type") == "STAFF" ? "staff" : "members";
             await using var conn = await db.OpenConnectionAsync(ct);
@@ -142,20 +166,21 @@ public static class AuthEndpoints
             if (!await r.ReadAsync(ct) || !PasswordHasher.Verify(req.CurrentPassword, r.IsDBNull(0) ? null : r.GetString(0))
                 || r.GetInt32(1).ToString() != user.FindFirstValue("token_version")) return Unauthorized();
             await r.CloseAsync();
-            await using var update = new NpgsqlCommand($"UPDATE plugin_kunlun_waterstation.{table} SET password_hash = @hash, token_version = token_version + 1 WHERE id = @id AND tenant_id = @tid", conn, tx);
+            var changed = table == "members" ? ", must_change_password=FALSE" : "";
+            await using var update = new NpgsqlCommand($"UPDATE plugin_kunlun_waterstation.{table} SET password_hash = @hash, token_version = token_version + 1{changed} WHERE id = @id AND tenant_id = @tid", conn, tx);
             update.Parameters.AddWithValue("hash", PasswordHasher.Hash(req.NewPassword));
             update.Parameters.AddWithValue("id", id); update.Parameters.AddWithValue("tid", tid);
             await update.ExecuteNonQueryAsync(ct);
             await tx.CommitAsync(ct);
             return Results.Ok(new { changed = true });
-        }).RequireAuthorization();
+        }).WithMetadata(new TemporaryPasswordAccess()).RequireAuthorization();
     }
 
     private static async Task<IResult> Login(StaffLoginRequest req, string type, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct)
     {
         if (!ValidUsername(req.Account) || req.Password is not { Length: > 0 and <= 128 }) return Unauthorized();
         var table = type == "STAFF" ? "staff" : "members";
-        var fields = type == "STAFF" ? "staff_no, role, permissions::text" : "member_no, 'MEMBER', '[]'";
+        var fields = type == "STAFF" ? "staff_no, role, permissions::text, false" : "member_no, 'MEMBER', '[]', must_change_password";
         await using var conn = await db.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand($"SELECT id, name, phone, password_hash, status, token_version, {fields} FROM plugin_kunlun_waterstation.{table} WHERE tenant_id = @tid AND lower(username) = @u", conn);
         cmd.Parameters.AddWithValue("tid", repo.DefaultTenantId);
@@ -166,12 +191,13 @@ public static class AuthEndpoints
         var id = r.GetGuid(0); var name = r.GetString(1); var phone = r.GetString(2);
         var version = r.GetInt32(5); var code = r.GetString(6); var role = r.GetString(7);
         var permissions = JsonSerializer.Deserialize<string[]>(r.GetString(8)) ?? [];
+        var mustChangePassword = r.GetBoolean(9);
         if (req.RequireAdmin && role != "ADMIN") return Results.Json(new { error = "管理后台仅限管理员登录" }, statusCode: 403);
         await r.CloseAsync();
         await using var audit = new NpgsqlCommand("INSERT INTO plugin_kunlun_waterstation.auth_audit_logs (tenant_id, actor_type, actor_id, actor_name, action) VALUES (@tid, @type, @id, @name, 'PASSWORD_LOGIN')", conn);
         audit.Parameters.AddWithValue("tid", repo.DefaultTenantId); audit.Parameters.AddWithValue("type", type);
         audit.Parameters.AddWithValue("id", id); audit.Parameters.AddWithValue("name", name);
         await audit.ExecuteNonQueryAsync(ct);
-        return Results.Ok(new AuthTokenResponse(repo.IssueJwt(type, id, name, code, phone, role, permissions, version), type, id, name, code, phone, role, permissions, version));
+        return Results.Ok(new AuthTokenResponse(repo.IssueJwt(type, id, name, code, phone, role, permissions, version), type, id, name, code, phone, role, permissions, version, MustChangePassword: mustChangePassword));
     }
 }

@@ -9,21 +9,33 @@ namespace Kunlun.WaterStation.Operations;
 public static class FinanceEndpoints
 {
     /// <summary>Who already has the phone. A disabled member is enabled again rather than created twice.</summary>
-    private static async Task<string> PhoneTaken(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, string phone, CancellationToken ct)
+    private static async Task<string?> PhoneTaken(NpgsqlConnection conn, NpgsqlTransaction? tx, Guid tid, string phone, CancellationToken ct)
     {
-        await using var cmd = TicketBatches.Command(conn, tx, "SELECT name, member_no, status FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND phone=@phone",
+        await using var cmd = TicketBatches.Command(conn, tx, "SELECT name,member_no,status,phone FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND (phone=@phone OR lower(username)=@phone) ORDER BY (phone=@phone) DESC LIMIT 1",
             ("tid", tid), ("phone", phone));
         await using var r = await cmd.ExecuteReaderAsync(ct);
-        return await r.ReadAsync(ct) && r.GetString(2) != "ACTIVE"
+        if (!await r.ReadAsync(ct)) return null;
+        if (r.GetString(3) != phone) return "该手机号已被用作登录账号，请核对会员档案";
+        return r.GetString(2) != "ACTIVE"
             ? $"该手机号是已停用的会员{r.GetString(0)}（{r.GetString(1)}）的，请在会员管理里找到这位会员重新启用"
             : "该手机号已存在会员档案";
     }
 
     public static void MapFinanceEndpoints(this WebApplication app)
     {
+        app.MapGet("/api/members/phone-availability", async (string phone, ClaimsPrincipal user, NpgsqlDataSource ds, KunlunFinanceRepository repo, CancellationToken ct) =>
+        {
+            if (!HasPerm(user, KunlunPermissions.MemberWrite)) return Results.Forbid();
+            if (!ValidPhone(phone)) return Results.BadRequest(new { error = "请填写有效的 11 位手机号" });
+            await using var conn = await ds.OpenConnectionAsync(ct);
+            var message = await PhoneTaken(conn, null, repo.TenantId, phone, ct);
+            return Results.Ok(new { available = message is null, message });
+        }).RequireAuthorization();
+
         // 1. 新建会员 (AC-01)
         app.MapPost("/api/members", async (
             CreateMemberRequest req,
+            HttpResponse response,
             ClaimsPrincipal user,
             NpgsqlDataSource ds,
             KunlunFinanceRepository finRepo,
@@ -34,37 +46,40 @@ public static class FinanceEndpoints
 
             var name = req.Name?.Trim() ?? "";
             var phone = req.Phone?.Trim() ?? "";
-            if (string.IsNullOrEmpty(name) || phone.Length != 11 || !phone.StartsWith('1'))
+            if (string.IsNullOrEmpty(name) || !ValidPhone(phone))
                 return Results.BadRequest(new { error = "请填写有效姓名与 11 位手机号" });
             var remark = Remarks.Normalize(req.Remark, Remarks.MemberMaxLength);
 
             var id = Guid.NewGuid();
+            var temporaryPassword = PasswordHasher.Temporary();
             await using var conn = await ds.OpenConnectionAsync(ct);
             await using var tx = await conn.BeginTransactionAsync(ct);
             // 手机号冲突时事务回滚，卡号随之退回计数器。
             var memberNo = await BusinessNumbers.MemberNo(conn, tx, finRepo.TenantId, ct);
             await using (var cmd = new NpgsqlCommand("""
                 INSERT INTO plugin_kunlun_waterstation.members
-                    (id, tenant_id, member_no, name, phone, status, source, remark)
-                VALUES (@id, @tid, @no, @name, @phone, 'ACTIVE', 'STAFF_CREATED', @remark)
-                ON CONFLICT (tenant_id, phone) DO NOTHING
+                    (id, tenant_id, member_no, name, phone, status, source, remark, username, password_hash, must_change_password)
+                VALUES (@id, @tid, @no, @name, @phone, 'ACTIVE', 'STAFF_CREATED', @remark, @phone, @hash, TRUE)
+                ON CONFLICT DO NOTHING
                 """, conn, tx))
             {
                 cmd.Parameters.AddWithValue("id", id);
                 cmd.Parameters.AddWithValue("tid", finRepo.TenantId);
                 cmd.Parameters.AddWithValue("no", memberNo);
+                cmd.Parameters.AddWithValue("hash", PasswordHasher.Hash(temporaryPassword));
                 cmd.Parameters.AddWithValue("name", name);
                 cmd.Parameters.AddWithValue("phone", phone);
                 cmd.Parameters.AddWithValue("remark", (object?)remark ?? DBNull.Value);
                 if (await cmd.ExecuteNonQueryAsync(ct) == 0)
-                    return Results.Conflict(new { error = await PhoneTaken(conn, tx, finRepo.TenantId, phone, ct) });
+                    return Results.Conflict(new { error = await PhoneTaken(conn, tx, finRepo.TenantId, phone, ct) ?? "该手机号已被用作登录账号，请核对会员档案" });
             }
             // 首个收货地址的联系人和手机号默认取会员本人。
             if (!string.IsNullOrWhiteSpace(req.DefaultAddress))
                 await MemberAddresses.AddInitial(conn, tx, finRepo.TenantId, id, name, phone, req.DefaultAddress, req.DoorNo, ct);
             await tx.CommitAsync(ct);
 
-            return Results.Ok(new { id, memberNo, name, phone, remark });
+            response.Headers.CacheControl = "no-store";
+            return Results.Ok(new { id, memberNo, name, phone, remark, temporaryPassword });
         }).RequireAuthorization();
 
         // 1b. 查询会员列表与搜索 (按卡号/姓名/手机号检索，可按状态、持有水票类型筛选并分页)
@@ -444,6 +459,8 @@ public static class FinanceEndpoints
         await TicketBatches.Exec(conn, tx, "UPDATE plugin_kunlun_waterstation.members SET deposit_amount = GREATEST(0, deposit_amount - @amt) WHERE id = @mid", ct, ("amt", value), ("mid", mid));
         return new DepositRefundResult(refundNo, refundAmount, breakdown, value, deducted);
     }
+
+    private static bool ValidPhone(string phone) => phone.Length == 11 && phone[0] == '1' && phone.All(char.IsAsciiDigit);
 
     private static bool HasPerm(ClaimsPrincipal user, string perm) =>
         user.FindAll("perm").Any(c => c.Value == perm || c.Value == "kunlun.waterstation:*");

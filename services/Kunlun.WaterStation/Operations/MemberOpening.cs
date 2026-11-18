@@ -22,7 +22,7 @@ public sealed record OpeningDepositInput(string ContainerType, int Quantity, dec
 /// <summary>会员现在手里某种桶袋的个数。</summary>
 public sealed record OpeningHoldingInput(string ContainerType, int Quantity);
 public sealed record SaveOpeningRequest(string IdempotencyKey, OpeningTicketInput[]? Tickets = null, OpeningDepositInput[]? Deposits = null,
-    OpeningHoldingInput[]? Holdings = null, string? Note = null);
+    OpeningHoldingInput[]? Holdings = null, string? Note = null, decimal? DepositAmount = null, decimal? ExpectedDepositAmount = null);
 
 /// <summary>
 /// 补录会员上系统前的数据（期初）：买过什么套餐、现在还剩多少，交了多少押金，手里有几个桶袋。
@@ -86,26 +86,41 @@ public static class MemberOpening
         if (!CanRead(user)) return Results.Forbid();
         var tid = repo.DefaultTenantId;
         await using var conn = await db.OpenConnectionAsync(ct);
-        var deposits = new List<object>();
-        await using (var cmd = Command(conn, null, """
-            SELECT container_type,paid_qty,unit_price,total_amount,deposit_no,remaining_qty,refunded_qty+deducted_qty+reserved_damage_qty>0
-            FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND source='OPENING' ORDER BY created_at,id
-            """, ("tid", tid), ("mid", mid)))
-        await using (var r = await cmd.ExecuteReaderAsync(ct))
-            while (await r.ReadAsync(ct))
-                deposits.Add(new { containerType = r.GetString(0), quantity = r.GetInt32(1), unitPrice = r.GetDecimal(2), amount = r.GetDecimal(3), depositNo = r.GetString(4), remainingQty = r.GetInt32(5), locked = r.GetBoolean(6) });
+        var lots = await OpeningLots(conn, null, tid, mid, ct);
+        // Older clients only know per-container lots. The new form edits the total across all opening lots.
+        var deposits = lots.Where(l => l.ContainerType is not null);
         var entries = new List<JsonElement>();
         await using (var cmd = Command(conn, null, "SELECT receipt::text FROM plugin_kunlun_waterstation.member_opening_entries WHERE tenant_id=@tid AND member_id=@mid ORDER BY created_at DESC,id DESC LIMIT 50", ("tid", tid), ("mid", mid)))
         await using (var r = await cmd.ExecuteReaderAsync(ct))
             while (await r.ReadAsync(ct)) entries.Add(JsonSerializer.Deserialize<JsonElement>(r.GetString(0)));
-        return Results.Ok(new { deposits, entries });
+        return Results.Ok(new { deposits, depositAmount = lots.Sum(l => l.Amount), lockedDepositAmount = lots.Where(l => l.Locked).Sum(l => l.Amount), entries });
+    }
+
+    private sealed record OpeningLot(string? ContainerType, int? Quantity, decimal? UnitPrice, decimal Amount, string DepositNo, int RemainingQty, bool Locked);
+
+    private static async Task<List<OpeningLot>> OpeningLots(NpgsqlConnection conn, NpgsqlTransaction? tx, Guid tid, Guid mid, CancellationToken ct)
+    {
+        var lots = new List<OpeningLot>();
+        await using var cmd = Command(conn, tx, """
+            SELECT container_type,paid_qty,unit_price,total_amount,deposit_no,remaining_qty,
+                   refunded_qty+deducted_qty+reserved_damage_qty>0 OR (container_type IS NULL AND free_amount<>total_amount)
+            FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND source='OPENING'
+            ORDER BY container_type IS NOT NULL, created_at DESC,id
+            """, ("tid",tid), ("mid",mid));
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        while (await r.ReadAsync(ct))
+            lots.Add(new(r.IsDBNull(0) ? null : r.GetString(0), r.IsDBNull(1) ? null : r.GetInt32(1),
+                r.IsDBNull(2) ? null : r.GetDecimal(2), r.GetDecimal(3), r.GetString(4), r.GetInt32(5), r.GetBoolean(6)));
+        return lots;
     }
 
     private static async Task<IResult> Save(Guid mid, SaveOpeningRequest req, ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct)
     {
         if (!CanSave(user)) return Results.Json(new { error = "需要「补录会员上系统前的数据」权限" }, statusCode: StatusCodes.Status403Forbidden);
         OpeningTicketInput[] tickets = req.Tickets ?? []; OpeningDepositInput[] deposits = req.Deposits ?? []; OpeningHoldingInput[] holdings = req.Holdings ?? [];
-        if (tickets.Length + deposits.Length + holdings.Length == 0) throw new BusinessRuleException("请填写要补录的套餐余量、押金或手里的桶袋");
+        if (req.DepositAmount is { } amount && (!Money.Valid(amount) || deposits.Length > 0))
+            throw new BusinessRuleException("历史押金请填写一笔总额，金额须大于等于零且最多两位小数");
+        if (req.DepositAmount is null && tickets.Length + deposits.Length + holdings.Length == 0) throw new BusinessRuleException("请填写要补录的套餐余量、押金或手里的桶袋");
         if (tickets.Length > MaxItems || deposits.Length > MaxItems || holdings.Length > MaxItems) throw new BusinessRuleException("一次补录的条目太多，请分几次录入");
         if (tickets.Where(t => t.BatchId is not null).GroupBy(t => t.BatchId).Any(g => g.Count() > 1)) throw new BusinessRuleException("同一笔余额一次只能改一处");
         if (deposits.GroupBy(d => d.ContainerType).Any(g => g.Count() > 1)) throw new BusinessRuleException("同一种桶袋的押金只能填一次");
@@ -115,6 +130,7 @@ public static class MemberOpening
         var hash = deposits.Any(d => d.Amount is not null)
             ? ContainerInventory.Hash(new { mid, tickets, deposits, holdings, note })
             : ContainerInventory.Hash(new { mid, tickets, deposits = deposits.Select(d => new { d.ContainerType, d.Quantity, d.UnitPrice }), holdings, note });
+        if (req.DepositAmount is { } total) hash = ContainerInventory.Hash(new { hash, depositAmount = Money.Text(total) });
         var tid = repo.DefaultTenantId; var actor = Actor(user);
 
         await using var conn = await db.OpenConnectionAsync(ct);
@@ -139,6 +155,7 @@ public static class MemberOpening
         var items = new List<object>();
         foreach (var t in tickets) if (await (t.BatchId is { } batch ? entry.ChangeTickets(batch, t, ct) : entry.AddTickets(t, ct)) is { } item) items.Add(item);
         foreach (var d in deposits) if (await entry.SetDeposit(d, ct) is { } item) items.Add(item);
+        if (req.DepositAmount is { } target && await entry.SetDepositAmount(target, req.ExpectedDepositAmount, ct) is { } change) items.Add(change);
         foreach (var h in holdings) if (await entry.SetHolding(h, ct) is { } item) items.Add(item);
         if (items.Count == 0) throw new BusinessRuleException("填的和现在记的一样，没有需要修改的");
 
@@ -242,6 +259,62 @@ public static class MemberOpening
             var (balance, _) = await MemberTickets.Add(conn, tx, tid, mid, water, mode, delta, 0, ct);
             await TicketLedger(water, mode, "OPENING_ADJUST", delta, balance, ct);
             return new { kind = "TICKETS", action = "ADJUST", batchId, waterType = water, name, fulfillMode = mode, unit, before = remaining, after = t.Remaining };
+        }
+
+        // The amount is the original opening total, independent of subsequent collections and refunds.
+        public async Task<object?> SetDepositAmount(decimal target, decimal? expected, CancellationToken ct)
+        {
+            var lots = await OpeningLots(conn, tx, tid, mid, ct);
+            var before = lots.Sum(l => l.Amount);
+            if (expected is not null && before != expected) throw new BusinessRuleException("历史押金已变化，请重新打开补录核对", 409);
+            if (before == target) return null;
+            var locked = lots.Where(l => l.Locked).Sum(l => l.Amount);
+            if (target < locked) throw new BusinessRuleException($"已发生收退或报废占用的历史押金 ¥{Money.Text(locked)} 不能调减", 409);
+            var delta = target - before;
+            var changes = new List<object>();
+            if (delta > 0)
+            {
+                var pool = lots.FirstOrDefault(l => l.ContainerType is null && !l.Locked);
+                if (pool is null)
+                {
+                    var added = await FinanceEndpoints.InsertDepositLot(conn, tx, tid, mid, null, 0, delta, "OPENING",
+                        $"opening:{id:N}:pool", actor, new DateTimeOffset(since, TimeSpan.Zero), ct, Source);
+                    changes.Add(new { added.DepositNo, before = 0m, after = delta });
+                }
+                else
+                {
+                    await WriteAmount(pool, pool.Amount + delta);
+                    await AddDeposit(delta, ct);
+                }
+            }
+            else
+            {
+                await using var pending = Command(conn, tx, "SELECT request_no FROM plugin_kunlun_waterstation.refund_requests WHERE tenant_id=@tid AND member_id=@mid AND kind='DEPOSIT' AND status='PENDING' LIMIT 1",
+                    ("tid", tid), ("mid", mid));
+                if (await pending.ExecuteScalarAsync(ct) is string request) throw new BusinessRuleException($"有退押金申请 {request} 在审核，处理后再调减历史押金", 409);
+                var cut = -delta;
+                foreach (var lot in lots.Where(l => !l.Locked))
+                {
+                    var reduction = Math.Min(cut, lot.Amount);
+                    await WriteAmount(lot, lot.Amount - reduction);
+                    cut -= reduction;
+                    if (cut == 0) break;
+                }
+                await AddDeposit(delta, ct);
+            }
+            return new { kind = "DEPOSIT_TOTAL", before, after = target, lots = changes };
+
+            async Task WriteAmount(OpeningLot lot, decimal after)
+            {
+                var sql = after == 0
+                    ? "DELETE FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND deposit_no=@doc"
+                    : """
+                      UPDATE plugin_kunlun_waterstation.deposit_lots SET container_type=NULL,unit_price=NULL,paid_qty=NULL,
+                         remaining_qty=0,total_amount=@after,free_amount=@after WHERE tenant_id=@tid AND member_id=@mid AND deposit_no=@doc
+                      """;
+                await Exec(conn, tx, sql, ct, ("tid", tid), ("mid", mid), ("doc", lot.DepositNo), ("after", after));
+                changes.Add(new { lot.DepositNo, lot.ContainerType, lot.Quantity, lot.UnitPrice, before = lot.Amount, after });
+            }
         }
 
         /// <summary>The member's one opening deposit lot of a container: created, changed or dropped while nothing has refunded, deducted or reserved it.</summary>

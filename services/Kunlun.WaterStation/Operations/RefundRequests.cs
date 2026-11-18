@@ -108,7 +108,7 @@ public static class RefundRequests
         app.MapPost("/api/refund-requests", Apply).RequireAuthorization();
         app.MapPost("/api/refund-requests/{id:guid}/approve", Approve).RequireAuthorization();
         app.MapPost("/api/refund-requests/{id:guid}/reject", Reject).RequireAuthorization();
-        app.MapGet("/api/refund-requests", async (string? status, string? kind, string? q, int? page, int? pageSize,
+        app.MapGet("/api/refund-requests", async (string? status, string? kind, string? q, Guid? memberId, int? page, int? pageSize,
             ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>
         {
             if (!Has(user, KunlunPermissions.MemberRead)) return Results.Forbid();
@@ -125,14 +125,16 @@ public static class RefundRequests
                 CASE WHEN rr.kind = 'RECHARGE' AND rr.status = 'PENDING' AND b.status = 'ACTIVE'
                       AND (b.source = 'PURCHASE' OR (b.source = 'OPENING' AND b.paid_amount > 0))
                      THEN round(b.paid_amount * b.remaining_buy / b.fixed_qty, 2) END,
-                rr.unit_price, rr.order_no
+                rr.unit_price, rr.order_no, sd.charge, sd.amount, ms.settlement_no
                 """, """
                 plugin_kunlun_waterstation.refund_requests rr
                 JOIN plugin_kunlun_waterstation.members m ON m.id = rr.member_id
                 LEFT JOIN plugin_kunlun_waterstation.ticket_batches b ON b.id = rr.batch_id
                 LEFT JOIN plugin_kunlun_waterstation.recharge_orders ro ON ro.id = b.recharge_id
                 LEFT JOIN plugin_kunlun_waterstation.recharge_refunds rf ON rr.kind = 'RECHARGE' AND rf.refund_no = rr.refund_no
-                WHERE rr.tenant_id = @tid
+                LEFT JOIN plugin_kunlun_waterstation.settlement_damage_decisions sd ON rr.kind='DAMAGE' AND sd.tenant_id=rr.tenant_id AND sd.reference=rr.request_no
+                LEFT JOIN plugin_kunlun_waterstation.member_settlements ms ON ms.id=sd.settlement_id AND ms.member_id=rr.member_id
+                WHERE rr.tenant_id = @tid AND (@mid::uuid IS NULL OR rr.member_id=@mid)
                   AND (@status IS NULL OR rr.status = @status)
                   AND (@kind IS NULL OR rr.kind = @kind)
                   AND (@q IS NULL OR rr.request_no ILIKE @q OR m.name ILIKE @q OR m.member_no ILIKE @q OR m.phone ILIKE @q
@@ -140,6 +142,7 @@ public static class RefundRequests
                 """, "rr.created_at DESC, rr.id", p =>
             {
                 p.AddWithValue("tid", repo.DefaultTenantId);
+                p.AddWithValue("mid", (object?)memberId ?? DBNull.Value);
                 p.Add(Paging.Text("status", status));
                 p.Add(Paging.Text("kind", kind));
                 p.Add(Paging.Like("q", q));
@@ -178,7 +181,10 @@ public static class RefundRequests
                 // Pending water refunds: what the remaining paid tickets are worth now, which moves while tickets are still used.
                 currentAmount = r.IsDBNull(30) ? (decimal?)null : r.GetDecimal(30),
                 unitPrice = r.IsDBNull(31) ? (decimal?)null : r.GetDecimal(31),
-                orderNo = r.IsDBNull(32) ? null : r.GetString(32)
+                orderNo = r.IsDBNull(32) ? null : r.GetString(32),
+                settlementCharged = r.IsDBNull(33) ? (bool?)null : r.GetBoolean(33),
+                settlementAmount = r.IsDBNull(34) ? (decimal?)null : r.GetDecimal(34),
+                settlementNo = r.IsDBNull(35) ? null : r.GetString(35)
             }, ct);
         }).RequireAuthorization();
     }

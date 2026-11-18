@@ -36,10 +36,8 @@ public sealed class PasswordLoginTests(TestHost host)
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var auth = (await response.Content.ReadFromJsonAsync<AuthTokenResponse>())!;
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/members/{id}/profile")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/ledgers/recharges")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/members/20000000-0000-0000-0000-000000008621/profile")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.PutAsJsonAsync($"/api/accounts/MEMBER/{id}/credentials", new AccountCredentialsRequest(username, password))).StatusCode);
+        Assert.True(auth.MustChangePassword);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/api/members/{id}/profile")).StatusCode);
         var newPassword = Guid.NewGuid().ToString("N");
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/auth/change-password", new ChangePasswordRequest(password, newPassword))).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/me")).StatusCode);
@@ -47,9 +45,42 @@ public sealed class PasswordLoginTests(TestHost host)
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/auth/member/login", new StaffLoginRequest(username, password))).StatusCode);
         auth = (await (await client.PostAsJsonAsync("/api/auth/member/login", new StaffLoginRequest(username, newPassword))).Content.ReadFromJsonAsync<AuthTokenResponse>())!;
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/members/{id}/profile")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/ledgers/recharges")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/members/20000000-0000-0000-0000-000000008621/profile")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PutAsJsonAsync($"/api/accounts/MEMBER/{id}/credentials", new AccountCredentialsRequest(username, password))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/auth/logout", new { })).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/me")).StatusCode);
     }
+    [Fact]
+    public async Task New_Member_Uses_Unique_Phone_And_Reset_Requires_A_Fresh_Password()
+    {
+        using var admin = host.CreateClient();
+        var staff = await (await admin.PostAsJsonAsync("/api/auth/staff/login",new StaffLoginRequest("YG0001",TestHost.Password))).Content.ReadFromJsonAsync<AuthTokenResponse>();
+        admin.DefaultRequestHeaders.Authorization = new("Bearer",staff!.AccessToken);
+        var input = new {name="密码验收", phone=$"136{Random.Shared.Next(10000000,99999999)}"};
+        var created = await (await admin.PostAsJsonAsync("/api/members",input)).Content.ReadFromJsonAsync<JsonElement>();
+        var mid = created.GetProperty("id").GetGuid();
+        var first = created.GetProperty("temporaryPassword").GetString()!;
+        Assert.False((await admin.GetFromJsonAsync<JsonElement>($"/api/members/phone-availability?phone={input.phone}")).GetProperty("available").GetBoolean());
+        Assert.Equal(HttpStatusCode.Conflict,(await admin.PostAsJsonAsync("/api/members",input)).StatusCode);
+        using var member = host.CreateClient();
+        var login = await (await member.PostAsJsonAsync("/api/auth/member/login",new StaffLoginRequest(input.phone,first))).Content.ReadFromJsonAsync<AuthTokenResponse>();
+        member.DefaultRequestHeaders.Authorization=new("Bearer",login!.AccessToken);
+        Assert.True((await member.GetFromJsonAsync<JsonElement>("/api/auth/me")).GetProperty("mustChangePassword").GetBoolean());
+        Assert.Equal(HttpStatusCode.BadRequest,(await member.PostAsJsonAsync("/api/auth/change-password",new ChangePasswordRequest(first,first))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,(await member.GetAsync($"/api/members/{mid}/profile")).StatusCode);
+        var permanent = Guid.NewGuid().ToString("N");
+        await TestHost.CompleteFirstLogin(member,input.phone,first,permanent);
+        var reset = await (await admin.PostAsync($"/api/members/{mid}/reset-password",null)).Content.ReadFromJsonAsync<JsonElement>();
+        var next = reset.GetProperty("temporaryPassword").GetString()!;
+        Assert.NotEqual(first,next);
+        Assert.Equal(HttpStatusCode.Unauthorized,(await member.GetAsync("/api/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized,(await member.PostAsJsonAsync("/api/auth/member/login",new StaffLoginRequest(input.phone,permanent))).StatusCode);
+        await TestHost.CompleteFirstLogin(member,input.phone,next,permanent);
+        Assert.False((await member.GetFromJsonAsync<JsonElement>("/api/auth/me")).GetProperty("mustChangePassword").GetBoolean());
+    }
+
     [Fact]
     public async Task Admin_Can_Create_Staff_But_Clerk_Cannot_And_Last_Admin_Is_Protected()
     {

@@ -21,9 +21,11 @@ export interface AuthSession {
   permissions: string[];
   tokenVersion?: number;
   isNewMember?: boolean;
+  mustChangePassword?: boolean;
 }
 
 export interface CurrentUser {
+  mustChangePassword?: boolean;
   sub: string;
   subjectId: string;
   subjectType: SubjectType;
@@ -557,6 +559,8 @@ export interface SaveOpeningBody {
   idempotencyKey: string;
   tickets?: OpeningTicketInput[];
   deposits?: OpeningDepositInput[];
+  depositAmount?: number;
+  expectedDepositAmount?: number;
   holdings?: OpeningHoldingInput[];
   note?: string;
 }
@@ -566,6 +570,7 @@ export interface OpeningDepositAmount { quantity: number; unitPrice: number; amo
 /** One change an opening entry made, with the figure before and after. */
 export type OpeningItem =
   | { kind: 'TICKETS'; action: 'CREATE' | 'ADJUST' | 'REMOVE'; batchId: string; waterType: WaterType; name: string; fulfillMode: FulfillMode; unit: string; paidAmount?: number; packageQty?: number | null; before: number; after: number }
+  | { kind: 'DEPOSIT_TOTAL'; before: number; after: number }
   | { kind: 'DEPOSIT'; action: 'CREATE' | 'ADJUST' | 'REMOVE'; containerType: ContainerType; depositNo: string; before: OpeningDepositAmount | null; after: OpeningDepositAmount | null }
   | { kind: 'HOLDING'; action: 'SET'; containerType: ContainerType; before: number; after: number; coveredQty: number };
 
@@ -592,6 +597,8 @@ export interface OpeningDeposit {
 }
 
 export interface MemberOpeningRecord {
+  depositAmount: number;
+  lockedDepositAmount: number;
   deposits: OpeningDeposit[];
   /** Newest first. */
   entries: OpeningEntry[];
@@ -816,6 +823,9 @@ export interface ReviewSettings {
 
 /** 审核申请：押金退款、退清充值剩余权益、店员手动赠送的水票、员工收的押金或交付时的损坏不赔付；不需要审核时当场记为已通过。 */
 export interface RefundRequestRow {
+  settlementNo: string | null;
+  settlementCharged: boolean | null;
+  settlementAmount: number | null;
   id: string;
   requestNo: string;
   kind: RefundKind;
@@ -858,6 +868,7 @@ export interface RefundRequestRow {
 }
 
 export interface RefundRequestQuery extends PageQuery {
+  memberId?: string;
   status?: RefundRequestStatus;
   kind?: RefundKind;
   q?: string;
