@@ -35,6 +35,8 @@ import type {
   MobileConfigOverview,
   OrderQuery,
   OverviewReport,
+  OperatingPeriod,
+  OperatingReport,
   Paged,
   PayMethod,
   PlanSnapshot,
@@ -305,6 +307,7 @@ export class KunlunApi {
 
   // Reports
   financeSummary() { return this.request<FinanceSummaryReport>('/api/reports/finance-summary'); }
+  operatingPeriod(period: OperatingPeriod) { return this.request<OperatingReport>('/api/reports/operating-period' + queryString({ period })); }
   overview() { return this.request<OverviewReport>('/api/reports/overview'); }
   rechargeLedger(query: RechargeLedgerQuery = {}) { return this.request<Paged<RechargeLedgerRow>>('/api/ledgers/recharges' + paged(query)); }
   rechargeRefundLedger(query: RechargeLedgerQuery = {}) { return this.request<Paged<RechargeRefundLedgerRow>>('/api/ledgers/recharge-refunds' + paged(query)); }

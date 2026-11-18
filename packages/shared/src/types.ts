@@ -304,6 +304,27 @@ export interface FinanceSummaryReport {
   generatedAt: string;
 }
 
+export type OperatingPeriod = 'today' | 'week' | 'last-week' | 'month' | 'last-month' | 'year' | 'last-year';
+
+export interface OperatingPoint {
+  label: string;
+  receipts: number;
+  buckets: number;
+  bags: number;
+  deliveries: number;
+  pickups: number;
+  newMembers: number;
+}
+
+export interface OperatingReport {
+  start: string;
+  end: string;
+  grain: 'hour' | 'day' | 'month';
+  cash: ExpenseSummary;
+  /** Only available with report permission. Includes empty slots up to the current hour, day or month. */
+  activity: { trend: OperatingPoint[]; redeemedValue: number } | null;
+}
+
 export interface OverviewReport {
   pendingDelivery: number;
   pendingPickup: number;
