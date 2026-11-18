@@ -34,7 +34,10 @@ public sealed record VerifyPickupCodeRequest(
     int ActualQty,
     int FullOutN,
     int EmptyInM,
-    string? DiffReason = null);
+    string? DiffReason = null,
+    int DamagedQty = 0,
+    bool? DamageCompensated = null,
+    string? DamageReason = null);
 
 public sealed class KunlunOrderRepository(NpgsqlDataSource dataSource, KunlunAuthRepository authRepo)
 {

@@ -54,7 +54,7 @@ export function FulfillDialog({ order, onClose, onDone }: { order?: WaterOrder; 
     if (order && container && !position) throw new Error(deposits.error ? `押金核对失败：${deposits.error}` : '正在核对会员手里的桶袋和押金，请稍候');
     const body: FulfillOrderRequest = { actualQty: actual, fullOutN: actual, emptyInM: emptyIn, pickupCode: code || null, diffReason: !order || quantityChanged ? diffReason.trim() || null : null };
     if (order && container && position) {
-      const problem = handoverProblem(choice, collected.current ? 0 : due, unit);
+      const problem = handoverProblem(choice, collected.current ? 0 : due, unit, emptyIn);
       if (problem) throw new Error(problem);
       if (paid > 0 && !can(P.DepositCollect)) throw new Error('交付后押金不足，当前账号没有收押金权限');
       const owed = Math.max(0, due - paid);

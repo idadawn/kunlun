@@ -49,6 +49,7 @@ function happened(r: CirculationRow) {
   const parts = [
     r.fullOutQty ? `领走 ${r.fullOutQty} 个` : '',
     r.emptyInQty ? `${r.businessType === 'DAMAGE_RETURN' ? '破损还回' : '还回'} ${r.emptyInQty} 个` : '',
+    r.businessType === 'TURNOVER' && r.damagedReturnQty > 0 ? `其中完好 ${r.emptyInQty - r.damagedReturnQty} 个、破损 ${r.damagedReturnQty} 个` : '',
     r.scrappedQty ? `报废 ${r.scrappedQty} 个` : '',
   ].filter(Boolean);
   return parts.join('，') || '—';
@@ -129,7 +130,7 @@ export function Assets() {
     <thead><tr><th>时间 / 破损单号</th><th>会员</th><th>容器 / 数量</th><th>原实收押金</th><th>状态</th><th>原因</th><th>操作</th></tr></thead>
     <tbody>{body(7, '暂无符合条件的破损记录', result?.tab === 'damages' && result.rows.map(r => (
       <tr key={r.id}>
-        <td>{time(r.createdAt)}<br /><small>{r.damageNo}</small></td>
+        <td>{time(r.createdAt)}<br /><small>{r.damageNo}</small>{r.handoverOrderNo && <><br /><small>水单 {r.handoverOrderNo}</small></>}</td>
         <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>
         <td>{containerLabel(r.containerType)} × {r.quantity}</td>
         <td>¥{money(r.depositAmount)}<br /><small>{r.feePaid != null ? r.feePaid ? '登记时已赔付' : '登记时未赔付' : r.status === 'PENDING' ? '报废时决定是否扣除' : r.depositWaived ? '未扣，已退回可用押金' : '已扣除'}</small></td>

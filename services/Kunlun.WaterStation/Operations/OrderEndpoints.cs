@@ -457,7 +457,8 @@ public static class OrderEndpoints
                 return Results.Json(new { error = "FORBIDDEN_PERMISSION", message = "缺少自提核销权限 order.fulfill（AC-16）" }, statusCode: 403);
 
             var operatorName = user.FindFirstValue(ClaimTypes.Name) ?? "店员";
-            var fulfillReq = new FulfillWaterOrderRequest(req.ActualQty, req.FullOutN, req.EmptyInM, req.PickupCode, req.DiffReason);
+            var fulfillReq = new FulfillWaterOrderRequest(req.ActualQty, req.FullOutN, req.EmptyInM, req.PickupCode, req.DiffReason,
+                DamagedQty: req.DamagedQty, DamageCompensated: req.DamageCompensated, DamageReason: req.DamageReason);
             return await ExecuteFulfillOrderAsync(null, req.PickupCode, fulfillReq, operatorName, db, orderRepo, ct);
         }).RequireAuthorization();
 
@@ -595,6 +596,9 @@ public static class OrderEndpoints
             });
         }
 
+        if (req.DamagedQty > req.EmptyInM)
+            return Results.BadRequest(new { error = "INVALID_DAMAGE_QTY", message = "破损数量不能超过本次收回的空桶袋数量" });
+        await TicketBatches.LockMember(conn, tx, orderRepo.TenantId, memberId, ct);
         var product = await WaterProducts.Read(conn, tx, orderRepo.TenantId, waterType, ct);
         var containerType = product.ContainerId;
         var unit = product.Unit; // 桶 or 袋: messages name the container this water actually travels in
@@ -637,7 +641,6 @@ public static class OrderEndpoints
         var coveredDepositQty = newHeld - missingUnits;
         var handoverNote = req.OverrideReason?.Trim();
         if (handoverNote is { Length: > 500 }) return Results.BadRequest(new { error = "HANDOVER_NOTE_TOO_LONG", message = "交付备注请写在 500 字以内" });
-        if (req.DamagedQty > (long)currentHeld + req.FullOutN) throw new BusinessRuleException("破损数量超过本次交接的桶袋数");
         if (string.IsNullOrEmpty(handoverNote))
         {
             var notes = new List<string>();
@@ -655,7 +658,7 @@ public static class OrderEndpoints
         await ProductContainers.SetHeld(conn, tx, orderRepo.TenantId, memberId, containerType, newHeld, ct);
 
         // 更新容器库存 (AC-20: 店里 - deltaHeld, 客户手里与会员名下 + deltaHeld)；店里的数是手记的，记到 0 为止，不拦截交付
-        if (!await ContainerInventory.MoveToMembers(conn, tx, orderRepo.TenantId, containerType, deltaHeld, ct))
+        if (!await ContainerInventory.MoveToMembers(conn, tx, orderRepo.TenantId, containerType, deltaHeld, ct, req.DamagedQty))
             throw new BusinessRuleException("会员持有桶袋的汇总需要核对，请联系管理员");
 
         // 更新订单状态为 COMPLETED
@@ -753,6 +756,10 @@ public static class OrderEndpoints
             clCmd.Parameters.AddWithValue("rmk", ledgerRemark.Length > 0 ? ledgerRemark : "正常履约交接");
             await clCmd.ExecuteNonQueryAsync(ct);
         }
+
+        if (req.DamagedQty > 0)
+            await ContainerCirculation.RecordHandoverDamage(conn, tx, orderRepo.TenantId, memberId, containerType, req.DamagedQty,
+                damageReason is { Length: > 0 } ? damageReason : "交付时收回破损桶袋", orderNo, operatorName, req.DamageCompensated == true, ct);
 
         // 损坏不赔付：审核开关打开时等管理员批准，关掉就记一条已通过的；都不动账，交付备注里也写着。
         string? damageRequestNo = null, damageReviewStatus = null;

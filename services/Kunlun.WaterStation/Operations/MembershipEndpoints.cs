@@ -51,7 +51,7 @@ public static class MembershipEndpoints
                             JOIN plugin_kunlun_waterstation.water_orders o ON o.tenant_id=q.tenant_id AND o.order_no=q.order_no
                             WHERE q.tenant_id=@tid AND q.member_id=@mid AND q.kind='DAMAGE' AND q.container_type=@type AND o.handover_damage_qty IS NULL)
                          + (SELECT COALESCE(sum(quantity),0) FROM plugin_kunlun_waterstation.container_damages
-                            WHERE tenant_id=@tid AND member_id=@mid AND container_type=@type AND idempotency_key NOT LIKE '%:lost')
+                            WHERE tenant_id=@tid AND member_id=@mid AND container_type=@type AND handover_order_no IS NULL AND idempotency_key NOT LIKE '%:lost')
                     """, ("tid", repo.DefaultTenantId), ("mid", mid), ("water", product.WaterType), ("type", container));
                 var damageQty = Convert.ToInt32(await damageCount.ExecuteScalarAsync(ct));
                 result.Add(new { pool, damageQty, containerType = container, waterType = product.WaterType, name = product.Name, containerKind = product.ContainerType, unitDeposit, paidQty, paidAmount = lots.Sum(l => l.Price * l.Qty), heldQty = held, pendingDamageQty = reservedQty, pendingDamageAmount = lots.Sum(l => l.Price * l.Reserved), refundableQty = refundQty, refundableAmount = amount, pendingRefundQty, pendingCollectQty, pendingCollectAmount, lots = available });

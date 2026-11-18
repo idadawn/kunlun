@@ -145,15 +145,15 @@ public static class ContainerInventory
     /// the same amount. Both are written-down figures, so neither blocks the hand-over; each simply stops at zero until corrected.
     /// Only the registered member total must stay consistent with the members' own balances.
     /// </summary>
-    internal static async Task<bool> MoveToMembers(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, string type, int delta, CancellationToken ct) =>
+    internal static async Task<bool> MoveToMembers(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, string type, int delta, CancellationToken ct, int damagedReturns = 0) =>
         await Exec(conn, tx, """
             UPDATE plugin_kunlun_waterstation.container_configs
-            SET in_station_qty=GREATEST(in_station_qty-@delta,0),
+            SET in_station_qty=GREATEST(in_station_qty-@delta-@damaged,0), damaged_qty=damaged_qty+@damaged,
                 with_customers_qty=GREATEST(with_customers_qty+@delta,0),
                 member_held_qty=member_held_qty+@delta,
-                total_qty=GREATEST(in_station_qty-@delta,0)+GREATEST(with_customers_qty+@delta,0)+damaged_qty
+                total_qty=GREATEST(in_station_qty-@delta-@damaged,0)+GREATEST(with_customers_qty+@delta,0)+damaged_qty+@damaged
             WHERE tenant_id=@tid AND container_type=@type AND member_held_qty+@delta>=0
-            """, ct, ("tid", tid), ("type", type), ("delta", delta)) == 1;
+            """, ct, ("tid", tid), ("type", type), ("delta", delta), ("damaged", damagedReturns)) == 1;
 
     internal static string Hash(object value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value, JsonOptions))));
     internal static string Json(object value) => JsonSerializer.Serialize(value, JsonOptions);

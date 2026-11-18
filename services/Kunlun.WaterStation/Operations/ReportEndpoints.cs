@@ -371,19 +371,19 @@ public static class ReportEndpoints
                 case "container-ledgers":
                 {
                     // Like the 台账 page: member flows plus the store's own 新购 (RECEIVE) and 门店报废 (STORE_SCRAP), which have no member or holding.
-                    sb.AppendLine("流水号,会员ID,容器类型,领出,归还,持有变化,持有余额,操作人,时间,业务类型,扣押金额,关联单号,原因,报废数量,新购数量");
+                    sb.AppendLine("流水号,会员ID,容器类型,领出,归还,持有变化,持有余额,操作人,时间,业务类型,扣押金额,关联单号,原因,报废数量,新购数量,归还中破损数量");
                     await using var cmd = TicketBatches.Command(conn, null, $"""
                         SELECT ledger_no,member_id,container_type,full_out_qty,empty_in_qty,delta_held,held_after,operator_name,created_at,business_type,
-                          deposit_deducted_amount,COALESCE(order_no,'') AS reference_no,COALESCE(remark,'') AS remark,scrapped_qty,0 AS received_qty,id AS seq
-                        FROM plugin_kunlun_waterstation.container_ledgers WHERE tenant_id=@tid
+                          deposit_deducted_amount,COALESCE(order_no,'') AS reference_no,COALESCE(remark,'') AS remark,scrapped_qty,0 AS received_qty,id AS seq,{ContainerCirculation.DamagedReturns} AS damaged_return_qty
+                        FROM plugin_kunlun_waterstation.container_ledgers c WHERE tenant_id=@tid
                         UNION ALL
                         SELECT o.operation_no,NULL,o.container_type,0,0,0,NULL,o.operator_name,o.created_at,{ContainerCirculation.StoreBusiness},
-                          0,{ContainerCirculation.StoreExpenseNo},o.reason,CASE o.action WHEN 'SCRAP' THEN o.quantity ELSE 0 END,CASE o.action WHEN 'RECEIVE' THEN o.quantity ELSE 0 END,0
+                          0,{ContainerCirculation.StoreExpenseNo},o.reason,CASE o.action WHEN 'SCRAP' THEN o.quantity ELSE 0 END,CASE o.action WHEN 'RECEIVE' THEN o.quantity ELSE 0 END,0,0
                         FROM plugin_kunlun_waterstation.container_inventory_operations o WHERE o.tenant_id=@tid AND {ContainerCirculation.StoreFlows}
                         ORDER BY created_at DESC,seq DESC,ledger_no DESC
                         """, ("tid", tenantId));
                     await using var r = await cmd.ExecuteReaderAsync(ct);
-                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{(r.IsDBNull(1) ? "" : r.GetGuid(1).ToString())},{ContainerName(r.GetString(2))},{r.GetInt32(3)},{r.GetInt32(4)},{r.GetInt32(5)},{(r.IsDBNull(6) ? "" : r.GetInt32(6).ToString())},{Csv(r.GetString(7))},{r.GetDateTime(8):O},{r.GetString(9)},{r.GetDecimal(10):F2},{Csv(r.GetString(11))},{Csv(r.GetString(12))},{r.GetInt32(13)},{r.GetInt32(14)}");
+                    while (await r.ReadAsync(ct)) sb.AppendLine($"{Csv(r.GetString(0))},{(r.IsDBNull(1) ? "" : r.GetGuid(1).ToString())},{ContainerName(r.GetString(2))},{r.GetInt32(3)},{r.GetInt32(4)},{r.GetInt32(5)},{(r.IsDBNull(6) ? "" : r.GetInt32(6).ToString())},{Csv(r.GetString(7))},{r.GetDateTime(8):O},{r.GetString(9)},{r.GetDecimal(10):F2},{Csv(r.GetString(11))},{Csv(r.GetString(12))},{r.GetInt32(13)},{r.GetInt32(14)},{r.GetInt32(16)}");
                     break;
                 }
                 case "recharges":
@@ -611,9 +611,9 @@ public static class ReportEndpoints
             NpgsqlDataSource db, KunlunAuthRepository authRepo, CancellationToken ct) =>
         {
             await using var conn = await db.OpenConnectionAsync(ct);
-            return await Paging.From(page, pageSize, legacyLimit: 30).Query(conn, """
+            return await Paging.From(page, pageSize, legacyLimit: 30).Query(conn, $"""
                 c.ledger_no, m.name, COALESCE(c.order_no, '独立登记'), c.container_type,
-                c.full_out_qty, c.empty_in_qty, c.delta_held, c.held_after, c.operator_name, c.created_at
+                c.full_out_qty, c.empty_in_qty, c.delta_held, c.held_after, c.operator_name, c.created_at, {ContainerCirculation.DamagedReturns}
                 """, """
                 plugin_kunlun_waterstation.container_ledgers c
                 JOIN plugin_kunlun_waterstation.members m ON m.id = c.member_id
@@ -633,7 +633,8 @@ public static class ReportEndpoints
                 deltaHeld = reader.GetInt32(6),
                 heldAfter = reader.GetInt32(7),
                 operatorName = reader.GetString(8),
-                createdAt = reader.GetDateTime(9)
+                createdAt = reader.GetDateTime(9),
+                damagedReturnQty = reader.GetInt32(10)
             }, ct);
         }).RequireAuthorization();
     }
