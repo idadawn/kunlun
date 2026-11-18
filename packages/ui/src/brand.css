@@ -326,6 +326,10 @@ a{color:var(--brand-600);text-decoration:none}
 .slot-chips button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;font-size:12px;color:var(--text);cursor:pointer}
 .slot-chips button.active{border-color:var(--brand-500);background:var(--brand-50);color:var(--brand-700);font-weight:600}
 /* 交付弹窗：这单是哪种水、配套桶还是水袋、押金标准和会员手里的数量 */
+.fulfill-quantities{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:10px}
+.fulfill-quantities>div{display:grid;gap:6px;min-width:0}
+.fulfill-quantities input{min-width:0}
+.fulfill-quantities input:read-only{background:var(--bg);color:var(--muted)}
 .fulfill-container{display:flex;flex-direction:column;gap:2px;margin:0;padding:9px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
 .fulfill-container b{font-size:13.5px}.fulfill-container small{font-size:12px;color:var(--muted);line-height:1.5}
 .deposit-received-dialog{width:min(460px,94vw)}

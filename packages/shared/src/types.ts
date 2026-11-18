@@ -401,6 +401,7 @@ export interface DepositLedgerRow {
 }
 
 export interface ContainerLedgerRow {
+  damagedReturnQty: number;
   ledgerNo: string;
   memberName: string;
   orderNo: string;
@@ -720,6 +721,7 @@ export interface ContainerHoldingRow {
 export type CirculationBusinessType = 'TURNOVER' | 'DAMAGE_RETURN' | 'SCRAP' | 'SCRAP_WAIVED' | 'OPENING' | 'RECEIVE' | 'STORE_SCRAP';
 
 export interface CirculationRow {
+  damagedReturnQty: number;
   /** The ledger number, or the stock record's number for RECEIVE / STORE_SCRAP. */
   ledgerNo: string;
   /** Empty for the store's own RECEIVE / STORE_SCRAP. */
@@ -747,6 +749,7 @@ export interface CirculationRow {
 export type DamageStatus = 'PENDING' | 'SCRAPPED';
 
 export interface ContainerDamageRow {
+  handoverOrderNo?: string | null;
   feePaid?: boolean | null;
   id: string;
   damageNo: string;

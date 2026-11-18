@@ -24,6 +24,13 @@ public static class ContainerCirculation
     /// <summary>The 买桶袋 expense a 新购 came with, if any.</summary>
     internal const string StoreExpenseNo = "COALESCE(o.receipt->'expense'->>'expenseNo','')";
 
+    // An order ledger already includes every empty returned; its linked damage slip identifies the broken subset.
+    internal const string DamagedReturns = """
+        CASE WHEN c.business_type='DAMAGE_RETURN' THEN c.empty_in_qty ELSE COALESCE((
+          SELECT d.quantity FROM plugin_kunlun_waterstation.container_damages d
+          WHERE d.tenant_id=c.tenant_id AND d.handover_order_no=c.order_no AND c.ledger_no='CL-'||c.order_no),0) END
+        """;
+
     /// <summary>
     /// 流转记录：会员流水（领还、破损还回、报废、上系统前）和店里的新购、门店报废按时间排在一起。店里的行没有会员，
     /// receivedQty / scrappedQty 是进出的个数，storeBefore → storeAfter 是店里的数；会员的行这两个数为 null。
@@ -31,14 +38,14 @@ public static class ContainerCirculation
     private const string Flows = $"""
         SELECT c.ledger_no AS no,m.name AS member_name,m.member_no,c.container_type,c.full_out_qty,c.empty_in_qty,c.delta_held,c.held_after,
           c.operator_name,c.created_at,COALESCE(c.order_no,'') AS reference_no,c.business_type,c.deposit_deducted_amount,COALESCE(c.remark,'') AS remark,
-          c.scrapped_qty,0 AS received_qty,NULL::int AS store_before,NULL::int AS store_after,c.id AS seq
+          c.scrapped_qty,0 AS received_qty,NULL::int AS store_before,NULL::int AS store_after,c.id AS seq,{DamagedReturns} AS damaged_return_qty
         FROM plugin_kunlun_waterstation.container_ledgers c JOIN plugin_kunlun_waterstation.members m ON m.id=c.member_id AND m.tenant_id=c.tenant_id
         WHERE c.tenant_id=@tid AND (@type='' OR c.container_type=@type)
           AND (@q='' OR m.name ILIKE @search OR m.phone ILIKE @search OR m.member_no ILIKE @search OR c.ledger_no ILIKE @search OR c.order_no ILIKE @search)
         UNION ALL
         SELECT o.operation_no,'','',o.container_type,0,0,0,0,o.operator_name,o.created_at,{StoreExpenseNo},{StoreBusiness},0,o.reason,
           CASE o.action WHEN 'SCRAP' THEN o.quantity ELSE 0 END,CASE o.action WHEN 'RECEIVE' THEN o.quantity ELSE 0 END,
-          (o.before_state->>'inStationQty')::int,(o.after_state->>'inStationQty')::int,0
+          (o.before_state->>'inStationQty')::int,(o.after_state->>'inStationQty')::int,0,0
         FROM plugin_kunlun_waterstation.container_inventory_operations o
         WHERE o.tenant_id=@tid AND {StoreFlows} AND (@type='' OR o.container_type=@type)
           AND (@q='' OR o.operation_no ILIKE @search OR o.reason ILIKE @search OR o.receipt->'expense'->>'expenseNo' ILIKE @search)
@@ -73,6 +80,8 @@ public static class ContainerCirculation
             ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS deposit_waived BOOLEAN NOT NULL DEFAULT FALSE;
             ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS uncovered_qty INT NOT NULL DEFAULT 0 CHECK(uncovered_qty>=0);
             ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS fee_paid BOOLEAN;
+            ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS handover_order_no VARCHAR(32) REFERENCES plugin_kunlun_waterstation.water_orders(order_no);
+            CREATE UNIQUE INDEX IF NOT EXISTS container_damages_handover ON plugin_kunlun_waterstation.container_damages(tenant_id,handover_order_no) WHERE handover_order_no IS NOT NULL;
             ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS uncovered_note TEXT NOT NULL DEFAULT '';
             -- A damage nobody paid a deposit for reserves nothing, so its deposit amount may be zero.
             ALTER TABLE plugin_kunlun_waterstation.container_damages DROP CONSTRAINT IF EXISTS container_damages_deposit_amount_check;
@@ -100,12 +109,12 @@ public static class ContainerCirculation
             await using var cmd=Command(conn,null,$"""
                 WITH flows AS ({Flows})
                 SELECT no,member_name,member_no,container_type,full_out_qty,empty_in_qty,delta_held,held_after,operator_name,created_at,
-                  reference_no,business_type,deposit_deducted_amount,remark,scrapped_qty,received_qty,store_before,store_after
+                  reference_no,business_type,deposit_deducted_amount,remark,scrapped_qty,received_qty,store_before,store_after,damaged_return_qty
                 FROM flows ORDER BY created_at DESC,seq DESC,no DESC LIMIT 20 OFFSET @offset
                 """,args);
             var rows=new List<object>();await using var r=await cmd.ExecuteReaderAsync(ct);
             while(await r.ReadAsync(ct))rows.Add(new{ledgerNo=r.GetString(0),memberName=r.GetString(1),memberNo=r.GetString(2),containerType=r.GetString(3),fullOutQty=r.GetInt32(4),emptyInQty=r.GetInt32(5),deltaHeld=r.GetInt32(6),heldAfter=r.GetInt32(7),operatorName=r.GetString(8),createdAt=r.GetDateTime(9),referenceNo=r.GetString(10),businessType=r.GetString(11),depositDeductedAmount=r.GetDecimal(12),remark=r.GetString(13),scrappedQty=r.GetInt32(14),
-                receivedQty=r.GetInt32(15),storeBefore=r.IsDBNull(16)?(int?)null:r.GetInt32(16),storeAfter=r.IsDBNull(17)?(int?)null:r.GetInt32(17)});
+                receivedQty=r.GetInt32(15),storeBefore=r.IsDBNull(16)?(int?)null:r.GetInt32(16),storeAfter=r.IsDBNull(17)?(int?)null:r.GetInt32(17),damagedReturnQty=r.GetInt32(18)});
             return Results.Ok(new{rows,total,page=page??1,pageSize=20});
         }).RequireAuthorization();
         app.MapGet("/api/containers/holdings",async(string? q,int? page,ClaimsPrincipal user,NpgsqlDataSource db,KunlunAuthRepository repo,CancellationToken ct)=>
@@ -135,12 +144,12 @@ public static class ContainerCirculation
             const string from="""
                 FROM plugin_kunlun_waterstation.container_damages d JOIN plugin_kunlun_waterstation.members m ON m.id=d.member_id AND m.tenant_id=d.tenant_id
                 WHERE d.tenant_id=@tid AND (@type='' OR d.container_type=@type) AND (@status='' OR d.status=@status)
-                  AND (@q='' OR m.name ILIKE @search OR m.phone ILIKE @search OR m.member_no ILIKE @search OR d.damage_no ILIKE @search)
+                  AND (@q='' OR m.name ILIKE @search OR m.phone ILIKE @search OR m.member_no ILIKE @search OR d.damage_no ILIKE @search OR d.handover_order_no ILIKE @search)
                 """;
             await using var count=Command(conn,null,"SELECT count(*) "+from,args);var total=Convert.ToInt64(await count.ExecuteScalarAsync(ct));
-            await using var cmd=Command(conn,null,"SELECT d.id,d.damage_no,m.name,m.member_no,d.container_type,d.quantity,d.deposit_amount,d.status,d.reason,d.operator_name,d.created_at,d.lot_breakdown::text,COALESCE(d.scrap_no,''),COALESCE(d.scrap_reason,''),d.deposit_waived,d.uncovered_qty,d.uncovered_note,d.fee_paid "+from+" ORDER BY d.created_at DESC,d.id LIMIT 20 OFFSET @offset",args);
+            await using var cmd=Command(conn,null,"SELECT d.id,d.damage_no,m.name,m.member_no,d.container_type,d.quantity,d.deposit_amount,d.status,d.reason,d.operator_name,d.created_at,d.lot_breakdown::text,COALESCE(d.scrap_no,''),COALESCE(d.scrap_reason,''),d.deposit_waived,d.uncovered_qty,d.uncovered_note,d.fee_paid,d.handover_order_no "+from+" ORDER BY d.created_at DESC,d.id LIMIT 20 OFFSET @offset",args);
             var rows=new List<object>();await using var r=await cmd.ExecuteReaderAsync(ct);
-            while(await r.ReadAsync(ct))rows.Add(new{id=r.GetGuid(0),damageNo=r.GetString(1),memberName=r.GetString(2),memberNo=r.GetString(3),containerType=r.GetString(4),quantity=r.GetInt32(5),depositAmount=r.GetDecimal(6),status=r.GetString(7),reason=r.GetString(8),operatorName=r.GetString(9),createdAt=r.GetDateTime(10),lotBreakdown=JsonSerializer.Deserialize<JsonElement>(r.GetString(11)),scrapNo=r.GetString(12),scrapReason=r.GetString(13),depositWaived=r.GetBoolean(14),uncoveredQty=r.GetInt32(15),uncoveredNote=r.GetString(16),feePaid=r.IsDBNull(17)?(bool?)null:r.GetBoolean(17)});
+            while(await r.ReadAsync(ct))rows.Add(new{id=r.GetGuid(0),damageNo=r.GetString(1),memberName=r.GetString(2),memberNo=r.GetString(3),containerType=r.GetString(4),quantity=r.GetInt32(5),depositAmount=r.GetDecimal(6),status=r.GetString(7),reason=r.GetString(8),operatorName=r.GetString(9),createdAt=r.GetDateTime(10),lotBreakdown=JsonSerializer.Deserialize<JsonElement>(r.GetString(11)),scrapNo=r.GetString(12),scrapReason=r.GetString(13),depositWaived=r.GetBoolean(14),uncoveredQty=r.GetInt32(15),uncoveredNote=r.GetString(16),feePaid=r.IsDBNull(17)?(bool?)null:r.GetBoolean(17),handoverOrderNo=r.IsDBNull(18)?null:r.GetString(18)});
             return Results.Ok(new{rows,total,page=page??1,pageSize=20});
         }).RequireAuthorization();
     }
@@ -213,17 +222,32 @@ public static class ContainerCirculation
         var after=before with{MemberHeldQty=before.MemberHeldQty-quantity,WithCustomersQty=Math.Max(before.WithCustomersQty-quantity,0),DamagedQty=checked(before.DamagedQty+quantity)};
         await SaveBalance(conn,tx,tid,type,after,ct);
         await ProductContainers.SetHeld(conn,tx,tid,mid,type,held-quantity,ct);
-        var id=Guid.NewGuid();var no="PS"+id.ToString("N")[..28];var amount=lots.Sum(l=>l.Quantity*l.UnitPrice);
+        var saved = await InsertDamage(conn, tx, tid, mid, type, quantity, reason, key, hash, Actor(user), lots, uncovered, uncoveredNote, feePaid, null, ct);
+        var ledgerReason=uncovered>0?$"{reason}；没押金 {uncovered} 个：{uncoveredNote}":reason;
+        await Ledger(conn,tx,tid,mid,type,saved.DamageNo,"DAMAGE_RETURN",quantity,0,held-quantity,Math.Max(covered-(quantity-uncovered),0),0,ledgerReason,user,ct);
+        return saved;
+    }
+
+    // Order fulfillment has already moved the physical stock and written the member movement once.
+    internal static Task<DamageResult> RecordHandoverDamage(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, string type,
+        int quantity, string reason, string orderNo, string actor, bool feePaid, CancellationToken ct) =>
+        InsertDamage(conn, tx, tid, mid, type, quantity, reason, $"handover:{orderNo}", "", actor, [], 0, "", feePaid, orderNo, ct);
+
+    private static async Task<DamageResult> InsertDamage(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid, string type,
+        int quantity, string reason, string key, string hash, string actor, List<DamageDepositLot> lots, int uncovered, string uncoveredNote,
+        bool? feePaid, string? orderNo, CancellationToken ct)
+    {
+        var id = Guid.NewGuid();
+        var no = "PS" + id.ToString("N")[..28];
+        var amount = lots.Sum(l => l.Quantity * l.UnitPrice);
         // Older receipts have no uncovered fields; leaving them out when nothing is uncovered keeps replays identical.
         object receipt=uncovered>0
             ?new{id,damageNo=no,MemberId=mid,ContainerType=type,Quantity=quantity,depositAmount=amount,status="PENDING",lotBreakdown=lots,uncoveredQty=uncovered,uncoveredNote}
             :new{id,damageNo=no,MemberId=mid,ContainerType=type,Quantity=quantity,depositAmount=amount,status="PENDING",lotBreakdown=lots};
         await Exec(conn,tx,"""
-            INSERT INTO plugin_kunlun_waterstation.container_damages(id,tenant_id,damage_no,idempotency_key,request_hash,member_id,container_type,quantity,deposit_amount,lot_breakdown,reason,operator_name,report_receipt,uncovered_qty,uncovered_note,fee_paid)
-            VALUES(@id,@tid,@no,@key,@hash,@mid,@type,@qty,@amount,@lots::jsonb,@reason,@actor,@receipt::jsonb,@uncovered,@uncoveredNote,@feePaid)
-            """,ct,("id",id),("tid",tid),("no",no),("key",key),("hash",hash),("mid",mid),("type",type),("qty",quantity),("amount",amount),("lots",Json(lots)),("reason",reason),("actor",Actor(user)),("receipt",Json(receipt)),("uncovered",uncovered),("uncoveredNote",uncoveredNote),("feePaid",(object?)feePaid??DBNull.Value));
-        var ledgerReason=uncovered>0?$"{reason}；没押金 {uncovered} 个：{uncoveredNote}":reason;
-        await Ledger(conn,tx,tid,mid,type,no,"DAMAGE_RETURN",quantity,0,held-quantity,Math.Max(covered-(quantity-uncovered),0),0,ledgerReason,user,ct);
+            INSERT INTO plugin_kunlun_waterstation.container_damages(id,tenant_id,damage_no,idempotency_key,request_hash,member_id,container_type,quantity,deposit_amount,lot_breakdown,reason,operator_name,report_receipt,uncovered_qty,uncovered_note,fee_paid,handover_order_no)
+            VALUES(@id,@tid,@no,@key,@hash,@mid,@type,@qty,@amount,@lots::jsonb,@reason,@actor,@receipt::jsonb,@uncovered,@uncoveredNote,@feePaid,@orderNo)
+            """,ct,("id",id),("tid",tid),("no",no),("key",key),("hash",hash),("mid",mid),("type",type),("qty",quantity),("amount",amount),("lots",Json(lots)),("reason",reason),("actor",actor),("receipt",Json(receipt)),("uncovered",uncovered),("uncoveredNote",uncoveredNote),("feePaid",(object?)feePaid??DBNull.Value),("orderNo",(object?)orderNo??DBNull.Value));
         return new(id,no,amount,uncovered,receipt);
     }
 

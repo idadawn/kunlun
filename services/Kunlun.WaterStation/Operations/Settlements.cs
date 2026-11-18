@@ -340,7 +340,7 @@ public static class Settlements
                                 - (CASE WHEN uncovered_note LIKE '报废费用给了；%' THEN uncovered_qty ELSE 0 END) END,
                      concat_ws(' · ',reason,NULLIF(uncovered_note,''),scrap_reason) FROM plugin_kunlun_waterstation.container_damages
               WHERE tenant_id=@tid AND member_id=@mid AND (fee_paid IS FALSE OR (fee_paid IS NULL AND status='SCRAPPED' AND (deposit_waived OR uncovered_qty>0)))
-                AND idempotency_key NOT LIKE 'settlement:%'
+                AND handover_order_no IS NULL AND idempotency_key NOT LIKE 'settlement:%'
             )
             SELECT d.ref,d.container_type,p.name,d.quantity,d.quantity*c.unit_deposit,d.reason FROM damaged d
             JOIN plugin_kunlun_waterstation.container_configs c ON c.tenant_id=@tid AND c.container_type=d.container_type

@@ -137,14 +137,34 @@ public sealed class DepositReviewTests(TestHost host)
             var (mid, memberNo) = await Member(admin, "损坏审核验收");
             await Ok(await admin.PostAsJsonAsync("/api/deposits/collect", new CollectDepositRequest(mid, "BUCKET", 3, "CASH", Key())));
 
-            var orderId = await Order(admin, mid, 1);
+            await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/opening", new SaveOpeningRequest(Key(), Holdings:[new("BUCKET", 7)])));
+            async Task<JsonElement> Stock() => (await admin.GetFromJsonAsync<JsonElement>("/api/containers/summary"))
+                .EnumerateArray().Single(r => r.GetProperty("containerType").GetString() == "BUCKET");
+            var stockBefore = await Stock();
+            var orderId = await Order(admin, mid, 5);
+            var endpoint = $"/api/orders/{orderId}/fulfill";
+            var invalid = new FulfillWaterOrderRequest(5,5,5, DamagedQty:6, DamageCompensated:true);
+            Assert.Equal("INVALID_DAMAGE_QTY", (await Error(await courier.PostAsJsonAsync(endpoint,invalid), HttpStatusCode.BadRequest)).GetProperty("error").GetString());
             Assert.Equal("DAMAGE_COMPENSATION_REQUIRED", (await Error(await courier.PostAsJsonAsync($"/api/orders/{orderId}/fulfill",
-                new FulfillWaterOrderRequest(1, 1, 0, DamagedQty: 1)), HttpStatusCode.BadRequest)).GetProperty("error").GetString());
+                new FulfillWaterOrderRequest(5, 5, 5, DamagedQty: 1)), HttpStatusCode.BadRequest)).GetProperty("error").GetString());
             Assert.Equal("DAMAGE_REASON_REQUIRED", (await Error(await courier.PostAsJsonAsync($"/api/orders/{orderId}/fulfill",
-                new FulfillWaterOrderRequest(1, 1, 0, DamagedQty: 1, DamageCompensated: false, DamageReason: "  ")), HttpStatusCode.BadRequest)).GetProperty("error").GetString());
+                new FulfillWaterOrderRequest(5, 5, 5, DamagedQty: 1, DamageCompensated: false, DamageReason: "  ")), HttpStatusCode.BadRequest)).GetProperty("error").GetString());
 
-            var done = await Ok(await courier.PostAsJsonAsync($"/api/orders/{orderId}/fulfill",
-                new FulfillWaterOrderRequest(1, 1, 0, OverrideReason: "损坏 1 个桶，不赔付：自然老化", DamagedQty: 1, DamageCompensated: false, DamageReason: "自然老化")));
+            var returns = new FulfillWaterOrderRequest(5, 5, 5, DamagedQty: 1, DamageCompensated: false, DamageReason: "自然老化");
+            var done = await Ok(await courier.PostAsJsonAsync(endpoint,returns));
+            Assert.True((await Ok(await courier.PostAsJsonAsync(endpoint,returns))).GetProperty("idempotentReplay").GetBoolean());
+            var stockAfter = await Stock();
+            int Qty(JsonElement item, string key) => item.GetProperty(key).GetInt32();
+            Assert.Equal(Qty(stockBefore,"inStationQty") - 1, Qty(stockAfter,"inStationQty"));
+            Assert.Equal(Qty(stockBefore,"damagedQty") + 1, Qty(stockAfter,"damagedQty"));
+            Assert.Equal(Qty(stockBefore,"totalQty"), Qty(stockAfter,"totalQty"));
+            Assert.Equal(7, Qty(await Buckets(admin,mid),"heldQty"));
+            var orderNo = done.GetProperty("orderNo").GetString();
+            var movement = Assert.Single((await admin.GetFromJsonAsync<JsonElement>($"/api/containers/circulation?q={orderNo}&page=1")).GetProperty("rows").EnumerateArray());
+            Assert.Equal((5,5,1,0), (Qty(movement,"fullOutQty"),Qty(movement,"emptyInQty"),Qty(movement,"damagedReturnQty"),Qty(movement,"deltaHeld")));
+            var damage = Assert.Single((await admin.GetFromJsonAsync<JsonElement>($"/api/containers/damages?q={orderNo}&status=PENDING&page=1")).GetProperty("rows").EnumerateArray());
+            Assert.Equal(orderNo, damage.GetProperty("handoverOrderNo").GetString());
+            Assert.Equal(1, Qty(damage,"quantity"));
             Assert.Equal("PENDING", done.GetProperty("damageReviewStatus").GetString());
             var row = Assert.Single((await Requests(admin, "DAMAGE", memberNo)).EnumerateArray());
             Assert.Equal(done.GetProperty("damageRequestNo").GetString(), row.GetProperty("requestNo").GetString());
@@ -156,13 +176,20 @@ public sealed class DepositReviewTests(TestHost host)
             await Ok(await admin.PostAsJsonAsync($"/api/refund-requests/{row.GetProperty("id").GetGuid()}/reject", new RejectRefundRequest("要顾客赔")));
             Assert.Equal(150m, await DepositBalance(admin, mid));
 
+            await Ok(await admin.PostAsJsonAsync($"/api/containers/damages/{damage.GetProperty("id")}/scrap",
+                new ScrapContainerDamageRequest("无法修复",Key(),false)));
+            var afterScrap = await Stock();
+            Assert.Equal(Qty(stockBefore,"damagedQty"), Qty(afterScrap,"damagedQty"));
+            Assert.Equal(Qty(stockBefore,"scrappedQty") + 1, Qty(afterScrap,"scrappedQty"));
+            Assert.Equal(150m, await DepositBalance(admin,mid));
+
             // Damage the customer pays for asks nothing; with the switch off an unpaid one is recorded as approved.
             var paidFor = await Ok(await courier.PostAsJsonAsync($"/api/orders/{await Order(admin, mid, 1)}/fulfill",
-                new FulfillWaterOrderRequest(1, 1, 0, DamagedQty: 1, DamageCompensated: true)));
+                new FulfillWaterOrderRequest(1, 1, 1, DamagedQty: 1, DamageCompensated: true)));
             Assert.Equal(JsonValueKind.Null, paidFor.GetProperty("damageRequestNo").ValueKind);
             await Ok(await Switches(admin, deposit: false, damage: false));
             var waived = await Ok(await courier.PostAsJsonAsync($"/api/orders/{await Order(admin, mid, 1)}/fulfill",
-                new FulfillWaterOrderRequest(1, 1, 0, DamagedQty: 2, DamageCompensated: false, DamageReason: "送水时碰坏的")));
+                new FulfillWaterOrderRequest(1, 1, 2, DamagedQty: 2, DamageCompensated: false, DamageReason: "送水时碰坏的")));
             Assert.Equal("APPROVED", waived.GetProperty("damageReviewStatus").GetString());
             var preview = await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement/preview", new SettlementPreviewRequest()));
             var historical = preview.GetProperty("slip").GetProperty("damages").EnumerateArray().ToArray();

@@ -50,8 +50,16 @@ function DepositRows({ unit, position, fullOut, emptyIn, dueLabel }: {
   unit: string; position: DepositPosition; fullOut: number; emptyIn: number | null; dueLabel: string;
 }) {
   return <>
-    <div className="deposit-row"><span>当前持有</span><b>{position.held} 个{unit}</b></div>
-    <div className="deposit-row"><span>本次领出{emptyIn !== null && ` · 归还 ${emptyIn} 个`}</span><b>{fullOut} 个{unit}</b></div>
+    <div className="deposit-row">
+      <span>当前持有</span>
+      <b>{position.held} 个{unit} · 价值 ¥{money(position.held * position.unitDeposit)}</b>
+    </div>
+    {emptyIn === null
+      ? <div className="deposit-row"><span>本次领出</span><b>{fullOut} 个{unit}</b></div>
+      : <div className="deposit-row">
+          <span>已交押金{position.pool.pendingCollect > 0 && <small>其中 ¥{money(position.pool.pendingCollect)} 已收待审核</small>}</span>
+          <strong>¥{money(position.pool.total + position.pool.pendingCollect)}</strong>
+        </div>}
     <div className="deposit-row due"><span>{dueLabel}</span><strong>¥{money(depositGap(position, fullOut, emptyIn ?? 0))}</strong></div>
   </>;
 }
@@ -89,8 +97,9 @@ export function paidOf(choice: HandoverChoice, due: number) {
 }
 
 /** What the hand-over answers still lack, or '' when they are complete. */
-export function handoverProblem(choice: HandoverChoice, due: number, unit: string) {
+export function handoverProblem(choice: HandoverChoice, due: number, unit: string, returned: number) {
   if (due > 0 && choice.pays && paidOf(choice, due) <= 0) return '请输入实际收到的押金，最多两位小数';
+  if (choice.damaged && (choice.damagedQty < 1 || choice.damagedQty > returned)) return `本次收回 ${returned} 个空${unit}，请核对破损数量`;
   if (choice.damaged && choice.compensated === null) return `先选损坏的${unit}是否赔付`;
   if (choice.damaged && choice.compensated === false && !choice.reason.trim()) return `损坏的${unit}不赔付，要写上原因`;
   return '';
@@ -159,6 +168,12 @@ export function HandoverDeposit({ id, type, position, fullOut, emptyIn, value, o
   const due = depositGap(position, fullOut, emptyIn);
   const paid = collected ? 0 : paidOf(value, due);
   const owed = Math.max(0, due - paid);
+  useEffect(() => {
+    if (emptyIn === 0 && (value.damaged || value.compensated !== null || value.reason || value.damagedQty !== 1))
+      onChange({ ...value, damaged: false, damagedQty: 1, compensated: null, reason: '' });
+    else if (emptyIn > 0 && value.damagedQty > emptyIn)
+      onChange({ ...value, damagedQty: emptyIn });
+  }, [emptyIn, value, onChange]);
   const set = (patch: Partial<HandoverChoice>) => onChange({ ...value, ...patch });
   return (
     <div className="handover">
@@ -185,12 +200,12 @@ export function HandoverDeposit({ id, type, position, fullOut, emptyIn, value, o
           </div>
         )}
       </div>
-      <div className={`handover-damage${value.damaged ? ' active' : ''}`}>
-        <Question label={`是否有损坏的${unit}？`} value={value.damaged} yes="有" no="没有" onChange={damaged => set({ damaged })} />
+      {emptyIn > 0 && <div className={`handover-damage${value.damaged ? ' active' : ''}`}>
+        <Question label={`收回的空${unit}有破损吗？`} value={value.damaged} yes="有" no="没有" onChange={damaged => set({ damaged })} />
         {value.damaged && <>
           <div className="handover-question">
             <b>损坏了几个</b>
-            <Stepper value={value.damagedQty} min={1} max={Math.max(1, position.held + fullOut)} showZero label={`${title ?? ''}损坏的${unit}个数`} onChange={n => set({ damagedQty: n })} />
+            <Stepper value={value.damagedQty} min={1} max={Math.max(1, emptyIn)} showZero label={`${title ?? ''}损坏的${unit}个数`} onChange={n => set({ damagedQty: n })} />
           </div>
           <Question label="是否赔付？" value={value.compensated} yes="赔付" no="不赔付" onChange={compensated => set({ compensated })} />
           {value.compensated === false && <>
@@ -202,7 +217,7 @@ export function HandoverDeposit({ id, type, position, fullOut, emptyIn, value, o
             {damageReviewed && <small className="deposit-hint">不赔付要管理员在「审核」里批准；驳回就要去找顾客赔。</small>}
           </>}
         </>}
-      </div>
+      </div>}
     </div>
   );
 }
@@ -403,7 +418,7 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
   else if (below) blocker = `${below.product.name}${minimumOf(below.product)}${below.unit}起送，还差 ${minimumOf(below.product) - below.qty} ${below.unit}`;
   else if (step === 'checkout' && delivery && !addressId) blocker = '请选择收货地址';
   else if (!positions && !deposits.error) blocker = '正在核对押金…';
-  else if (step === 'checkout' && handOver) blocker = lines.map(l => handoverProblem(l.choice, l.collected ? 0 : l.gap, l.unit)).find(Boolean) ?? '';
+  else if (step === 'checkout' && handOver) blocker = lines.map(l => handoverProblem(l.choice, l.collected ? 0 : l.gap, l.unit, l.emptyIn)).find(Boolean) ?? '';
 
   const submit = async () => {
     if (busy || blocker) return;
