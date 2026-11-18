@@ -45,23 +45,26 @@ export function Plans() {
     <div id="plansContent">
       <div className="plan-toolbar">
         <div className="plan-filters">
-          <label>套餐状态
+          <div>
+            <label htmlFor="planStatusFilter">套餐状态</label>
             <select className="select" id="planStatusFilter" value={status} onChange={e => setStatus(e.target.value as typeof status)}>
               <option value="ACTIVE">启用中</option><option value="DISABLED">已停用</option><option value="ALL">全部</option>
             </select>
-          </label>
-          <label>水品
-            <select className="select" value={water} onChange={e => setWater(e.target.value)}>
+          </div>
+          <div>
+            <label htmlFor="planWaterFilter">水品</label>
+            <select className="select" id="planWaterFilter" value={water} onChange={e => setWater(e.target.value)}>
               <option value="">全部水品</option>
               {products.map(p => <option key={p.waterType} value={p.waterType}>{p.name}</option>)}
             </select>
-          </label>
-          <label>配送方式
-            <select className="select" value={mode} onChange={e => setMode(e.target.value as typeof mode)}>
+          </div>
+          <div>
+            <label htmlFor="planModeFilter">配送方式</label>
+            <select className="select" id="planModeFilter" value={mode} onChange={e => setMode(e.target.value as typeof mode)}>
               <option value="">全部方式</option>
               {MODES.map(m => <option key={m} value={m}>{modeLabel(m)}</option>)}
             </select>
-          </label>
+          </div>
         </div>
         <div className="plan-toolbar-actions">
           <button type="button" className="btn plan-poster-button" disabled={generating} aria-busy={generating} onClick={poster}>{generating ? '正在生成…' : <><Icon name="export" />生成价目表图片</>}</button>
