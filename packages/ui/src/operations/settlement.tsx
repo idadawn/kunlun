@@ -272,10 +272,11 @@ function DamageHistory({ history }: { history: SettlementDamageHistoryItem[] }) 
     counts.set(item.status, (counts.get(item.status) ?? 0) + item.quantity);
   }
   const waived = (counts.get('WAIVED') ?? 0) + (counts.get('SETTLED_WAIVED') ?? 0);
+  const others = Array.from(counts).filter(([status]) => status !== 'WAIVED' && status !== 'SETTLED_WAIVED');
   return <div className="settle-card">
     <b>累计破损 {total} 个 · 已免赔 {waived} 个</b>
     {total > 0 && <>
-      <p>{Array.from(counts, ([status, qty]) => `${damageStatus[status]} ${qty} 个`).join(' · ')}</p>
+      {others.length > 0 && <p>{others.map(([status, qty]) => `${damageStatus[status]} ${qty} 个`).join(' · ')}</p>}
       <details><summary>查看破损明细</summary>
         {history.map(row => <div className="settle-line" key={`${row.reference}-${row.status}`}>
           <span><b>{row.name} · {row.quantity} 个</b><small>{row.reference}{row.reason && ` · ${row.reason}`}</small></span>

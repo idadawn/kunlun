@@ -41,8 +41,8 @@ internal static class MemberDamageHistory
           -- An older scrap may have been partially covered by a deposit; only its unpaid portion can be decided later.
           SELECT d.damage_no,d.container_type,part.qty,part.status,concat_ws(' · ',d.reason,NULLIF(d.uncovered_note,''),d.scrap_reason),part.needs_decision
           FROM independent_returns d CROSS JOIN LATERAL (VALUES
-            (d.paid_qty, 'PAID', false),
-            (d.quantity-d.paid_qty, CASE WHEN d.idempotency_key LIKE 'settlement:%' THEN 'WAIVED'
+            (d.paid_qty, CASE WHEN d.idempotency_key LIKE 'settlement:%' THEN 'SETTLED_CHARGED' ELSE 'PAID' END, false),
+            (d.quantity-d.paid_qty, CASE WHEN d.idempotency_key LIKE 'settlement:%' THEN 'SETTLED_WAIVED'
                 WHEN d.fee_paid IS NULL AND d.status='PENDING' THEN 'PENDING_SCRAP' ELSE 'UNREVIEWED' END,
              d.idempotency_key NOT LIKE 'settlement:%' AND (d.fee_paid IS FALSE OR d.status='SCRAPPED'))
           ) part(qty,status,needs_decision)
