@@ -80,7 +80,6 @@ export function RefundBatchDialog({ memberId, batch, onClose, onDone }: { member
   const review = useReviewSettings();
   const [pay, setPay] = useState<PayMethod>('CASH');
   const [reason, setReason] = useState('');
-  const [settling, setSettling] = useState(false);
   const books = Number(batch.refundableAmount);
   const paid = Number(batch.paidAmount);
   const [amount, setAmount] = useState(() => money(books));
@@ -88,7 +87,6 @@ export function RefundBatchDialog({ memberId, batch, onClose, onDone }: { member
   const unit = unitOf(batch.waterType);
   const value = parseYuan(amount);
   const changed = value !== null && !sameYuan(value, books);
-  if (settling) return <SettlementDialog memberId={memberId} memberName="会员" onClose={onClose} onDone={onDone} />;
   const submit = async () => {
     if (value === null) throw new Error('请填写退了多少钱，最多两位小数');
     if (value > paid) throw new Error(`最多只能退这笔充值的原实付 ¥${money(paid)}`);
@@ -104,7 +102,6 @@ export function RefundBatchDialog({ memberId, batch, onClose, onDone }: { member
         <p>原实付 ¥{money(batch.paidAmount)} ÷ {batch.fixedQty}{unit}；退剩余付费 {batch.remainingBuy}{unit}，收回赠送 {batch.remainingGift}{unit}</p>
         <strong>{waits ? '按账预计退' : '按账应退'} ¥{money(books)}</strong>
       </div>
-      {canSettle(can) && <button type="button" className="btn" onClick={() => setSettling(true)}>全部结算（水票、押金和破损费用）</button>}
       <Field label={waits ? '申请退多少钱（元）' : '实退金额（元）'} htmlFor="refundAmount">
         <div className="refund-amount">
           <input id="refundAmount" className="input" type="number" inputMode="decimal" required min={0} max={paid} step={0.01} value={amount} onChange={e => setAmount(e.target.value)} />
@@ -154,7 +151,7 @@ export function BatchCards({ batches, onRefund }: { batches: TicketBatch[]; onRe
         {b.pendingGiftQty > 0 && <p className="membership-note">另有赠送 {b.pendingGiftQty}{unit}，等管理员批准后到账</p>}
         {onRefund && isPricedBatch(b) && b.status === 'ACTIVE' && b.remainingBuy + b.remainingGift > 0 && (
           <button type="button" className="btn sm" disabled={reserved > 0 || reviewing} onClick={() => onRefund(b)}>
-            {reviewing ? `退款审核中 · ${b.pendingRequestNo}` : reserved > 0 ? '订单占用中' : `退清剩余水票 · 约 ¥${money(b.refundableAmount)}`}
+            {reviewing ? `退款审核中 · ${b.pendingRequestNo}` : reserved > 0 ? '订单占用中' : `本批水票退款 · 约 ¥${money(b.refundableAmount)}`}
           </button>
         )}
       </article>
@@ -163,7 +160,7 @@ export function BatchCards({ batches, onRefund }: { batches: TicketBatch[]; onRe
 }
 
 /** Recharge batches of one member; staff with permissions can recharge and refund from here. */
-export function MemberAssetsDialog({ memberId, memberName, onClose, onDone }: { memberId: string; memberName: string; onClose: () => void; onDone?: Done }) {
+export function MemberAssetsDialog({ memberId, memberName, readOnly = false, onClose, onDone }: { memberId: string; memberName: string; readOnly?: boolean; onClose: () => void; onDone?: Done }) {
   const { api, can } = useAuth();
   const dialogs = useDialogs();
   const run = useRun();
@@ -174,16 +171,20 @@ export function MemberAssetsDialog({ memberId, memberName, onClose, onDone }: { 
     .catch(e => setError(errorText(e))), [api, memberId]);
   useEffect(() => { void load(); }, [load]);
   const changed = async () => { await onDone?.(); await load(); };
+  const settle = !readOnly && canSettle(can);
+  const recharge = !readOnly && can(P.RechargeCreate);
+  const batchRefund = !readOnly && !settle && (can(P.RechargeCreate) || can(P.RechargeRefund));
   return (
     <Dialog title={`${memberName} · 水票与充值`} onClose={onClose}>
-      {can(P.RechargeCreate) && (
+      {(recharge || settle) && (
         <div className="membership-actions">
-          <button type="button" className="btn primary" onClick={run(() => dialogs.open(close => <RechargeDialog memberId={memberId} onClose={close} onDone={changed} />))}>充值</button>
+          {recharge && <button type="button" className="btn primary" onClick={run(() => dialogs.open(close => <RechargeDialog memberId={memberId} onClose={close} onDone={changed} />))}>充值</button>}
+          {settle && <button type="button" className="btn" onClick={run(() => dialogs.open(close => <SettlementDialog memberId={memberId} memberName={memberName} onClose={close} onDone={changed} />))}>退款（全部结算）</button>}
         </div>
       )}
       {error && <p className="account-error" role="alert">{error}</p>}
       <h3>充值批次</h3>
-      {batches ? <BatchCards batches={batches} onRefund={can(P.RechargeCreate) || can(P.RechargeRefund) ? batch => run(() => dialogs.open(close => <RefundBatchDialog memberId={memberId} batch={batch} onClose={close} onDone={changed} />))() : undefined} /> : <p className="membership-note">正在加载…</p>}
+      {batches ? <BatchCards batches={batches} onRefund={batchRefund ? batch => run(() => dialogs.open(close => <RefundBatchDialog memberId={memberId} batch={batch} onClose={close} onDone={changed} />))() : undefined} /> : <p className="membership-note">正在加载…</p>}
     </Dialog>
   );
 }

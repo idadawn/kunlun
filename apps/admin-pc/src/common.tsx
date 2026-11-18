@@ -47,7 +47,7 @@ export function useOperations() {
     order: (id?: string) => run(() => dialogs.open(close => <CounterOrderDialog products={data.products} memberId={id} onClose={close} onDone={refresh} />))(),
     movement: (id = memberId) => run(() => dialogs.open(close => <MovementDialog memberId={id} onClose={close} onDone={refresh} />))(),
     fulfill: (order?: WaterOrder) => run(() => dialogs.open(close => <FulfillDialog order={order} onClose={close} onDone={refresh} />))(),
-    assets: (member: Pick<MemberProfile, 'id' | 'name'>) => run(() => dialogs.open(close => <MemberAssetsDialog memberId={member.id} memberName={member.name} onClose={close} onDone={refresh} />))(),
+    assets: (member: Pick<MemberProfile, 'id' | 'name' | 'status'>) => run(() => dialogs.open(close => <MemberAssetsDialog memberId={member.id} memberName={member.name} readOnly={member.status === 'DISABLED'} onClose={close} onDone={refresh} />))(),
     newMember: () => run(async () => {
       const created = await dialogs.open<{ id: string }>(close => <NewMemberDialog onClose={close} onDone={refresh} />);
       if (created) data.setSelectedMemberId(created.id);
