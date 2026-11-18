@@ -72,6 +72,7 @@ struct AddressView: View {
 }
 
 struct PasswordView: View {
+    var requiredChange = false
     @Environment(MemberStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var current = ""
@@ -82,23 +83,25 @@ struct PasswordView: View {
         NavigationStack {
             Form {
                 Section {
-                    SecureField("当前密码", text: $current).textContentType(.password)
+                    SecureField(requiredChange ? "临时密码" : "当前密码", text: $current).textContentType(.password)
                     SecureField("新密码（8–128 位）", text: $new).textContentType(.newPassword)
                     SecureField("再次输入新密码", text: $confirmation).textContentType(.newPassword)
                 } footer: { Text("修改成功后需要重新登录。") }
                 if let error { Section { Text(error).foregroundStyle(.red).font(.footnote) } }
                 Section {
                     Button {
+                        guard current != new else { error = "新密码必须与原密码不同"; return }
                         guard new == confirmation else { error = "两次新密码不一致"; return }
                         Task {
-                            if await store.changePassword(current: current, new: new) { dismiss() }
+                            if await store.changePassword(current: current, new: new) { if !requiredChange { dismiss() } }
                             else { error = store.notice }
                         }
                     } label: { HStack { Text("保存新密码"); if store.busy { Spacer(); ProgressView() } } }
                         .disabled(store.busy || current.isEmpty || new.count < 8 || new.count > 128 || confirmation.isEmpty)
                 }
-            }.navigationTitle("修改密码").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(store.busy) } }
+            }.navigationTitle(requiredChange ? "首次登录，请修改临时密码" : "修改密码").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { if requiredChange { Button("退出登录") { Task { _ = await store.logout() } }.disabled(store.busy) }
+                    else { Button("取消") { dismiss() }.disabled(store.busy) } } }
                 .interactiveDismissDisabled(store.busy)
         }
     }

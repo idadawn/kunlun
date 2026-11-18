@@ -39,7 +39,7 @@ export function StaffAccounts() {
               <td>{s.status === 'ACTIVE' ? '启用' : '停用'}</td>
               <td>
                 <button type="button" className="link" onClick={run(async () => { await api.setStaffStatus(s.id, s.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE'); await accounts.reload(); })}>{s.status === 'ACTIVE' ? '停用' : '启用'}</button>{' '}
-                <button type="button" className="link" onClick={() => dialogs.open(close => <CredentialsDialog subjectType="STAFF" id={s.id} initialUsername={s.username} onClose={close} onSaved={accounts.reload} />)}>设置账号 / 重置密码</button>{' '}
+                <button type="button" className="link" onClick={() => dialogs.open(close => <CredentialsDialog id={s.id} initialUsername={s.username} onClose={close} onSaved={accounts.reload} />)}>设置账号 / 重置密码</button>{' '}
                 {s.id !== user.subjectId && <button type="button" className="link danger" aria-label={`删除员工 ${s.name}`} onClick={() => remove(s)}>删除</button>}
               </td>
             </tr>

@@ -53,9 +53,10 @@ public sealed class MemberStatusTests(TestHost host)
         var mid = await Member(admin);
         await Ok(await Recharge(admin, mid));
         var account = "ty" + Key()[..10];
-        await Ok(await admin.PutAsJsonAsync($"/api/accounts/MEMBER/{mid}/credentials", new AccountCredentialsRequest(account, TestHost.Password)));
+        var temporary = Key();
+        await Ok(await admin.PutAsJsonAsync($"/api/accounts/MEMBER/{mid}/credentials", new AccountCredentialsRequest(account, temporary)));
         using var member = host.CreateClient();
-        member.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", (await Ok(await MemberSignIn(account))).GetProperty("accessToken").GetString());
+        await TestHost.CompleteFirstLogin(member, account, temporary, TestHost.Password);
         await Ok(await member.GetAsync($"/api/members/{mid}/profile"));
 
         var disabled = await Ok(await SetStatus(admin, mid, "DISABLED", "  搬走了  "));

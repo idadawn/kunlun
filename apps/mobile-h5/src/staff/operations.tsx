@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { KUNLUN_PERMISSIONS as P, money, pathFor, ticketGroups, type MemberProfile, type MobileFeatureKey, type WaterOrder } from '@kunlun/shared';
 import {
-  AddressBook, CredentialsDialog, DepositDialog, Dialog, FulfillDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog,
+  AddressBook, MemberDamageReviews, ResetMemberPasswordDialog, DepositDialog, Dialog, FulfillDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog,
   RechargeDialog, SettlementDialog, SettlementRecords, canSettle, useAuth, useDialogs, useLoader, useRun, useSettlements, useToast, type DepositAction,
 } from '@kunlun/ui';
 import { useMobileLayout, useStaffData } from './data';
@@ -26,7 +26,6 @@ export function useStaffOperations() {
     const created = await dialogs.open<{ id: string; memberNo: string; name: string; phone: string }>(close => <NewMemberDialog onClose={close} onDone={refresh} />);
     if (!created) return undefined;
     data.setSelectedMemberId(created.id);
-    await dialogs.open(close => <CredentialsDialog subjectType="MEMBER" id={created.id} onClose={close} />);
     return created.id;
   }
 
@@ -113,11 +112,13 @@ function MemberDetailDialog({ member: opened, onClose }: { member: MemberProfile
           </div>}
         </section>
       </div>
-      {!disabled && (layout.has('order') || layout.has('movement') || canSettle(can)) && <div className="membership-actions" style={{ margin: '12px 0 14px' }}>
+      {!disabled && (layout.has('order') || layout.has('movement') || can(P.MemberWrite) || canSettle(can)) && <div className="membership-actions" style={{ margin: '12px 0 14px' }}>
         {layout.has('order') && can(P.OrderCreate) && <button type="button" className="btn sm" onClick={order}>点单</button>}
         {layout.has('movement') && <button type="button" className="btn sm" onClick={ops.container}>登记领还</button>}
+        {can(P.MemberWrite) && <button type="button" className="btn sm" onClick={() => void dialogs.open(close => <ResetMemberPasswordDialog member={member} onClose={close} />)}>重置密码</button>}
         {canSettle(can) && <button type="button" className="btn sm" onClick={settle}>退款（全部结算）</button>}
       </div>}
+      <MemberDamageReviews key={member.id} memberId={member.id} version={settled} />
       {settlements.data && settlements.data.length > 0 && (
         <section className="member-settlements">
           <header><b>退款结算单</b></header>

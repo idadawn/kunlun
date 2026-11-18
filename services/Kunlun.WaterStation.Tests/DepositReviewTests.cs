@@ -183,6 +183,10 @@ public sealed class DepositReviewTests(TestHost host)
             Assert.Equal(Qty(stockBefore,"scrappedQty") + 1, Qty(afterScrap,"scrappedQty"));
             Assert.Equal(150m, await DepositBalance(admin,mid));
 
+            await Ok(await courier.PostAsJsonAsync($"/api/orders/{await Order(admin, mid, 1)}/fulfill",
+                new FulfillWaterOrderRequest(1,1,1,DamagedQty:1,DamageCompensated:false,DamageReason:"袋桶老化")));
+            var pendingWaiver = (await Requests(admin,"DAMAGE",memberNo)).EnumerateArray().Single(r => r.GetProperty("status").GetString()=="PENDING");
+            await Ok(await admin.PostAsJsonAsync($"/api/refund-requests/{pendingWaiver.GetProperty("id")}/approve", new ApproveRefundRequest(null,"同意免赔")));
             // Damage the customer pays for asks nothing; with the switch off an unpaid one is recorded as approved.
             var paidFor = await Ok(await courier.PostAsJsonAsync($"/api/orders/{await Order(admin, mid, 1)}/fulfill",
                 new FulfillWaterOrderRequest(1, 1, 1, DamagedQty: 1, DamageCompensated: true)));
@@ -193,12 +197,19 @@ public sealed class DepositReviewTests(TestHost host)
             Assert.Equal("APPROVED", waived.GetProperty("damageReviewStatus").GetString());
             var preview = await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement/preview", new SettlementPreviewRequest()));
             var historical = preview.GetProperty("slip").GetProperty("damages").EnumerateArray().ToArray();
-            Assert.Equal(3, historical.Sum(d => d.GetProperty("quantity").GetInt32()));
-            Assert.Equal(4, (await Buckets(admin,mid)).GetProperty("damageQty").GetInt32());
+            var rejectedRef = row.GetProperty("requestNo").GetString()!;
+            Assert.Equal(rejectedRef, Assert.Single(historical).GetProperty("reference").GetString());
+            Assert.Equal(5, (await Buckets(admin,mid)).GetProperty("damageQty").GetInt32());
+            var settled = await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement",
+                new SettlementRequest(Key(),"CASH", DamageDecisions:[new(rejectedRef,true)])));
+            var rows = (await admin.GetFromJsonAsync<JsonElement>($"/api/refund-requests?memberId={mid}&kind=DAMAGE&page=1")).GetProperty("rows").EnumerateArray().ToArray();
+            Assert.Equal(3,rows.Length);
+            Assert.All(rows,r => Assert.Equal(mid,r.GetProperty("memberId").GetGuid()));
+            var resolved = rows.Single(r => r.GetProperty("status").GetString()=="REJECTED");
+            Assert.Equal(settled.GetProperty("settlementNo").GetString(),resolved.GetProperty("settlementNo").GetString());
+            Assert.True(resolved.GetProperty("settlementCharged").GetBoolean());
+            Assert.All(rows.Where(r => r.GetProperty("status").GetString()=="APPROVED"),r => Assert.Equal(JsonValueKind.Null,r.GetProperty("settlementNo").ValueKind));
 
-            var rows = (await Requests(admin, "DAMAGE", memberNo)).EnumerateArray().ToList();
-            Assert.Equal(2, rows.Count);
-            Assert.Equal("无需审核", rows.Single(r => r.GetProperty("status").GetString() == "APPROVED").GetProperty("reviewNote").GetString());
         }
         finally
         {
