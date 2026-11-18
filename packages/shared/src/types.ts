@@ -10,6 +10,11 @@ export type PayMethod = 'CASH' | 'WECHAT' | 'ALIPAY' | 'BANK';
 export type ActiveStatus = 'ACTIVE' | 'DISABLED';
 export type OrderStatus = 'PENDING' | 'DISPATCHED' | 'COMPLETED' | 'CANCELLED';
 
+export interface AdminAlertSnapshot {
+  orderTotal: number;
+  pendingReviewIds: string[];
+}
+
 export interface AuthSession {
   accessToken: string;
   subjectType: SubjectType;

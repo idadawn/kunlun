@@ -101,10 +101,16 @@ function openOutside(url) {
   if (target) shell.openExternal(target);
 }
 
-function setupSession() {
+function setupSession(origin) {
   const ses = session.defaultSession;
-  ses.setPermissionRequestHandler((_contents, permission, callback) => callback(ALLOWED_PERMISSIONS.has(permission)));
-  ses.setPermissionCheckHandler((_contents, permission) => ALLOWED_PERMISSIONS.has(permission));
+  ses.setPermissionRequestHandler((_contents, permission, callback, details) => {
+    callback(permission === 'notifications' ? details.isMainFrame && isAppUrl(origin, details.requestingUrl) : ALLOWED_PERMISSIONS.has(permission));
+  });
+  ses.setPermissionCheckHandler((_contents, permission, requestingOrigin, details) => {
+    if (permission !== 'notifications') return ALLOWED_PERMISSIONS.has(permission);
+    // Chromium also checks the notification origin without an associated document.
+    return isAppUrl(origin, requestingOrigin) && (!details.requestingUrl || (details.isMainFrame && isAppUrl(origin, details.requestingUrl)));
+  });
   // Exports and the price poster are blob downloads; ask where to save, starting in the Downloads folder.
   ses.on('will-download', (_event, item) => {
     item.setSaveDialogOptions({ title: '保存文件', defaultPath: join(app.getPath('downloads'), item.getFilename()) });
@@ -233,7 +239,7 @@ function start() {
   if (process.platform === 'win32' && pkg.kunlunAppId) app.setAppUserModelId(pkg.kunlunAppId);
   // Windows keeps Ctrl+C/V without a menu; macOS (local debugging only) needs the Edit menu for them.
   Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }]) : null);
-  setupSession();
+  setupSession(origin);
   createWindow(origin);
 }
 

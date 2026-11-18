@@ -10,9 +10,19 @@ import {filterPlans} from '../packages/shared/src/plans.ts';
 import {pageCount,pageWindow} from '../packages/shared/src/paging.ts';
 import {dateFilterFrom} from '../packages/shared/src/format.ts';
 import {KunlunApi} from '../packages/shared/src/api.ts';
+import {newNotices} from '../apps/admin-pc/src/alert-events.ts';
 const root=fileURLToPath(new URL('..',import.meta.url));
 const APPS={'admin-pc':['admin'],'mobile-h5':['member','staff']};
 const allPaths=area=>[`/${area}`,...WEB_ROUTES[area].pages.map(p=>`/${area}/${p}`),...Object.keys(WEB_ROUTES[area].aliases||{}).map(p=>`/${area}/${p}`)];
+
+test('admin alerts ignore history and detect new reviews even when another is resolved', () => {
+ const before = {orderTotal: 12, pendingReviewIds: ['old']};
+ const after = {orderTotal: 14, pendingReviewIds: ['new']};
+ assert.deepEqual(newNotices(null, before), []);
+ assert.deepEqual(newNotices(before, after).map(n => [n.page, n.text]), [['orders', '收到 2 张新水单'], ['refunds', '新增 1 笔待审核申请']]);
+ assert.deepEqual(newNotices(after, after), []);
+ assert.deepEqual(newNotices(after, {orderTotal: 14, pendingReviewIds: []}), []);
+});
 
 test('clean URLs resolve pages and aliases; .html and hash links are not routes',()=>{
  assert.deepEqual(resolveRoute('/admin/plans'),{area:'admin',page:'plans',path:'/admin/plans'});
