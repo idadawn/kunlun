@@ -332,7 +332,7 @@ public static class Settlements
         await using (var cmd = Command(conn, tx, """
             WITH damaged AS (
               SELECT request_no AS ref,container_type,quantity,concat_ws(' · ',order_no,reason) AS reason FROM plugin_kunlun_waterstation.refund_requests
-              WHERE tenant_id=@tid AND member_id=@mid AND kind='DAMAGE' AND status<>'PENDING'
+              WHERE tenant_id=@tid AND member_id=@mid AND kind='DAMAGE' AND status='REJECTED'
               UNION ALL
               SELECT damage_no,container_type,
                      CASE WHEN fee_paid IS FALSE THEN quantity

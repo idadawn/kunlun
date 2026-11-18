@@ -1,3 +1,5 @@
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 using Kunlun.WaterStation.Auth;
 using Microsoft.AspNetCore.Hosting;
@@ -28,6 +30,22 @@ public sealed class TestHost : WebApplicationFactory<Program>
         Set("Kunlun__Jwt__SigningKey", Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"));
         Set("Kunlun__SeedDemoData", "true"); Set("Kunlun__SeedPassword", Password);
     }
+    internal static async Task CompleteFirstLogin(HttpClient member, string account, string temporary, string permanent)
+    {
+        async Task Login(string password)
+        {
+            member.DefaultRequestHeaders.Authorization = null;
+            using var response = await member.PostAsJsonAsync("/api/auth/member/login", new StaffLoginRequest(account, password));
+            response.EnsureSuccessStatusCode();
+            var session = await response.Content.ReadFromJsonAsync<AuthTokenResponse>();
+            member.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", session!.AccessToken);
+        }
+        await Login(temporary);
+        using var change = await member.PostAsJsonAsync("/api/auth/change-password", new ChangePasswordRequest(temporary, permanent));
+        change.EnsureSuccessStatusCode();
+        await Login(permanent);
+    }
+
     /// <summary>This run's own database, for seeding history the API no longer creates (e.g. gift tickets from retired coupons).</summary>
     public NpgsqlConnection OpenDatabase()
     {

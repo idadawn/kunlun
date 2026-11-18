@@ -10,6 +10,7 @@ public enum ServiceEnvironment: String, CaseIterable, Identifiable, Sendable {
 }
 
 public struct MemberIdentity: Codable, Sendable {
+    public let mustChangePassword: Bool?
     public let subjectId: String
     public let subjectType: String
     public let displayName: String

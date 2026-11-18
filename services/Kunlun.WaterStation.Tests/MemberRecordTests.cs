@@ -22,10 +22,9 @@ public sealed class MemberRecordTests(TestHost host)
         memberResponse.EnsureSuccessStatusCode();
         var id = (await memberResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
         var account = "real" + suffix[..12];
-        (await admin.PutAsJsonAsync($"/api/accounts/MEMBER/{id}/credentials", new { username = account, password = TestHost.Password })).EnsureSuccessStatusCode();
+        (await admin.PutAsJsonAsync($"/api/accounts/MEMBER/{id}/credentials", new { username = account, password = suffix })).EnsureSuccessStatusCode();
         using var member = host.CreateClient();
-        var response = await member.PostAsJsonAsync("/api/auth/member/login", new { account, password = TestHost.Password }); response.EnsureSuccessStatusCode();
-        member.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accessToken").GetString());
+        await TestHost.CompleteFirstLogin(member, account, suffix, TestHost.Password);
         var rows = (await member.GetFromJsonAsync<JsonElement[]>($"/api/members/{id}/deposit-summary"))!;
         Assert.Equal((await member.GetFromJsonAsync<JsonElement[]>("/api/products"))!.Length, rows.Length);
         foreach (var row in rows)

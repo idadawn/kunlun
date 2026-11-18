@@ -32,8 +32,8 @@ struct LoginView: View {
                         VStack(alignment: .leading, spacing: 18) {
                             Text("会员登录").font(.title2.bold())
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("用户名").font(.subheadline)
-                                TextField("门店为你设置的用户名", text: $account)
+                                Text("手机号或原有账号").font(.subheadline)
+                                TextField("请输入登录手机号或原有账号", text: $account)
                                     .textContentType(.username).textInputAutocapitalization(.never).autocorrectionDisabled()
                                     .focused($focused, equals: .account).submitLabel(.next)
                                     .accessibilityIdentifier("login.account")
@@ -54,7 +54,7 @@ struct LoginView: View {
                             }.buttonStyle(.borderedProminent).controlSize(.large)
                                 .disabled(store.busy || account.trimmingCharacters(in: .whitespaces).isEmpty || password.isEmpty)
                                 .accessibilityIdentifier("login.submit")
-                            Text("首次登录或忘记密码，请联系门店设置会员账号。").font(.footnote).foregroundStyle(.secondary).lineSpacing(3)
+                            Text("首次登录或忘记密码，请向门店领取临时密码。").font(.footnote).foregroundStyle(.secondary).lineSpacing(3)
                         }.padding(22).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
                     }
                     StoreHint()

@@ -42,8 +42,7 @@ public sealed class RemarkTests(TestHost host)
         var username = "member_" + Key()[..12]; var password = Key();
         await Ok(await admin.PutAsJsonAsync($"/api/accounts/MEMBER/{id}/credentials", new AccountCredentialsRequest(username, password)));
         using var member = host.CreateClient();
-        var auth = await Ok(await member.PostAsJsonAsync("/api/auth/member/login", new StaffLoginRequest(username, password)));
-        member.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.GetProperty("accessToken").GetString());
+        await TestHost.CompleteFirstLogin(member, username, password, Key());
 
         // The member area only shows records: orders are registered by the store.
         Assert.Equal(HttpStatusCode.Forbidden, (await member.PostAsJsonAsync("/api/orders", Delivery(id, "会员自助下单"))).StatusCode);

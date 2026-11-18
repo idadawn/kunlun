@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { KUNLUN_PERMISSIONS as P, money, pageCount, ticketGroups, type MemberTicket } from '@kunlun/shared';
-import { Icon, useAuth } from '@kunlun/ui';
+import { Icon, ResetMemberPasswordDialog, useDialogs, useAuth } from '@kunlun/ui';
 import { EmptyRow, Pager, useExport, useOperations } from '../common';
 import { MEMBER_PAGE_SIZE, useAdminData, type MemberFilter } from '../data';
 import { useMemberStatusActions } from '../memberStatus';
@@ -51,6 +51,7 @@ function MemberList({ onOpen }: { onOpen: (id: string) => void }) {
   const ops = useOperations();
   const exportCsv = useExport();
   const { can } = useAuth();
+  const dialogs = useDialogs();
   // 停用 / 启用 and 删除 sit in each row's 操作 column for accounts with 「停用和删除会员」.
   const manage = can(P.MemberManage);
   const status = useMemberStatusActions();
@@ -104,6 +105,8 @@ function MemberList({ onOpen }: { onOpen: (id: string) => void }) {
                 <td>{(m.createdAt || '').slice(0, 10) || '—'}</td>
                 <td className="row-actions">
                   <button type="button" className="link" onClick={() => onOpen(m.id)}>360° 档案</button>
+                  {m.status === 'ACTIVE' && can(P.MemberWrite) && <button type="button" className="link" aria-label={`重置密码 ${m.name}`}
+                    onClick={() => void dialogs.open(close => <ResetMemberPasswordDialog member={m} onClose={close} />)}>重置密码</button>}
                   {manage && (m.status === 'DISABLED'
                     ? <button type="button" className="link" aria-label={`重新启用会员 ${m.name}`} onClick={() => status.enable(m)}>启用</button>
                     : <button type="button" className="link" aria-label={`停用会员 ${m.name}`} title="不再来的会员：停用后办不了业务，会员端也登录不了，记录和余额都留着" onClick={() => status.disable(m)}>停用</button>)}

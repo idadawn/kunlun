@@ -490,3 +490,11 @@ a{color:var(--brand-600);text-decoration:none}
 .settle-record small{font-size:12px;color:var(--muted)}
 .settle-record strong{flex:none;font-family:var(--font-num);color:var(--brand-700)}
 @media(max-width:640px){.membership-fields .refund-amount .input{width:100%}.settle-total-sum strong{font-size:21px}}
+
+.damage-reviews{padding:16px;min-width:0}
+.damage-reviews h3,.damage-reviews p{margin:0}
+.damage-reviews article{display:grid;gap:5px;padding:12px 0;border-bottom:1px solid var(--line)}
+.damage-reviews article:last-child{border-bottom:0}
+.damage-reviews article>div{display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px}
+.damage-reviews small{color:var(--muted);overflow-wrap:anywhere}
+.temporary-password{font-family:var(--font-num);letter-spacing:0.08em;user-select:all}

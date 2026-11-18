@@ -91,7 +91,7 @@ export function AuthGate({ area, apiBaseUrl = '', loginFooter, children }: { are
 
   if (restoring) return <div className="login-gate" aria-busy="true"><p className="membership-note">正在恢复登录状态…</p></div>;
   if (!value) return <LoginPage area={area} onLogin={login} footer={loginFooter} />;
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={value}>{user?.mustChangePassword ? <ChangePasswordDialog requiredChange onClose={endSession} /> : children}</AuthContext.Provider>;
 }
 
 function LoginPage({ area, onLogin, footer }: { area: AppArea; onLogin: (account: string, password: string) => Promise<void>; footer?: ReactNode }) {
@@ -112,9 +112,9 @@ function LoginPage({ area, onLogin, footer }: { area: AppArea; onLogin: (account
       <div className="login-brand"><Logo /><h1>{KUNLUN_BRAND.store}</h1><p>{KUNLUN_BRAND.slogan}</p></div>
       <form className="login-card" onSubmit={submit}>
         <h2>{AREA_LABEL[area]}</h2>
-        <p className="login-subtitle">使用用户名和密码登录</p>
-        <label htmlFor="loginUsername">用户名</label>
-        <input id="loginUsername" className="input" autoComplete="username" required maxLength={32} placeholder="请输入用户名" value={account} onChange={e => setAccount(e.target.value)} />
+        <p className="login-subtitle">{area === 'member' ? '使用登录手机号或原有账号和密码登录' : '使用用户名和密码登录'}</p>
+        <label htmlFor="loginUsername">{area === 'member' ? '手机号或账号' : '用户名'}</label>
+        <input id="loginUsername" className="input" autoComplete="username" required maxLength={32} placeholder={area === 'member' ? '请输入登录手机号或原有账号' : '请输入用户名'} value={account} onChange={e => setAccount(e.target.value)} />
         <label htmlFor="loginPassword">密码</label>
         <div className="password-field">
           <input id="loginPassword" className="input" type={showPassword ? 'text' : 'password'} autoComplete="current-password" required maxLength={128} placeholder="请输入密码" value={password} onChange={e => setPassword(e.target.value)} />
@@ -129,21 +129,29 @@ function LoginPage({ area, onLogin, footer }: { area: AppArea; onLogin: (account
   );
 }
 
-export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
+export function ChangePasswordDialog({ onClose, requiredChange = false }: { onClose: () => void; requiredChange?: boolean }) {
   const { api, endSession } = useAuth();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const toast = useToast();
   return (
-    <FormDialog title="修改密码" className="account-dialog" onClose={onClose} onSubmit={async () => { await api.changePassword(current, next); endSession(); }}>
-      <Field label="原密码" htmlFor="oldPassword"><input id="oldPassword" className="input" type="password" autoComplete="current-password" required value={current} onChange={e => setCurrent(e.target.value)} /></Field>
+    <FormDialog title={requiredChange ? '首次登录，请修改临时密码' : '修改密码'} className="account-dialog" onClose={onClose} submitLabel="保存新密码" onSubmit={async () => {
+      if (requiredChange && confirmation !== next) throw new Error('两次输入的新密码不一致');
+      if (next === current) throw new Error('新密码必须与原密码不同');
+      await api.changePassword(current, next);
+      endSession();
+      toast('密码已修改，请使用新密码重新登录');
+    }}>
+      <Field label={requiredChange ? '临时密码' : '原密码'} htmlFor="oldPassword"><input id="oldPassword" className="input" type="password" autoComplete="current-password" required value={current} onChange={e => setCurrent(e.target.value)} /></Field>
       <Field label="新密码" htmlFor="newPassword"><input id="newPassword" className="input" type="password" autoComplete="new-password" minLength={8} maxLength={128} required value={next} onChange={e => setNext(e.target.value)} /></Field>
+      {requiredChange && <Field label="再次输入新密码" htmlFor="confirmPassword"><input id="confirmPassword" className="input" type="password" autoComplete="new-password" required value={confirmation} onChange={e => setConfirmation(e.target.value)} /></Field>}
     </FormDialog>
   );
 }
 
-/** Sets or resets the username/password of a member or staff account. */
-export function CredentialsDialog({ subjectType, id, initialUsername = '', title, onClose, onSaved }: {
-  subjectType: 'STAFF' | 'MEMBER';
+/** Sets or resets a staff login. */
+export function CredentialsDialog({ id, initialUsername = '', title, onClose, onSaved }: {
   id: string;
   initialUsername?: string;
   title?: string;
@@ -156,13 +164,13 @@ export function CredentialsDialog({ subjectType, id, initialUsername = '', title
   const [password, setPassword] = useState('');
   return (
     <FormDialog
-      title={title ?? (subjectType === 'MEMBER' ? '设置会员登录账号' : '设置员工登录账号')}
+      title={title ?? '设置员工登录账号'}
       className="account-dialog"
       onClose={onClose}
       onSubmit={async () => {
-        await api.setCredentials(subjectType, id, username.trim(), password);
+        await api.setCredentials('STAFF', id, username.trim(), password);
         await onSaved?.();
-        toast(subjectType === 'MEMBER' ? '账号已保存，请将用户名和密码告知会员' : '员工账号已保存');
+        toast('员工账号已保存');
       }}
     >
       <Field label="用户名" htmlFor="credentialUsername"><input id="credentialUsername" className="input" autoComplete="off" pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{2,31}" required value={username} onChange={e => setUsername(e.target.value)} /></Field>
