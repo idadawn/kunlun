@@ -42,16 +42,6 @@
 .page-head p{margin:0;color:var(--muted);font-size:13px}
 .head-actions{display:flex;gap:10px}
 
-/* Hero Banner（浅色水雾风，清爽不压抑） */
-.hero-banner{background:var(--grad-hero);color:var(--ink);border:1px solid var(--brand-100);border-radius:var(--r-xl);padding:22px 26px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:24px;position:relative;overflow:hidden}
-.hero-banner:after{content:"";position:absolute;right:-50px;top:-60px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,rgba(14,165,233,.14),transparent 70%);pointer-events:none}
-.hero-banner .eyebrow{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;border-radius:999px;background:#fff;border:1px solid var(--brand-100);font-size:12px;color:var(--brand-600);font-weight:600;letter-spacing:.5px}
-.hero-banner h2{margin:9px 0 5px;font-size:22px;color:var(--ink);letter-spacing:.5px}
-.hero-banner p{margin:0;color:var(--muted);font-size:13px}
-.hero-banner .slogan-pill{text-align:right;position:relative;z-index:1}
-.hero-banner .slogan-pill b{display:block;font-size:16px;letter-spacing:2.5px;color:var(--brand-700);margin-bottom:8px}
-.hero-banner .slogan-pill small{color:var(--muted);font-size:12px}
-
 .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
 .stat-card{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);padding:18px 20px;box-shadow:var(--shadow-sm)}
 .stat-top{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:12.5px}
@@ -63,7 +53,6 @@
 .stat-value small{font-size:13px;font-weight:500;color:var(--muted);margin-left:4px}
 .stat-foot{font-size:12px;color:var(--muted)}
 
-.dashboard-grid{display:grid;grid-template-columns:1.65fr 1fr;gap:18px;margin-bottom:18px}
 .bottom-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:18px}
 .card-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line-soft)}
 /* 工作台：可能要退给会员的钱（押金 + 没用完的水费），和真正赚到的水费分开看。 */
@@ -90,16 +79,6 @@
 .card-title{font-weight:600;color:var(--ink);font-size:15px}
 .card-title small{color:var(--muted);font-weight:400;font-size:12px;margin-left:8px}
 .text-btn{border:0;background:none;color:var(--brand-600);font-size:12.5px;font-weight:500;padding:0}
-.chart-wrap{padding:16px 20px 18px}
-.chart-legend{display:flex;gap:18px;font-size:12px;color:var(--muted);margin-bottom:10px}
-.legend-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--brand-500);margin-right:6px}
-.legend-dot.light{background:var(--aqua-500)}
-.chart{width:100%;height:205px;display:block}
-.chart .gridline{stroke:var(--line-soft);stroke-width:1}
-.chart text{fill:var(--muted);font-size:11px}
-.chart .bar{fill:var(--aqua-500);opacity:.3}
-.chart .line{fill:none;stroke:var(--brand-500);stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
-
 .todo-list{padding:8px 16px 14px}
 .todo-item{display:flex;align-items:center;gap:12px;padding:11px 4px;border-bottom:1px solid var(--line-soft)}
 .todo-item:last-child{border-bottom:0}
@@ -294,7 +273,7 @@ button.stock-tile:hover .stock-tile-label .icon,button.stock-tile:focus-visible 
 @media(max-width:560px){.stock-card{padding:16px}}
 /* Narrow windows: page titles sit above their actions instead of being squeezed beside them. */
 @media(max-width:700px){.page-content{padding:18px 16px 36px}.page-head{flex-direction:column;align-items:stretch;gap:12px}.head-actions{flex-wrap:wrap}}
-@media(max-width:1100px){.stats-grid{grid-template-columns:repeat(2,1fr)}.dashboard-grid,.bottom-grid{grid-template-columns:1fr}}
+@media(max-width:1100px){.stats-grid{grid-template-columns:repeat(2,1fr)}.bottom-grid{grid-template-columns:1fr}}
 @media(max-width:1150px){.topbar{gap:12px;padding:0 20px}.topbar .search-mini,.breadcrumb .pill,.user-text small{display:none}.top-actions{gap:8px}}
 
 /* Water details and its dedicated container account are kept together. */
@@ -390,3 +369,53 @@ button.stock-tile:hover .stock-tile-label .icon,button.stock-tile:focus-visible 
 .opening-entry-head small,.opening-entry-note{color:var(--muted);font-size:12px}
 .opening-entries ul{margin:4px 0;padding-left:18px;font-size:12.5px;line-height:1.7;color:var(--text)}
 .liability-note{color:var(--muted);font-size:12px;line-height:1.6}
+
+/* 经营总览：周期经营报表在上，实时门店工作在下。 */
+.operating-heading { flex-wrap: wrap; margin-bottom: 16px; }
+.operating-heading h2, .cash-overview h3, .activity-overview h3 { margin: 0; }
+.period-picker, .metric-picker { display: inline-flex; flex-wrap: wrap; gap: 3px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.period-picker button, .metric-picker button { border: 0; border-radius: 6px; padding: 7px 17px; background: transparent; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.period-picker button:hover, .metric-picker button:hover { background: var(--brand-50); }
+.period-picker button[aria-pressed=true] { background: var(--brand-700); color: #fff; font-weight: 600; }
+.period-dateline { display: flex; align-items: center; gap: 12px; margin: 12px 0; color: var(--muted); font-size: 12px; }
+.period-dateline span { display: inline-flex; align-items: center; gap: 6px; color: var(--text); font-variant-numeric: tabular-nums; }
+.period-status { padding: 24px 0; color: var(--muted); }
+.cash-overview, .activity-overview { display: grid; gap: 16px; margin-bottom: 16px; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+.cash-balance { min-width: 0; padding: 22px 26px; background: var(--brand-700); color: #fff; border-radius: var(--r-lg); }
+.cash-balance h3 { font-size: 15px; font-weight: 550; color: var(--brand-100); }
+.cash-balance strong { display: block; margin-top: 5px; font-family: var(--font-num); font-size: clamp(30px, 3.7vw, 52px); line-height: 1.15; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.cash-balance strong small { font-size: .53em; font-weight: 500; }
+.cash-balance p { margin: 8px 0 19px; color: var(--brand-100); font-size: 12px; }
+.cash-balance dl { display: flex; flex-wrap: wrap; gap: 10px 32px; border-top: 1px solid #ffffff40; margin: 0; padding-top: 12px; }
+.cash-balance dt { font-size: 12px; color: var(--brand-100); }
+.cash-balance dd { margin: 3px 0 0; font: 600 19px var(--font-num); }
+.cash-breakdown dl, .activity-totals dl { margin: 4px 20px 10px; }
+.cash-breakdown dl div, .activity-totals dl div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 6px 0; }
+.cash-breakdown dt, .activity-totals dt { font-size: 13px; color: var(--text); }
+.cash-breakdown dt small, .activity-totals dd small { color: var(--muted); font: 400 12px var(--font); }
+.cash-breakdown dd, .activity-totals dd { margin: 0; color: var(--ink); font: 600 17px var(--font-num); font-variant-numeric: tabular-nums; }
+.cash-breakdown p, .redeemed-note { margin: 0 20px 12px; font-size: 12px; color: var(--muted); }
+.activity-overview { grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); }
+.metric-picker { padding: 2px; background: var(--bg); }
+.metric-picker button { padding: 3px 8px; font-size: 12px; }
+.metric-picker button[aria-pressed=true] { background: var(--brand-100); color: var(--brand-700); font-weight: 600; }
+.trend-card .card-head { flex-wrap: wrap; gap: 8px; }
+.trend-empty { display: grid; min-height: 122px; margin: 0; place-items: center; color: var(--muted); font-size: 13px; }
+.period-plot { display: flex; gap: 8px; height: 116px; margin: 19px 24px 34px 18px; }
+.plot-scale { display: flex; flex-direction: column; justify-content: space-between; flex-shrink: 0; text-align: right; }
+.plot-scale, .plot-column small { font: 11px var(--font); color: var(--muted); font-variant-numeric: tabular-nums; }
+.plot-bars { flex: 1; min-width: 0; display: flex; align-items: stretch; border-block: 1px solid var(--line); background: linear-gradient(to bottom, transparent 49.5%, var(--line-soft) 50%, transparent 50.5%); }
+.plot-column { flex: 1; min-width: 0; display: flex; position: relative; justify-content: center; align-items: flex-end; }
+.plot-column i { width: 65%; max-width: 38px; background: var(--brand-500); border-radius: 3px 3px 0 0; }
+.water .plot-column i { background: var(--aqua-500); }
+.plot-column small { position: absolute; top: calc(100% + 5px); white-space: nowrap; }
+.plot-tip { display: none; position: absolute; bottom: 6px; z-index: 1; white-space: nowrap; padding: 5px 7px; font-size: 12px; background: var(--ink); color: #fff; border-radius: 5px; }
+.plot-column:hover .plot-tip, .plot-column:focus-visible .plot-tip { display: block; }
+.plot-column:nth-child(-n+3) .plot-tip { left: 0; }
+.plot-column:nth-last-child(-n+3) .plot-tip { right: 0; left: auto; }
+.station-section { margin: 26px 0 12px; font-size: 17px; color: var(--ink); }
+#page-dashboard .bottom-grid { margin-bottom: 16px; }
+@media (max-width: 850px) {
+  .cash-overview, .activity-overview { grid-template-columns: minmax(0, 1fr); }
+  .period-picker button { padding: 6px 12px; }
+}

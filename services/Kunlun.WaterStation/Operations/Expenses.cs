@@ -46,7 +46,7 @@ public static class Expenses
 
     private static bool IsStaff(ClaimsPrincipal u) => u.FindFirstValue("subject_type") == "STAFF";
     public static bool CanManage(ClaimsPrincipal u) => IsStaff(u) && u.HasClaim("perm", KunlunPermissions.ExpenseManage);
-    private static bool CanRead(ClaimsPrincipal u) => CanManage(u) || IsStaff(u) && u.HasClaim("perm", KunlunPermissions.ReportExport);
+    internal static bool CanRead(ClaimsPrincipal u) => CanManage(u) || IsStaff(u) && u.HasClaim("perm", KunlunPermissions.ReportExport);
     private static bool Payment(string? value) => value is "CASH" or "WECHAT" or "ALIPAY" or "BANK";
     private static string Actor(ClaimsPrincipal u) => u.FindFirstValue("display_name") ?? "管理员";
     private static IResult Denied(string message) => Results.Json(new { error = message }, statusCode: StatusCodes.Status403Forbidden);
@@ -281,6 +281,12 @@ public static class Expenses
     {
         if (!CanRead(user)) return Denied("需要费用支出或报表权限");
         await using var conn = await db.OpenConnectionAsync(ct);
+        return Results.Ok(await ReadSummary(conn, null, repo.DefaultTenantId, from, to, ct));
+    }
+
+    internal static async Task<object> ReadSummary(NpgsqlConnection conn, NpgsqlTransaction? tx, Guid tenantId,
+        DateTimeOffset? from, DateTimeOffset? to, CancellationToken ct)
+    {
         await using var cmd = new NpgsqlCommand($$"""
             SELECT json_build_object(
               'expenseTotal', (SELECT COALESCE(sum(amount),0) FROM plugin_kunlun_waterstation.expenses e WHERE e.tenant_id=@tid AND e.status='ACTIVE' AND {{Window}}),
@@ -296,8 +302,8 @@ public static class Expenses
               'rechargeRefunded', (SELECT COALESCE(sum(amount),0) FROM plugin_kunlun_waterstation.recharge_refunds
                  WHERE tenant_id=@tid AND (@from IS NULL OR created_at >= @from) AND (@to IS NULL OR created_at < @to))
             )::text
-            """, conn);
-        cmd.Parameters.AddWithValue("tid", repo.DefaultTenantId);
+            """, conn, tx);
+        cmd.Parameters.AddWithValue("tid", tenantId);
         cmd.Parameters.Add(Paging.Time("from", from));
         cmd.Parameters.Add(Paging.Time("to", to));
         using var doc = JsonDocument.Parse((string)(await cmd.ExecuteScalarAsync(ct))!);
@@ -306,7 +312,7 @@ public static class Expenses
         var revenue = root.GetProperty("rechargeRevenue").GetDecimal();
         var transferred = root.GetProperty("transferred").GetDecimal();
         var refunded = root.GetProperty("rechargeRefunded").GetDecimal();
-        return Results.Ok(new
+        return new
         {
             expenseTotal = expense,
             expenseCount = root.GetProperty("expenseCount").GetInt64(),
@@ -322,6 +328,6 @@ public static class Expenses
             transferred,
             rechargeNet = revenue - refunded - transferred,
             balance = revenue - refunded - transferred - expense
-        });
+        };
     }
 }

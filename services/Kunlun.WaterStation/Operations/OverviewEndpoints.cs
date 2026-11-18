@@ -28,6 +28,7 @@ public static class OverviewEndpoints
             return Results.Ok(new { orderTotal = reader.GetInt64(0), pendingReviewIds = reader.GetFieldValue<Guid[]>(1) });
         }).RequireAuthorization();
 
+        app.MapGet("/api/reports/operating-period", OperatingPeriodReport.Get).RequireAuthorization();
         app.MapGet("/api/reports/overview", async (ClaimsPrincipal user, NpgsqlDataSource db, KunlunAuthRepository repo, CancellationToken ct) =>
         {
             if (!user.HasClaim("perm", KunlunPermissions.ReportExport)) return Results.Forbid();
