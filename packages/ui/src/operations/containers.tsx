@@ -77,13 +77,10 @@ export function MovementDialog({ memberId, onClose, onDone }: { memberId?: strin
   const key = useIdempotencyKey();
   const [member, setMember] = usePickedMember(memberId);
   const [pickedContainer, setContainer] = useState<ContainerType>('BUCKET');
-  const [direction, setDirection] = useState<'issue' | 'return'>('return');
-  const [quantity, setQuantity] = useState(1);
+  const [fullOut, setFullOut] = useState(0);
+  const [emptyIn, setEmptyIn] = useState(0);
   const [damage, setDamage] = useState(EMPTY_DAMAGE);
   const review = useReviewSettings();
-  const returning = direction === 'return';
-  const fullOut = returning ? 0 : quantity;
-  const emptyIn = returning ? quantity : 0;
   const summary = useLoader(async () => member ? { memberId: member.id, rows: await api.depositSummary(member.id) } : null, [api, member?.id]);
   const rows = member && summary.data?.memberId === member.id ? summary.data.rows : [];
   if (!can(P.ContainerRegister) && !can(P.OrderFulfill)) return <UnavailableDialog title="登记领还桶袋" message="当前账号没有容器登记权限" onClose={onClose} />;
@@ -96,11 +93,11 @@ export function MovementDialog({ memberId, onClose, onDone }: { memberId?: strin
     <FormDialog title="登记领还桶袋" submitLabel="确认登记" onClose={onClose} onSubmit={async () => {
       if (!member) throw new Error('请选择会员');
       if (before === null) throw new Error(summary.error || '请等待桶袋资料载入后再登记');
-      if (quantity <= 0) throw new Error(`请填写${returning ? '归还' : '领用'}数量`);
-      if (returning && quantity > before) throw new Error(`会员手里只有 ${before} 个${unit}，请核对归还数量`);
-      const problem = returning ? damageProblem(damage, unit, emptyIn) : '';
+      if (fullOut === 0 && emptyIn === 0) throw new Error('请填写领用或归还数量');
+      if (emptyIn > before + fullOut) throw new Error(`最多可归还 ${before + fullOut} 个${unit}，请核对归还数量`);
+      const problem = emptyIn > 0 ? damageProblem(damage, unit, emptyIn) : '';
       if (problem) throw new Error(problem);
-      const result = await api.registerMovement({ memberId: member.id, containerType: container, fullOutN: fullOut, emptyInM: emptyIn, idempotencyKey: key, ...(returning ? damageFields(damage) : {}) });
+      const result = await api.registerMovement({ memberId: member.id, containerType: container, fullOutN: fullOut, emptyInM: emptyIn, idempotencyKey: key, ...(emptyIn > 0 ? damageFields(damage) : {}) });
       await onDone?.();
       toast(`已登记，${member.name}手里现有 ${result.currentHeld} 个${unit}`);
     }}>
@@ -114,19 +111,27 @@ export function MovementDialog({ memberId, onClose, onDone }: { memberId?: strin
           </button>
         ))}
       </div>
-      <div className="seg-switch" role="group" aria-label="登记类型">
-        {(['issue', 'return'] as const).map(d => <button key={d} type="button" aria-pressed={direction === d}
-          onClick={() => { if (direction !== d) { setDirection(d); setQuantity(1); setDamage(EMPTY_DAMAGE); } }}>{d === 'issue' ? '领用' : '归还'}</button>)}
+      <div className="movement-quantities">
+        <div>
+          <Field label="领用数量（个）" htmlFor="moveIssued">
+            <Stepper id="moveIssued" label="领用数量" value={fullOut} onChange={setFullOut} max={10000} />
+          </Field>
+        </div>
+        <div>
+          <Field label="归还数量（个）" htmlFor="moveReturned">
+            <Stepper id="moveReturned" label="归还数量" value={emptyIn} max={10000} onChange={n => {
+              setEmptyIn(n);
+              if (n === 0) setDamage(EMPTY_DAMAGE);
+            }} />
+          </Field>
+        </div>
       </div>
-      <Field label={`${returning ? '归还' : '领用'}数量（个）`} htmlFor="moveQuantity">
-        <Stepper id="moveQuantity" label={returning ? '归还数量' : '领用数量'} value={quantity} onChange={setQuantity} max={10000} />
-      </Field>
-      {returning && before !== null && <ReturnedDamageFields id="movement" unit={unit} emptyIn={emptyIn} value={damage} onChange={patch => setDamage(c => ({ ...c, ...patch }))}
+      {before !== null && emptyIn > 0 && <ReturnedDamageFields id="movement" unit={unit} emptyIn={emptyIn} value={damage} onChange={patch => setDamage(c => ({ ...c, ...patch }))}
         damageReviewed={waitsForReview(review, 'damage')} />}
       <div className={`deposit-total${after !== null && after < 0 ? ' warn' : ''}`}>
         <span>登记后会员手里</span>
         <b>{after === null ? '—' : `${before} → ${after} 个`}</b>
-        <small>{after !== null && after < 0 ? `还回的比会员手里的多，请核对数量` : returning && damage.damaged && quantity > 0 ? `归还 ${quantity} 个，其中破损 ${damage.damagedQty} 个记入待报废库存。` : '同时更新店里库存，押金另行收退。'}</small>
+        <small>{after !== null && after < 0 ? '归还数量过多，请核对领用和归还数量' : emptyIn > 0 && damage.damaged ? `归还 ${emptyIn} 个，其中破损 ${damage.damagedQty} 个记入待报废库存。` : '同时更新店里库存，押金另行收退。'}</small>
       </div>
     </FormDialog>
   );
