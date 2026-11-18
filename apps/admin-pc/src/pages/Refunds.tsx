@@ -3,7 +3,7 @@ import {
   KUNLUN_PERMISSIONS as P, PAY_METHODS, containerLabel, containerUnit, modeLabel, money, payMethodLabel, shortDateTime, unitOf, waterFallbackLabel,
   type PayMethod, type RefundKind, type RefundRequestQuery, type RefundRequestRow, type RefundRequestStatus, type ReviewSettings,
 } from '@kunlun/shared';
-import { Field, FormDialog, Icon, ReasonChips, parseYuan, sameYuan, useAuth, useDialogs, useLoader, useRun, useToast } from '@kunlun/ui';
+import { ConfirmDialog, Field, FormDialog, Icon, ReasonChips, parseYuan, sameYuan, useAuth, useDialogs, useLoader, useRun, useToast } from '@kunlun/ui';
 import { EmptyRow, Pager, PAGE_SIZE, useDebounced, usePagedTable } from '../common';
 import { useAdminData } from '../data';
 
@@ -27,8 +27,8 @@ const REJECT: Record<RefundKind, { title: string; reasons: readonly string[]; do
   DEPOSIT: REFUND_REJECT,
   RECHARGE: REFUND_REJECT,
   DAMAGE: {
-    title: '驳回不赔付', reasons: ['要顾客赔', '原因不成立', '登记有误'], done: '请提醒员工去找顾客赔',
-    hint: '驳回不动任何账目，只记下驳回原因；请提醒员工去找顾客把损坏的桶袋赔上。',
+    title: '驳回不赔付', reasons: ['要顾客赔', '原因不成立', '登记有误'], done: '已记录驳回原因',
+    hint: '驳回后，这笔待报废的桶袋将退回会员，计回会员持有数量。',
   },
 };
 const statusText = (r: Pick<RefundRequestRow, 'kind' | 'status'>): [string, string] =>
@@ -122,7 +122,7 @@ function ReviewSwitches() {
           ? '员工收的押金（交付时收的也算，管理员账号收的也一样）先记待审核，核对到账批准后才入账；交付照常，驳回就作废，会员变成欠押金'
           : '收的押金当场入账'} />
       <SwitchCard label="损坏不赔付要审核" on={s.damageReview} disabled={!editable} onToggle={() => flip('damageReview')}
-        hint={s.damageReview ? '交付时损坏的桶袋选了不赔付，要在这里批准；驳回就提醒员工去找顾客赔，账目不变' : '不赔付直接生效，这里留一条已同意的记录'} />
+        hint={s.damageReview ? '交付时损坏的桶袋选了不赔付，要在这里批准；驳回时将待报废的桶袋退回会员' : '不赔付直接生效，这里留一条已同意的记录'} />
       <small className="review-switches-foot">{switchedText(s)}{editable ? '' : '；只有管理员能修改'}</small>
     </div>
   );
@@ -142,12 +142,15 @@ function SwitchCard({ label, hint, on, disabled, onToggle }: { label: string; hi
 const reviewPermission = (kind: RefundKind) => kind === 'DEPOSIT' || kind === 'COLLECT' || kind === 'DAMAGE' ? P.DepositRefundApprove : P.RechargeRefund;
 
 function RequestRow({ row: r }: { row: RefundRequestRow }) {
-  const { can } = useAuth();
+  const { api, can } = useAuth();
   const { refresh } = useAdminData();
   const dialogs = useDialogs();
   const run = useRun();
   const [kindLabel, kindTone] = KINDS[r.kind];
   const [statusLabel, statusTone] = statusText(r);
+  const restore = run(() => dialogs.open<boolean>(close => <ConfirmDialog title="补记破损桶袋退回" confirmLabel="确认退回会员"
+    message={`确认 ${r.memberName} 已拿回这 ${r.quantity} 个破损桶袋？登记后会计回会员持有数量，并从待报废库存移出。`}
+    onClose={close} onConfirm={async () => { await api.returnRejectedDamage(r.id); await refresh(); }} />));
   const review = run(() => dialogs.open(close => <ReviewDialog row={r} onClose={close} onDone={refresh} />));
   return (
     <tr>
@@ -161,6 +164,9 @@ function RequestRow({ row: r }: { row: RefundRequestRow }) {
         <span className={`tag ${statusTone}`}>{statusLabel}</span>
         {r.status !== 'PENDING' && <><br /><small>{r.reviewerName} · {r.reviewedAt ? shortDateTime(r.reviewedAt) : ''}</small></>}
         {r.status === 'APPROVED' && r.refundNo && <><br /><small>{r.refundNo}</small></>}
+        {r.kind === 'DAMAGE' && r.damageStatus === 'RETURNED' && <><br /><small>已退回会员 {r.quantity} 个</small></>}
+        {r.kind === 'DAMAGE' && r.damageStatus === 'SCRAPPED' && <><br /><small>已报废</small></>}
+        {r.kind === 'DAMAGE' && r.status === 'APPROVED' && r.damageStatus === 'PENDING' && <><br /><small>已免赔 · 待报废</small></>}
         {r.reviewNote && <><br /><small className="ledger-reason">{r.status === 'REJECTED' ? '驳回：' : ''}{r.reviewNote}</small></>}
       </td>
       <td>
@@ -168,7 +174,8 @@ function RequestRow({ row: r }: { row: RefundRequestRow }) {
           ? can(reviewPermission(r.kind))
             ? <button type="button" className="btn primary sm" onClick={review}>审核</button>
             : <small>无审核权限</small>
-          : '—'}
+          : r.kind === 'DAMAGE' && r.status === 'REJECTED' && r.damageStatus === 'PENDING' && !r.settlementNo && can(reviewPermission('DAMAGE'))
+            ? <button type="button" className="btn sm" onClick={restore}>补记退回会员</button> : '—'}
       </td>
     </tr>
   );
@@ -214,11 +221,13 @@ function RequestAmount({ row: r }: { row: RefundRequestRow }) {
 
 /** 通过即按当前账目当场退款、让赠票到账或把收的押金入账；需要驳回时另开一步填写驳回原因。 */
 function ReviewDialog({ row: r, onClose, onDone }: { row: RefundRequestRow; onClose: () => void; onDone: () => Promise<void> }) {
-  const { api } = useAuth();
+  const { api, can } = useAuth();
   const toast = useToast();
   const dialogs = useDialogs();
   const run = useRun();
   const { kind } = r;
+  const [scrap, setScrap] = useState(false);
+  const offerScrap = kind === 'DAMAGE' && r.damageStatus === 'PENDING' && can(P.ContainerInventoryManage);
   const unit = r.waterType ? unitOf(r.waterType) : '张';
   const container = r.containerType ? containerLabel(r.containerType) : '容器';
   const piece = r.containerType ? containerUnit(r.containerType) : '桶袋';
@@ -239,18 +248,18 @@ function ReviewDialog({ row: r, onClose, onDone }: { row: RefundRequestRow; onCl
     if (refund && value === null) throw new Error('请填写实退金额，最多两位小数');
     // Untouched and nothing typed by the applicant: the server pays what the books say at this moment.
     const typed = refund && (r.requestedAmount != null || edited) ? { amount: value! } : {};
-    const result = await api.approveRefund(r.id, { ...(movesMoney ? { payMethod: pay } : {}), note: note.trim() || undefined, ...typed });
+    const result = await api.approveRefund(r.id, { ...(movesMoney ? { payMethod: pay } : {}), note: note.trim() || undefined, ...(offerScrap && scrap ? { scrapDamage: true } : {}), ...typed });
     await onDone();
     toast(kind === 'GIFT' ? `已批准，赠送 ${r.quantity}${unit}已到账`
       : kind === 'COLLECT' ? `已批准，押金 ¥${money(result.refundAmount)} 已入账（${result.refundNo}）`
-      : kind === 'DAMAGE' ? `已同意不赔付（${r.requestNo}）`
+      : kind === 'DAMAGE' ? `已同意免赔${offerScrap && scrap ? '并报废' : ''}（${r.requestNo}）`
       : `已通过并退款 ¥${money(result.refundAmount)}（${result.refundNo}）`);
     onClose();
   };
   const reject = run(async () => {
     if (await dialogs.open<boolean>(close => <RejectDialog row={r} onClose={close} onDone={onDone} />)) onClose();
   });
-  const submitLabel = kind === 'GIFT' ? '批准赠送' : kind === 'COLLECT' ? '钱已到账，批准' : kind === 'DAMAGE' ? '同意不赔付'
+  const submitLabel = kind === 'GIFT' ? '批准赠送' : kind === 'COLLECT' ? '钱已到账，批准' : kind === 'DAMAGE' ? (offerScrap && scrap ? '同意免赔并报废' : '同意免赔')
     : value === null ? '通过并退款' : `通过并退款 ¥${money(value)}`;
   const happened = kind === 'COLLECT' ? '收款' : kind === 'DAMAGE' ? '交付时登记' : '提交';
   return (
@@ -272,10 +281,17 @@ function ReviewDialog({ row: r, onClose, onDone }: { row: RefundRequestRow; onCl
         {r.reason && <p>{kind === 'DAMAGE' ? '不赔付的原因' : '原因'}：{r.reason}</p>}
         <strong>{kind === 'GIFT' ? `批准后到账 ${r.quantity}${unit}`
           : kind === 'COLLECT' ? `批准后入账 ¥${money(r.estimatedAmount)}`
-          : kind === 'DAMAGE' ? '批准、驳回都不动账'
+          : kind === 'DAMAGE' ? '同意后由水站承担这笔破损费用'
           : `按账${r.currentAmount != null ? '应退' : '约退'} ¥${money(books)}`}</strong>
         {refund && r.requestedAmount != null && <p>{r.applicantName} 填的是申请退 ¥{money(r.requestedAmount)}</p>}
       </div>
+      {offerScrap && <div className="handover-question">
+        <b>同时报废这 {r.quantity} 个{piece}？</b>
+        <div className="seg-switch" role="group" aria-label="报废处理">
+          <button type="button" aria-pressed={scrap} onClick={() => setScrap(true)}>立即报废</button>
+          <button type="button" aria-pressed={!scrap} onClick={() => setScrap(false)}>稍后处理</button>
+        </div>
+      </div>}
       {moved && <p className="profile-warn">申请后会员又用了水票：申请时按账 ¥{money(r.estimatedAmount)}，现在按账 ¥{money(r.currentAmount!)}，请核对实退金额。</p>}
       {refund && (
         <Field label="实退金额（元）" htmlFor="reviewAmount">
@@ -297,7 +313,7 @@ function ReviewDialog({ row: r, onClose, onDone }: { row: RefundRequestRow; onCl
           : kind === 'COLLECT'
             ? '先核对微信、支付宝或钱箱里这笔钱到没到。核对到账后批准，按收款金额增加会员押金余额。'
             : kind === 'DAMAGE'
-              ? '批准就是水站自己承担这次损坏，账目不变；不同意就驳回，并提醒员工去找顾客赔。'
+              ? '选择立即报废会同时更新袋桶台账。选择稍后处理，可在袋桶台账办理报废。'
               : <>{kind === 'DEPOSIT'
                 ? !r.containerType ? '通过后按实退金额减少会员押金余额，余款继续留在押金池。' : '通过时重新核对会员手里的桶袋，按原收款批次单价算押金；实退比这少，差额记为扣押金。若期间又领用了桶袋导致可退不足，请驳回后重新申请。'
                 : '按账是剩余付费票按原实付单价折算，赠票一并收回；实退以这里填的为准，最多退原实付。有订单占用水票时须先处理订单。'}
@@ -315,9 +331,9 @@ function RejectDialog({ row: r, onClose, onDone }: { row: RefundRequestRow; onCl
   return (
     <FormDialog title={text.title} description={`${r.requestNo} · ${r.memberName}`} submitLabel="确认驳回" onClose={() => onClose()} onSubmit={async () => {
       if (!note.trim()) throw new Error('请填写驳回原因');
-      await api.rejectRefund(r.id, note.trim());
+      const result = await api.rejectRefund(r.id, note.trim());
       await onDone();
-      toast(`已驳回 ${r.requestNo}，${text.done}`);
+      toast(`已驳回 ${r.requestNo}，${result.returnedToMember ? `已退回会员 ${r.quantity} 个` : text.done}`);
       onClose(true);
     }}>
       <Field label="驳回原因" htmlFor="rejectNote"><input id="rejectNote" className="input" required maxLength={500} value={note} onChange={e => setNote(e.target.value)} /></Field>

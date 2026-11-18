@@ -9,6 +9,7 @@ export function MemberDamageBreakdown({ counts }: { counts: DepositSummaryRow['d
     <span>已免赔 <b>{counts.waived} 个</b></span>
     <span>已赔付 <b>{counts.paid} 个</b></span>
     <span className={counts.pending > 0 ? 'outstanding' : undefined}>待处理 <b>{counts.pending} 个</b></span>
+    {counts.returned > 0 && <span>已退回会员 <b>{counts.returned} 个</b></span>}
     {counts.awaitingReview > 0 && <span>免赔待审核 <b>{counts.awaitingReview} 个</b></span>}
     {counts.awaitingScrap > 0 && <span>待确认报废 <b>{counts.awaitingScrap} 个</b></span>}
     {counts.unverified > 0 && <span>历史待核实 <b>{counts.unverified} 个</b></span>}
@@ -29,7 +30,7 @@ export function MemberDamageReviews({ memberId, version }: { memberId: string; v
           <div><b>{containerLabel(r.containerType!)} × {r.quantity}</b>
             <strong>{r.status === 'PENDING' ? '待审核' : r.status === 'APPROVED' ? '已同意免赔' : '未同意免赔'}</strong></div>
           <p>{r.settlementNo ? `${r.settlementNo} · ${r.settlementCharged ? `已收 ¥${money(r.settlementAmount ?? 0)}` : '结算时免收'}` :
-            r.status === 'APPROVED' ? '退款结算免收' : r.status === 'REJECTED' ? '退款时待处理' : '等待审核结果'}</p>
+            r.damageStatus === 'RETURNED' ? '已计回持有数量，结算按持有桶袋处理' : r.status === 'APPROVED' ? '退款结算免收' : r.status === 'REJECTED' ? '退款时待处理' : '等待审核结果'}</p>
           <small>{shortDateTime(r.createdAt)} · {r.orderNo || r.movementNo || r.requestNo} · {r.reason}</small>
           {r.reviewedAt && <small>{shortDateTime(r.reviewedAt)} · {r.reviewerName}{r.reviewNote && ` · ${r.reviewNote}`}</small>}
         </article>)}

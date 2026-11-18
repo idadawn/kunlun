@@ -237,12 +237,14 @@ export class KunlunApi {
     return this.request<Paged<RefundRequestRow>>('/api/refund-requests' + paged(query));
   }
   /** `amount` is what the reviewer pays back; required when the applicant typed one in. */
-  approveRefund(id: string, body: { payMethod?: PayMethod; note?: string; amount?: number }) {
+  approveRefund(id: string, body: { payMethod?: PayMethod; note?: string; amount?: number; scrapDamage?: boolean }) {
     return this.post<{ id: string; status: RefundRequestStatus; refundNo: string | null; refundAmount: number; idempotentReplay: boolean }>(`/api/refund-requests/${id}/approve`, body);
   }
   rejectRefund(id: string, note: string) {
-    return this.post<{ id: string; status: RefundRequestStatus }>(`/api/refund-requests/${id}/reject`, { note });
+    return this.post<{ id: string; status: RefundRequestStatus; returnedToMember?: boolean }>(`/api/refund-requests/${id}/reject`, { note });
   }
+
+  returnRejectedDamage(id: string) { return this.post<{ returnedToMember: boolean }>(`/api/refund-requests/${id}/return-damage`, {}); }
 
   // Orders
   /** The newest 50 matches; tables use `ordersPage`. */

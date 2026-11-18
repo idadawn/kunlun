@@ -13,6 +13,14 @@ const DAMAGE_REASONS: Record<ContainerType, readonly string[]> = {
   BAG: ['袋体破损漏水', '袋口/阀门损坏', '封口不严', '污染无法清洗', '自然老化'],
 };
 
+function damageState(r: ContainerDamageRow) {
+  if (r.status === 'RETURNED') return '已退回会员';
+  if (r.status === 'SCRAPPED') return r.depositWaived ? '已报废 · 未扣押金' : '已报废 · 已扣押金';
+  if (r.reviewStatus === 'PENDING') return '免赔待审核';
+  if (r.reviewStatus === 'REJECTED') return '已驳回 · 待核对实物';
+  return r.reviewStatus === 'APPROVED' ? '已免赔 · 待报废' : '待报废';
+}
+
 function ReasonField({ value, onChange, placeholder = '填写来源或处理原因' }: { value: string; onChange: (value: string) => void; placeholder?: string }) {
   return (
     <Field label="原因 / 备注" htmlFor="operationReason">
@@ -27,7 +35,7 @@ type Ledger = ({ tab: 'holdings' } & Paged<ContainerHoldingRow>) | ({ tab: 'move
 const TABS: Array<[Tab, string]> = [['movements', '流转记录'], ['holdings', '会员手里'], ['damages', '破损报废']];
 const BUSINESS: Record<CirculationBusinessType, [string, string]> = {
   TURNOVER: ['领还', 'green'], DAMAGE_RETURN: ['破损还回', 'orange'], SCRAP: ['报废 · 扣押金', 'orange'], SCRAP_WAIVED: ['报废 · 不扣押金', 'gray'],
-  OPENING: ['上系统前', 'gold'], RECEIVE: ['新购', 'blue'], STORE_SCRAP: ['店里报废', 'orange'],
+  DAMAGE_REJECTED: ['驳回退回', 'gray'], OPENING: ['上系统前', 'gold'], RECEIVE: ['新购', 'blue'], STORE_SCRAP: ['店里报废', 'orange'],
 };
 /** The store's own rows: no member, and the numbers that change are the store's. */
 const isStore = (r: CirculationRow) => r.businessType === 'RECEIVE' || r.businessType === 'STORE_SCRAP';
@@ -41,6 +49,7 @@ const remarkOf = (r: CirculationRow) => r.remark === '独立领还' ? '单独登
 /** One flow row in words: what was taken, brought back or scrapped. */
 function happened(r: CirculationRow) {
   // Written down, not moved: containers the member already had before the system (or a correction of that figure).
+  if (r.businessType === 'DAMAGE_REJECTED') return `退回会员 ${r.deltaHeld} 个`;
   if (r.businessType === 'OPENING') return r.deltaHeld > 0 ? '补录原来就在会员手里的' : '更正补录的数量';
   if (isStore(r)) {
     const store = r.storeBefore !== null && r.storeAfter !== null ? `，店里 ${r.storeBefore} → ${r.storeAfter} 个` : '';
@@ -134,13 +143,15 @@ export function Assets() {
         <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>
         <td>{containerLabel(r.containerType)} × {r.quantity}</td>
         <td>¥{money(r.depositAmount)}<br /><small>{r.feePaid != null ? r.feePaid ? '登记时已赔付' : '登记时未赔付' : r.status === 'PENDING' ? '报废时决定是否扣除' : r.depositWaived ? '未扣，已退回可用押金' : '已扣除'}</small></td>
-        <td><span className={`tag ${r.status === 'PENDING' ? 'orange' : 'gray'}`}>{r.status === 'PENDING' ? '待报废' : r.depositWaived ? '已报废 · 未扣押金' : '已报废 · 已扣押金'}</span></td>
+        <td><span className={`tag ${r.status === 'PENDING' ? 'orange' : 'gray'}`}>{damageState(r)}</span></td>
         <td className="inventory-reason">
           {r.reason}
           {r.uncoveredQty > 0 && <><br /><small className="amount-out">没押金 {r.uncoveredQty} 个：{r.uncoveredNote}</small></>}
           {r.scrapReason && <><br /><small>报废：{r.scrapReason}</small></>}
         </td>
-        <td>{r.status === 'PENDING'
+        <td>{r.reviewStatus === 'PENDING' && r.status === 'PENDING'
+          ? <button type="button" className="text-btn" onClick={() => go('refunds')}>去审核</button>
+          : r.status === 'PENDING'
           ? <button type="button" className="text-btn danger" disabled={!canScrap} onClick={() => confirmScrap(r)}>确认报废</button>
           : <small className="container-reference" title={r.scrapNo}>{r.scrapNo}</small>}</td>
       </tr>
@@ -178,7 +189,7 @@ export function Assets() {
         )}
         {tab === 'damages' && (
           <select className="select" aria-label="破损状态" value={status} onChange={e => filter(() => setStatus(e.target.value))}>
-            <option value="PENDING">待报废</option><option value="SCRAPPED">已报废</option><option value="">全部状态</option>
+            <option value="PENDING">待报废</option><option value="SCRAPPED">已报废</option><option value="RETURNED">已退回会员</option><option value="">全部状态</option>
           </select>
         )}
       </div>
@@ -270,7 +281,7 @@ function ScrapDialog({ row, onClose, onDone }: { row: ContainerDamageRow; onClos
       </div>}
       <div className="scrap-confirmation">
         <b>{row.memberName} · {containerLabel(row.containerType)} {row.quantity} 个</b>
-        {row.feePaid != null ? <p>{row.feePaid ? '报废费用已收取' : '费用由退款结算单处理'}</p> : deduct
+        {row.feePaid != null ? <p>{row.feePaid ? '报废费用已收取' : row.reviewStatus === 'APPROVED' ? '审核已免赔' : '费用由退款结算单处理'}</p> : deduct
           ? <>
             <p>本次扣除押金 <strong>¥{money(row.depositAmount)}</strong></p>
             {row.lotBreakdown.length > 0 && <small>按原实收批次结算：{row.lotBreakdown.map(l => `${l.quantity} 个 × ¥${money(l.unitPrice)}`).join(' + ')}</small>}

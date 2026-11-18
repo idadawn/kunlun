@@ -24,6 +24,13 @@ public static class ContainerCirculation
     /// <summary>The 买桶袋 expense a 新购 came with, if any.</summary>
     internal const string StoreExpenseNo = "COALESCE(o.receipt->'expense'->>'expenseNo','')";
 
+    // Only physical returns identified by the same hand-over or movement can be acted on during review.
+    internal const string ReviewLink = """
+        rr.kind='DAMAGE' AND rr.tenant_id=d.tenant_id AND rr.member_id=d.member_id
+        AND rr.container_type=d.container_type AND rr.quantity=d.quantity
+        AND (rr.movement_id=d.movement_id OR rr.order_no=d.handover_order_no)
+        """;
+
     // An order ledger already includes every empty returned; its linked damage slip identifies the broken subset.
     internal const string DamagedReturns = """
         CASE WHEN c.business_type='DAMAGE_RETURN' THEN c.empty_in_qty ELSE COALESCE((
@@ -76,6 +83,13 @@ public static class ContainerCirculation
               scrap_no VARCHAR(32),scrap_key VARCHAR(80),scrap_hash VARCHAR(64),scrap_reason TEXT,scrap_operator VARCHAR(64),scrapped_at TIMESTAMPTZ,scrap_receipt JSONB,
               UNIQUE(tenant_id,idempotency_key),UNIQUE(tenant_id,scrap_key)
             );
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='plugin_kunlun_waterstation.container_damages'::regclass
+                             AND conname='container_damages_disposition_check') THEN
+                ALTER TABLE plugin_kunlun_waterstation.container_damages DROP CONSTRAINT IF EXISTS container_damages_status_check;
+                ALTER TABLE plugin_kunlun_waterstation.container_damages ADD CONSTRAINT container_damages_disposition_check CHECK(status IN ('PENDING','SCRAPPED','RETURNED'));
+              END IF;
+            END $$;
             CREATE INDEX IF NOT EXISTS container_damages_member ON plugin_kunlun_waterstation.container_damages(tenant_id,member_id,status);
             ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS deposit_waived BOOLEAN NOT NULL DEFAULT FALSE;
             ALTER TABLE plugin_kunlun_waterstation.container_damages ADD COLUMN IF NOT EXISTS uncovered_qty INT NOT NULL DEFAULT 0 CHECK(uncovered_qty>=0);
@@ -140,19 +154,20 @@ public static class ContainerCirculation
         app.MapGet("/api/containers/damages",async(string? q,string? containerType,string? status,int? page,ClaimsPrincipal user,NpgsqlDataSource db,KunlunAuthRepository repo,CancellationToken ct)=>
         {
             if(!CanRead(user))return Results.Forbid();ValidateFilter(containerType,page);
-            if(status is not(null or "" or "PENDING" or "SCRAPPED"))throw new BusinessRuleException("破损状态无效");
+            if(status is not(null or "" or "PENDING" or "SCRAPPED" or "RETURNED"))throw new BusinessRuleException("破损状态无效");
             await using var conn=await db.OpenConnectionAsync(ct);
             var args=FilterArgs(repo.DefaultTenantId,q,containerType,page).Append(("status",(object)(status??""))).ToArray();
-            const string from="""
+            const string from=$"""
                 FROM plugin_kunlun_waterstation.container_damages d JOIN plugin_kunlun_waterstation.members m ON m.id=d.member_id AND m.tenant_id=d.tenant_id
                 LEFT JOIN plugin_kunlun_waterstation.container_ledgers mv ON mv.id=d.movement_id AND mv.tenant_id=d.tenant_id
+                LEFT JOIN plugin_kunlun_waterstation.refund_requests rr ON {ReviewLink}
                 WHERE d.tenant_id=@tid AND (@type='' OR d.container_type=@type) AND (@status='' OR d.status=@status)
                   AND (@q='' OR m.name ILIKE @search OR m.phone ILIKE @search OR m.member_no ILIKE @search OR d.damage_no ILIKE @search OR d.handover_order_no ILIKE @search OR mv.ledger_no ILIKE @search)
                 """;
             await using var count=Command(conn,null,"SELECT count(*) "+from,args);var total=Convert.ToInt64(await count.ExecuteScalarAsync(ct));
-            await using var cmd=Command(conn,null,"SELECT d.id,d.damage_no,m.name,m.member_no,d.container_type,d.quantity,d.deposit_amount,d.status,d.reason,d.operator_name,d.created_at,d.lot_breakdown::text,COALESCE(d.scrap_no,''),COALESCE(d.scrap_reason,''),d.deposit_waived,d.uncovered_qty,d.uncovered_note,d.fee_paid,d.handover_order_no,mv.ledger_no "+from+" ORDER BY d.created_at DESC,d.id LIMIT 20 OFFSET @offset",args);
+            await using var cmd=Command(conn,null,"SELECT d.id,d.damage_no,m.name,m.member_no,d.container_type,d.quantity,d.deposit_amount,d.status,d.reason,d.operator_name,d.created_at,d.lot_breakdown::text,COALESCE(d.scrap_no,''),COALESCE(d.scrap_reason,''),d.deposit_waived,d.uncovered_qty,d.uncovered_note,d.fee_paid,d.handover_order_no,mv.ledger_no,rr.status "+from+" ORDER BY d.created_at DESC,d.id LIMIT 20 OFFSET @offset",args);
             var rows=new List<object>();await using var r=await cmd.ExecuteReaderAsync(ct);
-            while(await r.ReadAsync(ct))rows.Add(new{id=r.GetGuid(0),damageNo=r.GetString(1),memberName=r.GetString(2),memberNo=r.GetString(3),containerType=r.GetString(4),quantity=r.GetInt32(5),depositAmount=r.GetDecimal(6),status=r.GetString(7),reason=r.GetString(8),operatorName=r.GetString(9),createdAt=r.GetDateTime(10),lotBreakdown=JsonSerializer.Deserialize<JsonElement>(r.GetString(11)),scrapNo=r.GetString(12),scrapReason=r.GetString(13),depositWaived=r.GetBoolean(14),uncoveredQty=r.GetInt32(15),uncoveredNote=r.GetString(16),feePaid=r.IsDBNull(17)?(bool?)null:r.GetBoolean(17),handoverOrderNo=r.IsDBNull(18)?null:r.GetString(18),movementNo=r.IsDBNull(19)?null:r.GetString(19)});
+            while(await r.ReadAsync(ct))rows.Add(new{id=r.GetGuid(0),damageNo=r.GetString(1),memberName=r.GetString(2),memberNo=r.GetString(3),containerType=r.GetString(4),quantity=r.GetInt32(5),depositAmount=r.GetDecimal(6),status=r.GetString(7),reason=r.GetString(8),operatorName=r.GetString(9),createdAt=r.GetDateTime(10),lotBreakdown=JsonSerializer.Deserialize<JsonElement>(r.GetString(11)),scrapNo=r.GetString(12),scrapReason=r.GetString(13),depositWaived=r.GetBoolean(14),uncoveredQty=r.GetInt32(15),uncoveredNote=r.GetString(16),feePaid=r.IsDBNull(17)?(bool?)null:r.GetBoolean(17),handoverOrderNo=r.IsDBNull(18)?null:r.GetString(18),movementNo=r.IsDBNull(19)?null:r.GetString(19),reviewStatus=r.IsDBNull(20)?null:r.GetString(20)});
             return Results.Ok(new{rows,total,page=page??1,pageSize=20});
         }).RequireAuthorization();
     }
@@ -277,8 +292,65 @@ public static class ContainerCirculation
         await using var find=Command(conn,tx,"SELECT member_id FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND id=@id",("tid",tid),("id",id));
         var memberValue=await find.ExecuteScalarAsync(ct);if(memberValue is null)throw new BusinessRuleException("破损记录不存在",404);
         var mid=(Guid)memberValue;await LockMember(conn,tx,tid,mid,ct);
+        await using var review = Command(conn, tx, $"""
+            SELECT rr.status FROM plugin_kunlun_waterstation.container_damages d
+            JOIN plugin_kunlun_waterstation.refund_requests rr ON {ReviewLink}
+            WHERE d.tenant_id=@tid AND d.id=@id
+            """, ("tid",tid),("id",id));
+        var waiverStatus = await review.ExecuteScalarAsync(ct) as string;
+        if (waiverStatus == "APPROVED" && !waive) throw new BusinessRuleException("这笔破损已免赔，报废时不扣押金", 409);
+        if (waiverStatus == "PENDING")
+            throw new BusinessRuleException("请先审核免赔申请，可在审核时一并报废", 409);
         var scrap=await Scrap(conn,tx,tid,mid,id,req.Reason.Trim(),waive,req.IdempotencyKey,hash,user,ct);
         await tx.CommitAsync(ct);return Results.Ok(scrap.Receipt);
+    }
+
+    internal static async Task<Guid?> PendingReviewDamage(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid requestId, CancellationToken ct)
+    {
+        await using var cmd = Command(conn, tx, $"""
+            SELECT d.id FROM plugin_kunlun_waterstation.container_damages d
+            JOIN plugin_kunlun_waterstation.refund_requests rr ON {ReviewLink}
+            WHERE rr.tenant_id=@tid AND rr.id=@id AND d.status='PENDING' FOR UPDATE OF d
+            """, ("tid", tid), ("id", requestId));
+        return (Guid?)await cmd.ExecuteScalarAsync(ct);
+    }
+
+    // The member is locked by the caller. Reverse only the damaged portion of the original return.
+    internal static async Task<bool> ReturnRejectedDamage(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tid, Guid mid,
+        Guid requestId, string actor, CancellationToken ct)
+    {
+        await using var lookup = Command(conn, tx, $"""
+            SELECT d.id,d.container_type,d.quantity,rr.request_no FROM plugin_kunlun_waterstation.container_damages d
+            JOIN plugin_kunlun_waterstation.refund_requests rr ON {ReviewLink}
+            WHERE rr.id=@id AND rr.tenant_id=@tid AND rr.member_id=@mid AND rr.status='REJECTED' AND d.status='PENDING'
+              AND NOT EXISTS (SELECT 1 FROM plugin_kunlun_waterstation.settlement_damage_decisions sd
+                              WHERE sd.tenant_id=rr.tenant_id AND sd.reference=rr.request_no)
+            FOR UPDATE OF d
+            """, ("id",requestId), ("tid",tid), ("mid",mid));
+        Guid damageId; string type, requestNo; int quantity;
+        await using (var r = await lookup.ExecuteReaderAsync(ct))
+        {
+            if (!await r.ReadAsync(ct)) return false;
+            damageId=r.GetGuid(0); type=r.GetString(1); quantity=r.GetInt32(2); requestNo=r.GetString(3);
+        }
+        var before = await ReadBalance(conn, tx, tid, type, ct);
+        if (before.DamagedQty < quantity) throw new BusinessRuleException("待报废库存不足，请核对破损台账", 409);
+        var held = checked(await ProductContainers.Held(conn, tx, tid, mid, type, ct) + quantity);
+        await SaveBalance(conn, tx, tid, type, before with {
+            WithCustomersQty = checked(before.WithCustomersQty + quantity), MemberHeldQty = checked(before.MemberHeldQty + quantity),
+            DamagedQty = before.DamagedQty - quantity
+        }, ct);
+        await ProductContainers.SetHeld(conn, tx, tid, mid, type, held, ct);
+        await using var coverage = Command(conn, tx, "SELECT COALESCE(sum(remaining_qty-reserved_damage_qty),0) FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid AND member_id=@mid AND container_type=@type", ("tid",tid),("mid",mid),("type",type));
+        var covered = Convert.ToInt32(await coverage.ExecuteScalarAsync(ct)) + await RefundRequests.PendingCollectQty(conn, tx, tid, mid, type, ct);
+        await Exec(conn, tx, """
+            UPDATE plugin_kunlun_waterstation.container_damages SET status='RETURNED' WHERE tenant_id=@tid AND id=@damage;
+            INSERT INTO plugin_kunlun_waterstation.container_ledgers
+              (tenant_id,ledger_no,member_id,container_type,order_no,full_out_qty,empty_in_qty,delta_held,held_after,covered_deposit_qty_after,operator_name,remark,business_type)
+            VALUES(@tid,@ledger,@mid,@type,@no,0,0,@qty,@held,@covered,@actor,'免赔驳回，破损桶袋退回会员','DAMAGE_REJECTED')
+            """, ct, ("tid",tid),("damage",damageId),("ledger","CL"+Guid.NewGuid().ToString("N")[..28]),("mid",mid),("type",type),
+            ("no",requestNo),("qty",quantity),("held",held),("covered",covered),("actor",actor));
+        return true;
     }
 
     public sealed record ScrapResult(string ScrapNo,decimal DeductedAmount,object Receipt);
@@ -293,7 +365,9 @@ public static class ContainerCirculation
         await using(var read=Command(conn,tx,"SELECT container_type,quantity,deposit_amount,lot_breakdown::text,status FROM plugin_kunlun_waterstation.container_damages WHERE tenant_id=@tid AND id=@id FOR UPDATE",("tid",tid),("id",id)))
         await using(var r=await read.ExecuteReaderAsync(ct))
         {
-            await r.ReadAsync(ct);if(r.GetString(4)!="PENDING")throw new BusinessRuleException("该记录已报废，请勿重复操作",409);
+            await r.ReadAsync(ct);
+            if(r.GetString(4)=="RETURNED") throw new BusinessRuleException("破损桶袋已退回会员，不能报废",409);
+            if(r.GetString(4)!="PENDING") throw new BusinessRuleException("该记录已报废，请勿重复操作",409);
             type=r.GetString(0);qty=r.GetInt32(1);amount=r.GetDecimal(2);lots=JsonSerializer.Deserialize<List<DamageDepositLot>>(r.GetString(3),JsonOptions)!;
         }
         var before=await ReadBalance(conn,tx,tid,type,ct);
