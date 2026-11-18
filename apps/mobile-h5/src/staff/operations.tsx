@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { KUNLUN_PERMISSIONS as P, money, pathFor, ticketGroups, type MemberProfile, type MobileFeatureKey, type WaterOrder } from '@kunlun/shared';
 import {
-  AddressBook, MemberDamageReviews, ResetMemberPasswordDialog, DepositDialog, Dialog, FulfillDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog,
+  AddressBook, MemberDamageBreakdown, MemberDamageReviews, ResetMemberPasswordDialog, DepositDialog, Dialog, FulfillDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog,
   RechargeDialog, SettlementDialog, SettlementRecords, canSettle, useAuth, useDialogs, useLoader, useRun, useSettlements, useToast, type DepositAction,
 } from '@kunlun/ui';
 import { useMobileLayout, useStaffData } from './data';
@@ -105,7 +105,10 @@ function MemberDetailDialog({ member: opened, onClose }: { member: MemberProfile
           <p>在池押金 <b>¥{money(pool?.total ?? member.depositAmount)}</b></p>
           <p>持有桶/袋 <b>{member.heldBuckets}/{member.heldBags}</b></p>
           {pool && <p>持有桶袋需 ¥{money(pool.required)} · {pool.shortfall ? `欠押金 ¥${money(pool.shortfall)}` : '押金已覆盖'}</p>}
-          {deposits.data?.filter(r => r.damageQty > 0).map(r => <p key={r.containerType}>{r.name}累计登记破损 {r.damageQty} 个</p>)}
+          {deposits.data?.filter(r => r.damageQty > 0).map(r => <div key={r.containerType}>
+            <p>{r.name} · 累计登记破损 <b>{r.damageQty} 个</b></p>
+            <MemberDamageBreakdown counts={r.damageBreakdown} />
+          </div>)}
           {depositActions && <div className="member-ledger-actions">
             {layout.has('depositCollect') && <button type="button" className="btn sm" onClick={ops.collectDeposit}>收押金</button>}
             {layout.has('depositRefund') && <button type="button" className="btn sm" onClick={ops.refundDeposit}>退押金</button>}

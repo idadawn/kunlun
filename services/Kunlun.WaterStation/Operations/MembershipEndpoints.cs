@@ -45,8 +45,8 @@ public static class MembershipEndpoints
                 var unitDeposit = (decimal?)await configCmd.ExecuteScalarAsync(ct) ?? throw new BusinessRuleException("押金标准尚未配置", 503);
                 // The deposit not held for a damage, oldest first: refunds take from the front at these prices.
                 var available = lots.Where(l => l.Qty > l.Reserved).Select(l => new { unitPrice = l.Price, quantity = l.Qty - l.Reserved }).ToList();
-                var damageQty = damageCounts.GetValueOrDefault(container);
-                result.Add(new { pool, damageQty, containerType = container, waterType = product.WaterType, name = product.Name, containerKind = product.ContainerType, unitDeposit, paidQty, paidAmount = lots.Sum(l => l.Price * l.Qty), heldQty = held, pendingDamageQty = reservedQty, pendingDamageAmount = lots.Sum(l => l.Price * l.Reserved), refundableQty = refundQty, refundableAmount = amount, pendingRefundQty, pendingCollectQty, pendingCollectAmount, lots = available });
+                var damageBreakdown = damageCounts.GetValueOrDefault(container);
+                result.Add(new { pool, damageQty = damageBreakdown.Total, damageBreakdown, containerType = container, waterType = product.WaterType, name = product.Name, containerKind = product.ContainerType, unitDeposit, paidQty, paidAmount = lots.Sum(l => l.Price * l.Qty), heldQty = held, pendingDamageQty = reservedQty, pendingDamageAmount = lots.Sum(l => l.Price * l.Reserved), refundableQty = refundQty, refundableAmount = amount, pendingRefundQty, pendingCollectQty, pendingCollectAmount, lots = available });
             }
             return Results.Ok(result);
         }).RequireAuthorization();

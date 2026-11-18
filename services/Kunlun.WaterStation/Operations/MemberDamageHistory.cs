@@ -8,6 +8,11 @@ internal static class MemberDamageHistory
 {
     internal sealed record Item(string Reference, string ContainerType, string Name, int Quantity, string Status, string Reason, decimal UnitDeposit, bool NeedsDecision);
 
+    internal readonly record struct Breakdown(int Waived, int Paid, int Pending, int AwaitingReview, int AwaitingScrap, int Unverified)
+    {
+        public int Total => Waived + Paid + Pending + AwaitingReview + AwaitingScrap + Unverified;
+    }
+
     private const string Facts = """
         WITH reviews AS (
           SELECT request_no,order_no,container_type,quantity,status,reason
@@ -46,30 +51,43 @@ internal static class MemberDamageHistory
                 WHEN d.fee_paid IS NULL AND d.status='PENDING' THEN 'PENDING_SCRAP' ELSE 'UNREVIEWED' END,
              d.idempotency_key NOT LIKE 'settlement:%' AND (d.fee_paid IS FALSE OR d.status='SCRAPPED'))
           ) part(qty,status,needs_decision)
+        ), history AS (
+          SELECT f.ref,f.container_type,f.quantity,f.reason,
+                 CASE WHEN s.charge IS TRUE THEN 'SETTLED_CHARGED' WHEN s.charge IS FALSE THEN 'SETTLED_WAIVED' ELSE f.status END AS status,
+                 f.needs_decision AND s.reference IS NULL AS needs_decision
+          FROM facts f
+          LEFT JOIN plugin_kunlun_waterstation.settlement_damage_decisions s ON s.tenant_id=@tid AND s.reference=f.ref AND f.status<>'PAID'
+          WHERE f.quantity>0
         )
         """;
 
-    internal static async Task<Dictionary<string, int>> CountByContainer(NpgsqlConnection conn, Guid tid, Guid mid, CancellationToken ct)
+    internal static async Task<Dictionary<string, Breakdown>> CountByContainer(NpgsqlConnection conn, Guid tid, Guid mid, CancellationToken ct)
     {
-        await using var cmd = Command(conn, null, Facts + "\nSELECT container_type,sum(quantity)::int FROM facts WHERE quantity>0 GROUP BY container_type",
-            ("tid", tid), ("mid", mid));
-        var counts = new Dictionary<string, int>();
+        await using var cmd = Command(conn, null, Facts + "\n" + """
+            SELECT container_type,
+              COALESCE(sum(quantity) FILTER (WHERE status IN ('WAIVED','SETTLED_WAIVED')),0)::int,
+              COALESCE(sum(quantity) FILTER (WHERE status IN ('PAID','SETTLED_CHARGED')),0)::int,
+              COALESCE(sum(quantity) FILTER (WHERE needs_decision),0)::int,
+              COALESCE(sum(quantity) FILTER (WHERE status='PENDING'),0)::int,
+              COALESCE(sum(quantity) FILTER (WHERE status='PENDING_SCRAP'),0)::int,
+              COALESCE(sum(quantity) FILTER (WHERE status='UNREVIEWED' AND NOT needs_decision),0)::int
+            FROM history GROUP BY container_type
+            """, ("tid", tid), ("mid", mid));
+        var counts = new Dictionary<string, Breakdown>();
         await using var r = await cmd.ExecuteReaderAsync(ct);
-        while (await r.ReadAsync(ct)) counts.Add(r.GetString(0), r.GetInt32(1));
+        while (await r.ReadAsync(ct))
+            counts.Add(r.GetString(0), new(r.GetInt32(1), r.GetInt32(2), r.GetInt32(3), r.GetInt32(4), r.GetInt32(5), r.GetInt32(6)));
         return counts;
     }
 
     internal static async Task<List<Item>> Read(NpgsqlConnection conn, NpgsqlTransaction? tx, Guid tid, Guid mid, CancellationToken ct)
     {
         await using var cmd = Command(conn, tx, Facts + "\n" + """
-            SELECT f.ref,f.container_type,p.name,f.quantity::int,
-                   CASE WHEN s.charge IS TRUE THEN 'SETTLED_CHARGED' WHEN s.charge IS FALSE THEN 'SETTLED_WAIVED' ELSE f.status END,
-                   f.reason,c.unit_deposit,f.needs_decision AND s.reference IS NULL
-            FROM facts f
-            JOIN plugin_kunlun_waterstation.water_products p ON p.tenant_id=@tid AND p.container_id=f.container_type
-            JOIN plugin_kunlun_waterstation.container_configs c ON c.tenant_id=@tid AND c.container_type=f.container_type
-            LEFT JOIN plugin_kunlun_waterstation.settlement_damage_decisions s ON s.tenant_id=@tid AND s.reference=f.ref AND f.status<>'PAID'
-            WHERE f.quantity>0 ORDER BY f.ref,f.status
+            SELECT h.ref,h.container_type,p.name,h.quantity::int,h.status,h.reason,c.unit_deposit,h.needs_decision
+            FROM history h
+            JOIN plugin_kunlun_waterstation.water_products p ON p.tenant_id=@tid AND p.container_id=h.container_type
+            JOIN plugin_kunlun_waterstation.container_configs c ON c.tenant_id=@tid AND c.container_type=h.container_type
+            ORDER BY h.ref,h.status
             """, ("tid",tid), ("mid",mid));
         var rows = new List<Item>();
         await using var r = await cmd.ExecuteReaderAsync(ct);

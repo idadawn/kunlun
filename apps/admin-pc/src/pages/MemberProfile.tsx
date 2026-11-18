@@ -6,7 +6,7 @@ import {
   type TicketBatch, type WaterOrder,
 } from '@kunlun/shared';
 import {
-  AddressBook, MemberDamageReviews, BatchCards, Icon, RefundBatchDialog, SettlementDialog, SettlementRecords, canSettle, useAuth, useDialogs, useLoader,
+  AddressBook, MemberDamageBreakdown, MemberDamageReviews, BatchCards, Icon, RefundBatchDialog, SettlementDialog, SettlementRecords, canSettle, useAuth, useDialogs, useLoader,
   useRun, useSettlements,
 } from '@kunlun/ui';
 import { StatCard, useOperations } from '../common';
@@ -220,6 +220,7 @@ function ContainerDeposit({ row: r }: { row: DepositSummaryRow }) {
         <div><small>持有价值</small><b>¥{money(r.heldQty * r.unitDeposit)}</b></div>
         <div><small>累计登记破损</small><b>{r.damageQty} 个</b></div>
       </div>
+      <MemberDamageBreakdown counts={r.damageBreakdown} />
       {r.pendingDamageQty > 0 && <p className="membership-note">{r.pendingDamageQty} 个{unit}待确认报废，占用押金 ¥{money(r.pendingDamageAmount)}，确认报废后按原批次扣除。</p>}
     </div>
   );

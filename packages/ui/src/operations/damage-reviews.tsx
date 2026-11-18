@@ -1,7 +1,19 @@
 import { useState } from 'react';
-import { containerLabel, money, shortDateTime } from '@kunlun/shared';
+import { containerLabel, money, shortDateTime, type DepositSummaryRow } from '@kunlun/shared';
 import { useApi } from '../auth';
 import { useLoader } from '../hooks';
+
+export function MemberDamageBreakdown({ counts }: { counts: DepositSummaryRow['damageBreakdown'] }) {
+  if (!counts?.total) return null;
+  return <div className="member-damage-breakdown" aria-label="破损处理明细">
+    <span>已免赔 <b>{counts.waived} 个</b></span>
+    <span>已赔付 <b>{counts.paid} 个</b></span>
+    <span className={counts.pending > 0 ? 'outstanding' : undefined}>待处理 <b>{counts.pending} 个</b></span>
+    {counts.awaitingReview > 0 && <span>免赔待审核 <b>{counts.awaitingReview} 个</b></span>}
+    {counts.awaitingScrap > 0 && <span>待确认报废 <b>{counts.awaitingScrap} 个</b></span>}
+    {counts.unverified > 0 && <span>历史待核实 <b>{counts.unverified} 个</b></span>}
+  </div>;
+}
 
 export function MemberDamageReviews({ memberId, version }: { memberId: string; version?: number }) {
   const api = useApi();

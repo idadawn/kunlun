@@ -6,4 +6,4 @@ export * from './stock';
 export * from './settlement';
 export { MemberPicker, PayButtons, ReasonChips, parseYuan, sameYuan, usePickedMember, useReviewSettings, waitsForReview, type PickerMember } from './common';
 
-export { MemberDamageReviews } from './damage-reviews';
+export { MemberDamageBreakdown, MemberDamageReviews } from './damage-reviews';

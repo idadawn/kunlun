@@ -612,6 +612,7 @@ export interface MemberOpeningRecord {
 export interface DepositSummaryRow {
   pool: { total: number; available: number; required: number; shortfall: number; reserved: number; pending: number; pendingCollect: number };
   damageQty: number;
+  damageBreakdown: { total: number; waived: number; paid: number; pending: number; awaitingReview: number; awaitingScrap: number; unverified: number };
   waterType: WaterType;
   name: string;
   containerKind: ContainerKind;
