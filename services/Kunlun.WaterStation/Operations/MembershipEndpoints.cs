@@ -23,6 +23,7 @@ public static class MembershipEndpoints
             if (!CanRead(user, mid)) return Results.Forbid();
             await using var conn = await db.OpenConnectionAsync(ct);
             var pool = await DepositPool.Read(conn, null, repo.DefaultTenantId, mid, ct);
+            var damageCounts = await MemberDamageHistory.CountByContainer(conn, repo.DefaultTenantId, mid, ct);
             var result = new List<object>();
             foreach (var product in await WaterProducts.List(conn, repo.DefaultTenantId, ct))
             {
@@ -44,16 +45,7 @@ public static class MembershipEndpoints
                 var unitDeposit = (decimal?)await configCmd.ExecuteScalarAsync(ct) ?? throw new BusinessRuleException("押金标准尚未配置", 503);
                 // The deposit not held for a damage, oldest first: refunds take from the front at these prices.
                 var available = lots.Where(l => l.Qty > l.Reserved).Select(l => new { unitPrice = l.Price, quantity = l.Qty - l.Reserved }).ToList();
-                await using var damageCount = Command(conn, null, """
-                    SELECT (SELECT COALESCE(sum(handover_damage_qty),0) FROM plugin_kunlun_waterstation.water_orders
-                             WHERE tenant_id=@tid AND member_id=@mid AND water_type=@water)
-                         + (SELECT COALESCE(sum(q.quantity),0) FROM plugin_kunlun_waterstation.refund_requests q
-                            JOIN plugin_kunlun_waterstation.water_orders o ON o.tenant_id=q.tenant_id AND o.order_no=q.order_no
-                            WHERE q.tenant_id=@tid AND q.member_id=@mid AND q.kind='DAMAGE' AND q.container_type=@type AND o.handover_damage_qty IS NULL)
-                         + (SELECT COALESCE(sum(quantity),0) FROM plugin_kunlun_waterstation.container_damages
-                            WHERE tenant_id=@tid AND member_id=@mid AND container_type=@type AND handover_order_no IS NULL AND idempotency_key NOT LIKE '%:lost')
-                    """, ("tid", repo.DefaultTenantId), ("mid", mid), ("water", product.WaterType), ("type", container));
-                var damageQty = Convert.ToInt32(await damageCount.ExecuteScalarAsync(ct));
+                var damageQty = damageCounts.GetValueOrDefault(container);
                 result.Add(new { pool, damageQty, containerType = container, waterType = product.WaterType, name = product.Name, containerKind = product.ContainerType, unitDeposit, paidQty, paidAmount = lots.Sum(l => l.Price * l.Qty), heldQty = held, pendingDamageQty = reservedQty, pendingDamageAmount = lots.Sum(l => l.Price * l.Reserved), refundableQty = refundQty, refundableAmount = amount, pendingRefundQty, pendingCollectQty, pendingCollectAmount, lots = available });
             }
             return Results.Ok(result);
