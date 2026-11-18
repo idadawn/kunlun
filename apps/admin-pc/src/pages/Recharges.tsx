@@ -78,7 +78,7 @@ function RechargeTable({ filter, filtered }: { filter: RechargeLedgerQuery; filt
                   <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>
                   <td>{r.planName}</td>
                   <td><b>¥ {money(r.paidAmount)}</b></td>
-                  <td><b>{r.buyQty + r.giftQty} {unit}</b><br /><small>付费 {r.buyQty}{r.giftQty > 0 ? ` + 赠送 ${r.giftQty}` : ''}</small>{waitingGift(r.giftReview, unit)}</td>
+                  <td><b>{r.cardOpenedOn && '套餐共 '}{r.buyQty + r.giftQty} {unit}</b><br /><small>付费 {r.buyQty}{r.giftQty > 0 ? ` + 赠送 ${r.giftQty}` : ''}</small>{waitingGift(r.giftReview, unit)}</td>
                   <td>{payMethodLabel(r.payMethod)}</td>
                   <td>{r.refundNo ? <span className="tag orange">已退 ¥{money(r.refundAmount ?? 0)}</span> : <span className="tag green">{r.cardOpenedOn ? '补录开卡' : '已到账'}</span>}</td>
                   <td>{r.operatorName}</td>
@@ -143,7 +143,7 @@ function RechargeDetailDialog({ row: r, onClose }: { row: RechargeLedgerRow; onC
         <div className="detail-row"><span>充值套餐</span><b>{r.planName}</b></div>
         <div className="detail-row"><span>水品与方式</span><b>{r.planSnapshot.waterLabel || waterFallbackLabel(r.planSnapshot.waterType)} · {modeLabel(r.planSnapshot.fulfillMode)}</b></div>
         <div className="detail-row"><span>水费实收</span><b>¥ {money(r.paidAmount)} · {payMethodLabel(r.payMethod)}</b></div>
-        <div className="detail-row"><span>到账水票</span><b>付费 {r.buyQty} + 赠送 {r.giftQty} = 共 {r.buyQty + r.giftQty} {unit}</b></div>
+        <div className="detail-row"><span>{r.cardOpenedOn ? '原套餐水票' : '到账水票'}</span><b>付费 {r.buyQty} + 赠送 {r.giftQty} = 共 {r.buyQty + r.giftQty} {unit}</b></div>
         {r.giftReview && <div className="detail-row"><span>手动赠送</span><b>{giftText(r.giftReview, unit)}</b></div>}
         <div className="detail-row"><span>经办人</span><b>{r.operatorName}</b></div>
         {r.refundNo && <div className="detail-row"><span>退清剩余权益</span><b>{r.refundNo} · 退 ¥{money(r.refundAmount ?? 0)}{r.refundedAt ? ` · ${shortDateTime(r.refundedAt)}` : ''}</b></div>}

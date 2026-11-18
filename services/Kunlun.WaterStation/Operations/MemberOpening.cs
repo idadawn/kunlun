@@ -32,8 +32,8 @@ public sealed record SaveOpeningRequest(string IdempotencyKey, OpeningTicketInpu
 /// <item>押金记为 source=OPENING 的押金批次（收款方式 OPENING），退押、报废扣押照常按它的单价先进先出。</item>
 /// <item>手里的桶袋直接改成现在的数，只登记到会员名下，店里不动；库存的「客户手里」少于会员名下时补到一样多。</item>
 /// </list>
-/// 补录的批次按会员建档时间入账，所以排在这位会员系统里的充值和押金之前，先用先退。它们不是当天收的钱：
-/// 不进水费实收、累计收押和经营走势，财务汇总另列「上系统前」的数。每次补录一个单号，前后变化都记在 member_opening_entries。
+/// 批次仍按建档时间排序，先用先退。补录水费按单独登记的开卡日期归期；补录单保留实际操作时间。
+/// 未填写开卡日期的期初水费不进入实收统计，押金单独列为「上系统前」。每次补录一个单号，前后变化都记在 member_opening_entries。
 /// </summary>
 public static class MemberOpening
 {

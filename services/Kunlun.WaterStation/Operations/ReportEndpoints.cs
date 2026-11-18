@@ -88,7 +88,7 @@ public static class ReportEndpoints
 
             // 会员还没用完的水费：在用充值批次的剩余付费票按原实付单价折算，与退清单个批次同一口径
             // （MembershipEndpoints.RemainingValue）；赠票退款时收回、不退钱；历史余额没有原价，只统计张数。
-            // 上系统前补录的套餐（OPENING）有原价的另算：钱是上系统前收的，不在水费实收里，但会员要回去时同样得退。
+            // All priced opening balances are refundable; only dated openings have contributed to reported receipts.
             decimal unusedRechargeValue, openingUnusedValue, datedOpeningUnused;
             long unusedPaidTicketQty, unusedGiftTicketQty, legacyTicketQty, openingPaidTicketQty;
             await using (var unused = TicketBatches.Command(conn, null, """
@@ -146,7 +146,7 @@ public static class ReportEndpoints
                 waterFulfilledTotalQty = r.GetInt64(1);
             }
 
-            // Refunds of packages from before the system are money paid out here too, but they never came in as recharges.
+            // Refunds use their payout date. Undated opening packages have no corresponding reported receipt.
             decimal rechargeRefundedTotal, openingRefundedTotal, openingTransferred, undatedOpeningOut;
             long rechargeRefundCount, openingRefundCount;
             await using (var refunds = TicketBatches.Command(conn, null, """

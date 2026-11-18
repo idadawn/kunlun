@@ -118,7 +118,7 @@ function OpeningForm({ member, title, data, onClose, onDone }: { member: MemberP
     <FormDialog title={title} className="opening-dialog" submitLabel="确认补录" onClose={onClose} onSubmit={submit}
       description="按旧账本或会员凭证填写。套餐按原实付水费统计，押金单独记账。">
       <Field label="开卡日期（选填）" htmlFor="openingCardDate">
-        <input id="openingCardDate" className="input" type="date" max={stationDay()} value={cardDate} onChange={e => setCardDate(e.target.value)} />
+        <input id="openingCardDate" className="input" type="date" max={stationDay()} value={cardDate} onInput={e => setCardDate(e.currentTarget.value)} />
       </Field>
       <p className="membership-note">已补录的套餐水费计入开卡当天；日期不详可留空，待确认后再计入收款统计。</p>
       <section className="opening-section" aria-labelledby="openingTicketsTitle">
