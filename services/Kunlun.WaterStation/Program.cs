@@ -222,7 +222,7 @@ app.MapGet("/api/members/{memberId:guid}/profile", async (
     await using var cmd = new NpgsqlCommand($"""
         SELECT m.id, m.member_no, m.name, m.phone, m.default_address,
                m.deposit_amount, m.held_buckets, m.held_bags, m.status, m.remark, {MemberTickets.JsonOf("m")},
-               m.disabled_at, m.disabled_by, m.disable_reason
+               m.disabled_at, m.disabled_by, m.disable_reason,m.card_opened_on,m.created_at
         FROM plugin_kunlun_waterstation.members m
         WHERE m.id = @id
         """, conn);
@@ -247,7 +247,9 @@ app.MapGet("/api/members/{memberId:guid}/profile", async (
         // 停用时谁停的、什么时候、为什么；正常的会员都是 null
         disabledAt = r.IsDBNull(11) ? (DateTime?)null : r.GetDateTime(11),
         disabledBy = r.IsDBNull(12) ? null : r.GetString(12),
-        disableReason = r.IsDBNull(13) ? null : r.GetString(13)
+        disableReason = r.IsDBNull(13) ? null : r.GetString(13),
+        cardOpenedOn = r.IsDBNull(14) ? (DateOnly?)null : r.GetFieldValue<DateOnly>(14),
+        createdAt = r.GetDateTime(15)
     });
 }).RequireAuthorization();
 

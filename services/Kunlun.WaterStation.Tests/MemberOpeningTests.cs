@@ -46,6 +46,52 @@ public sealed class MemberOpeningTests(TestHost host)
         (await c.GetFromJsonAsync<JsonElement>("/api/auth/me")).GetProperty("permissions").EnumerateArray().Select(p => p.GetString()!).ToArray();
 
     [Fact]
+    public async Task Opening_Date_Assigns_Full_Paid_Water_Fees_And_One_Member_To_The_Station_Day()
+    {
+        using var c = await Client();
+        var member = await Member(c);
+        var mid = Id(member);
+        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)).DateTime);
+        var previous = new DateOnly(today.Year, today.Month, 1).AddDays(-1);
+        async Task<JsonElement> Period(string period) => await c.GetFromJsonAsync<JsonElement>("/api/reports/operating-period?period=" + period);
+        static decimal Sum(JsonElement report, string field) =>
+            report.GetProperty("activity").GetProperty("trend").EnumerateArray().Sum(x => x.GetProperty(field).GetDecimal());
+        var oldPeriod = await Period("last-month");
+        var current = await Period("today");
+        var finance = await Finance(c);
+        var req = new SaveOpeningRequest(Key(), Tickets:[new(WaterType: Bag, FulfillMode: "DELIVERY", PlanId: WaterProducts.PlanId("107"), PaidAmount:100, PackageQty:40, Remaining:10)],
+            DepositAmount:15, CardDate:new(previous,null));
+        var saved = await Ok(await Save(c, mid, req));
+        Assert.Equal(S(saved,"entryNo"),S(await Ok(await Save(c,mid,req)),"entryNo"));
+        Assert.Equal(previous.ToString("yyyy-MM-dd"), S(await Profile(c,mid),"cardOpenedOn"));
+        var last = await Period("last-month");
+        Assert.Equal(Sum(oldPeriod,"receipts")+100,Sum(last,"receipts"));
+        Assert.Equal(Sum(oldPeriod,"newMembers")+1,Sum(last,"newMembers"));
+        Assert.Equal(M(oldPeriod.GetProperty("cash"),"balance")+100,M(last.GetProperty("cash"),"balance"));
+        Assert.Equal(M(oldPeriod.GetProperty("cash"),"openingRevenue")+100,M(last.GetProperty("cash"),"openingRevenue"));
+        Assert.Equal(Sum(current,"receipts"),Sum(await Period("today"),"receipts"));
+        Assert.Equal(Sum(current,"newMembers")-1,Sum(await Period("today"),"newMembers"));
+        var totals = await Finance(c);
+        Assert.Equal(M(finance,"rechargeRevenueTotal")+100, M(totals,"rechargeRevenueTotal"));
+        Assert.Equal(M(finance,"rechargeEarnedTotal")+75, M(totals,"rechargeEarnedTotal"));
+        Assert.Equal(M(finance,"potentialRefundTotal")+40,M(totals,"potentialRefundTotal"));
+        var rows = await c.GetFromJsonAsync<JsonElement>($"/api/ledgers/recharges?q={S(member,"memberNo")}&page=1");
+        var row = Assert.Single(rows.GetProperty("rows").EnumerateArray());
+        Assert.Equal((previous.ToString("yyyy-MM-dd"),100m,"OPENING"),(S(row,"cardOpenedOn"),M(row,"paidAmount"),S(row,"payMethod")));
+        Assert.Contains(previous.ToString("yyyy-MM-dd"),await c.GetStringAsync("/api/exports/recharges"));
+        Assert.Contains(previous.ToString("yyyy-MM-dd"),await c.GetStringAsync("/api/exports/members"));
+
+        Assert.Equal(HttpStatusCode.BadRequest,(await Save(c,mid,new SaveOpeningRequest(Key(),CardDate:new(today.AddDays(1),previous)))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict,(await Save(c,mid,new SaveOpeningRequest(Key(),CardDate:new(today,null)))).StatusCode);
+        await Ok(await Save(c,mid,new SaveOpeningRequest(Key(),CardDate:new(today,previous))));
+        Assert.Equal(Sum(oldPeriod,"receipts"),Sum(await Period("last-month"),"receipts"));
+        Assert.Equal(Sum(current,"receipts")+100,Sum(await Period("today"),"receipts"));
+        await Ok(await Save(c,mid,new SaveOpeningRequest(Key(),CardDate:new(null,today))));
+        Assert.Equal(Sum(current,"receipts"),Sum(await Period("today"),"receipts"));
+        Assert.Equal(10, I(Assert.Single(await Batches(c,mid)),"remainingBuy"));
+    }
+
+    [Fact]
     public async Task Opening_Deposit_Total_Accepts_Cents_Preserves_Old_Lots_And_Does_Not_Count_As_A_Collection()
     {
         using var c=await Client();

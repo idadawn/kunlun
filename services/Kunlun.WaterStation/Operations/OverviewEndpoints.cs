@@ -38,8 +38,8 @@ public static class OverviewEndpoints
                   SELECT generate_series((now() AT TIME ZONE 'Asia/Shanghai')::date-6,
                     (now() AT TIME ZONE 'Asia/Shanghai')::date,interval '1 day')::date AS day
                 ), charges AS (
-                  SELECT (created_at AT TIME ZONE 'Asia/Shanghai')::date AS day,sum(paid_amount) AS amount
-                  FROM plugin_kunlun_waterstation.recharge_orders WHERE tenant_id=@tid GROUP BY 1
+                  SELECT (received_at AT TIME ZONE 'Asia/Shanghai')::date AS day,sum(paid_amount) AS amount
+                  FROM plugin_kunlun_waterstation.water_receipts WHERE tenant_id=@tid GROUP BY 1
                 ), usage AS (
                   SELECT (completed_at AT TIME ZONE 'Asia/Shanghai')::date AS day,sum(actual_qty) AS qty
                   FROM plugin_kunlun_waterstation.water_orders WHERE tenant_id=@tid AND status='COMPLETED' GROUP BY 1
@@ -52,7 +52,7 @@ public static class OverviewEndpoints
                   'completedBuckets',(SELECT COALESCE(sum(o.actual_qty),0) FROM plugin_kunlun_waterstation.water_orders o JOIN plugin_kunlun_waterstation.water_products p ON p.tenant_id=o.tenant_id AND p.water_type=o.water_type WHERE o.tenant_id=@tid AND o.status='COMPLETED' AND p.container_type='BUCKET'),
                   'completedBags',(SELECT COALESCE(sum(o.actual_qty),0) FROM plugin_kunlun_waterstation.water_orders o JOIN plugin_kunlun_waterstation.water_products p ON p.tenant_id=o.tenant_id AND p.water_type=o.water_type WHERE o.tenant_id=@tid AND o.status='COMPLETED' AND p.container_type='BAG'),
                   'memberCount',(SELECT count(*) FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid),
-                  'newMembersMonth',(SELECT count(*) FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND created_at AT TIME ZONE 'Asia/Shanghai'>=date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai')),
+                  'newMembersMonth',(SELECT count(*) FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND COALESCE(card_opened_on::timestamp,created_at AT TIME ZONE 'Asia/Shanghai')>=date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai')),
                   'membersWithTickets',(SELECT count(DISTINCT member_id) FROM plugin_kunlun_waterstation.member_tickets WHERE tenant_id=@tid AND available+reserved>0),
                   'membersWithContainers',(SELECT count(*) FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND held_buckets+held_bags>0),
                   'refundableDeposit',(SELECT COALESCE(sum((remaining_qty-reserved_damage_qty)*COALESCE(unit_price,0)+free_amount),0) FROM plugin_kunlun_waterstation.deposit_lots WHERE tenant_id=@tid)

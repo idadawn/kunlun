@@ -21,8 +21,9 @@ public sealed record OpeningTicketInput(Guid? BatchId = null, string? WaterType 
 public sealed record OpeningDepositInput(string ContainerType, int Quantity, decimal UnitPrice = 0, decimal? Amount = null);
 /// <summary>会员现在手里某种桶袋的个数。</summary>
 public sealed record OpeningHoldingInput(string ContainerType, int Quantity);
+public sealed record OpeningCardDateInput(DateOnly? Value, DateOnly? Expected);
 public sealed record SaveOpeningRequest(string IdempotencyKey, OpeningTicketInput[]? Tickets = null, OpeningDepositInput[]? Deposits = null,
-    OpeningHoldingInput[]? Holdings = null, string? Note = null, decimal? DepositAmount = null, decimal? ExpectedDepositAmount = null);
+    OpeningHoldingInput[]? Holdings = null, string? Note = null, decimal? DepositAmount = null, decimal? ExpectedDepositAmount = null, OpeningCardDateInput? CardDate = null);
 
 /// <summary>
 /// 补录会员上系统前的数据（期初）：买过什么套餐、现在还剩多少，交了多少押金，手里有几个桶袋。
@@ -31,8 +32,8 @@ public sealed record SaveOpeningRequest(string IdempotencyKey, OpeningTicketInpu
 /// <item>押金记为 source=OPENING 的押金批次（收款方式 OPENING），退押、报废扣押照常按它的单价先进先出。</item>
 /// <item>手里的桶袋直接改成现在的数，只登记到会员名下，店里不动；库存的「客户手里」少于会员名下时补到一样多。</item>
 /// </list>
-/// 补录的批次按会员建档时间入账，所以排在这位会员系统里的充值和押金之前，先用先退。它们不是当天收的钱：
-/// 不进水费实收、累计收押和经营走势，财务汇总另列「上系统前」的数。每次补录一个单号，前后变化都记在 member_opening_entries。
+/// 批次仍按建档时间排序，先用先退。补录水费按单独登记的开卡日期归期；补录单保留实际操作时间。
+/// 未填写开卡日期的期初水费不进入实收统计，押金单独列为「上系统前」。每次补录一个单号，前后变化都记在 member_opening_entries。
 /// </summary>
 public static class MemberOpening
 {
@@ -54,7 +55,22 @@ public static class MemberOpening
         await using var tx = await conn.BeginTransactionAsync(ct);
         await Exec(conn, tx, """
             SELECT pg_advisory_xact_lock(88482026);
+            ALTER TABLE plugin_kunlun_waterstation.members ADD COLUMN IF NOT EXISTS card_opened_on DATE;
             ALTER TABLE plugin_kunlun_waterstation.ticket_batches ADD COLUMN IF NOT EXISTS opening_snapshot JSONB;
+            CREATE OR REPLACE VIEW plugin_kunlun_waterstation.water_receipts AS
+              SELECT r.tenant_id,r.member_id,r.created_at AS received_at,r.paid_amount,false AS historical,r.id,b.id AS batch_id,
+                     r.recharge_no,r.plan_snapshot,r.buy_qty,r.gift_qty,r.pay_method,r.operator_name,NULL::date AS card_opened_on
+              FROM plugin_kunlun_waterstation.recharge_orders r
+              LEFT JOIN plugin_kunlun_waterstation.ticket_batches b ON b.recharge_id=r.id
+              UNION ALL
+              SELECT b.tenant_id,b.member_id,m.card_opened_on::timestamp AT TIME ZONE 'Asia/Shanghai',b.paid_amount,true,b.id,b.id,
+                     COALESCE(b.opening_snapshot->>'entryNo',b.id::text),
+                     jsonb_build_object('name',b.opening_snapshot->>'name','waterLabel',b.opening_snapshot->>'waterLabel',
+                                        'waterType',b.water_type,'fulfillMode',b.fulfill_mode),
+                     b.fixed_qty,b.gift_qty,'OPENING',COALESCE(b.opening_snapshot->>'operatorName',''),m.card_opened_on
+              FROM plugin_kunlun_waterstation.ticket_batches b
+              JOIN plugin_kunlun_waterstation.members m ON m.tenant_id=b.tenant_id AND m.id=b.member_id
+              WHERE b.source='OPENING' AND b.paid_amount>0 AND m.card_opened_on IS NOT NULL;
             ALTER TABLE plugin_kunlun_waterstation.deposit_lots ADD COLUMN IF NOT EXISTS source VARCHAR(16) NOT NULL DEFAULT 'COLLECT';
             CREATE UNIQUE INDEX IF NOT EXISTS deposit_lots_one_opening ON plugin_kunlun_waterstation.deposit_lots(tenant_id,member_id,container_type) WHERE source='OPENING';
             CREATE TABLE IF NOT EXISTS plugin_kunlun_waterstation.member_opening_entries (
@@ -86,6 +102,13 @@ public static class MemberOpening
         if (!CanRead(user)) return Results.Forbid();
         var tid = repo.DefaultTenantId;
         await using var conn = await db.OpenConnectionAsync(ct);
+        DateOnly? cardOpenedOn;
+        await using (var cmd = Command(conn, null, "SELECT card_opened_on FROM plugin_kunlun_waterstation.members WHERE tenant_id=@tid AND id=@mid", ("tid",tid), ("mid",mid)))
+        await using (var r = await cmd.ExecuteReaderAsync(ct))
+        {
+            if (!await r.ReadAsync(ct)) return Results.NotFound();
+            cardOpenedOn = r.IsDBNull(0) ? null : r.GetFieldValue<DateOnly>(0);
+        }
         var lots = await OpeningLots(conn, null, tid, mid, ct);
         // Older clients only know per-container lots. The new form edits the total across all opening lots.
         var deposits = lots.Where(l => l.ContainerType is not null);
@@ -93,7 +116,7 @@ public static class MemberOpening
         await using (var cmd = Command(conn, null, "SELECT receipt::text FROM plugin_kunlun_waterstation.member_opening_entries WHERE tenant_id=@tid AND member_id=@mid ORDER BY created_at DESC,id DESC LIMIT 50", ("tid", tid), ("mid", mid)))
         await using (var r = await cmd.ExecuteReaderAsync(ct))
             while (await r.ReadAsync(ct)) entries.Add(JsonSerializer.Deserialize<JsonElement>(r.GetString(0)));
-        return Results.Ok(new { deposits, depositAmount = lots.Sum(l => l.Amount), lockedDepositAmount = lots.Where(l => l.Locked).Sum(l => l.Amount), entries });
+        return Results.Ok(new { cardOpenedOn, deposits, depositAmount = lots.Sum(l => l.Amount), lockedDepositAmount = lots.Where(l => l.Locked).Sum(l => l.Amount), entries });
     }
 
     private sealed record OpeningLot(string? ContainerType, int? Quantity, decimal? UnitPrice, decimal Amount, string DepositNo, int RemainingQty, bool Locked);
@@ -120,7 +143,7 @@ public static class MemberOpening
         OpeningTicketInput[] tickets = req.Tickets ?? []; OpeningDepositInput[] deposits = req.Deposits ?? []; OpeningHoldingInput[] holdings = req.Holdings ?? [];
         if (req.DepositAmount is { } amount && (!Money.Valid(amount) || deposits.Length > 0))
             throw new BusinessRuleException("历史押金请填写一笔总额，金额须大于等于零且最多两位小数");
-        if (req.DepositAmount is null && tickets.Length + deposits.Length + holdings.Length == 0) throw new BusinessRuleException("请填写要补录的套餐余量、押金或手里的桶袋");
+        if (req.CardDate is null && req.DepositAmount is null && tickets.Length + deposits.Length + holdings.Length == 0) throw new BusinessRuleException("请填写要补录的套餐余量、押金或手里的桶袋");
         if (tickets.Length > MaxItems || deposits.Length > MaxItems || holdings.Length > MaxItems) throw new BusinessRuleException("一次补录的条目太多，请分几次录入");
         if (tickets.Where(t => t.BatchId is not null).GroupBy(t => t.BatchId).Any(g => g.Count() > 1)) throw new BusinessRuleException("同一笔余额一次只能改一处");
         if (deposits.GroupBy(d => d.ContainerType).Any(g => g.Count() > 1)) throw new BusinessRuleException("同一种桶袋的押金只能填一次");
@@ -131,6 +154,7 @@ public static class MemberOpening
             ? ContainerInventory.Hash(new { mid, tickets, deposits, holdings, note })
             : ContainerInventory.Hash(new { mid, tickets, deposits = deposits.Select(d => new { d.ContainerType, d.Quantity, d.UnitPrice }), holdings, note });
         if (req.DepositAmount is { } total) hash = ContainerInventory.Hash(new { hash, depositAmount = Money.Text(total) });
+        if (req.CardDate is not null) hash = ContainerInventory.Hash(new { hash, req.CardDate });
         var tid = repo.DefaultTenantId; var actor = Actor(user);
 
         await using var conn = await db.OpenConnectionAsync(ct);
@@ -153,6 +177,17 @@ public static class MemberOpening
         var no = await BusinessNumbers.OpeningNo(conn, tx, ct);
         var entry = new Entry(conn, tx, tid, mid, since, id, no, actor, note);
         var items = new List<object>();
+        if (req.CardDate is { } date)
+        {
+            if (date.Value > DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)).DateTime))
+                throw new BusinessRuleException("开卡日期不能晚于今天");
+            if (await Exec(conn, tx, """
+                UPDATE plugin_kunlun_waterstation.members SET card_opened_on=@next::date
+                WHERE tenant_id=@tid AND id=@mid AND card_opened_on IS NOT DISTINCT FROM @old::date
+                """, ct, ("tid",tid), ("mid",mid), ("next",(object?)date.Value ?? DBNull.Value), ("old",(object?)date.Expected ?? DBNull.Value)) != 1)
+                throw new BusinessRuleException("开卡日期已被修改，请重新打开补录核对", 409);
+            if (date.Value != date.Expected) items.Add(new { kind = "CARD_DATE", before = date.Expected, after = date.Value });
+        }
         foreach (var t in tickets) if (await (t.BatchId is { } batch ? entry.ChangeTickets(batch, t, ct) : entry.AddTickets(t, ct)) is { } item) items.Add(item);
         foreach (var d in deposits) if (await entry.SetDeposit(d, ct) is { } item) items.Add(item);
         if (req.DepositAmount is { } target && await entry.SetDepositAmount(target, req.ExpectedDepositAmount, ct) is { } change) items.Add(change);

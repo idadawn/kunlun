@@ -33,7 +33,7 @@ export function Recharges() {
       </div>
     </div>
     <div className="stats-grid">
-      <StatCard label="水费实收" icon="wallet" value={f ? `¥ ${money(f.rechargeRevenueTotal)}` : '—'} foot={f ? `累计充值 ${f.rechargeOrderCount} 笔` : NO_REPORTS} />
+      <StatCard label="水费实收" icon="wallet" value={f ? `¥ ${money(f.rechargeRevenueTotal)}` : '—'} foot={f ? `充值 ${f.rechargeOrderCount} 笔 · 补录开卡 ¥${money(f.openingRevenueTotal)}` : NO_REPORTS} />
       <StatCard label="水费退款" icon="refresh" tone="orange" value={f ? `¥ ${money(f.rechargeRefundedTotal)}` : '—'} foot={f ? `退清剩余权益 ${f.rechargeRefundCount} 笔` : NO_REPORTS} />
       <StatCard label="水费净收" icon="chart" tone="blue" value={f ? `¥ ${money(f.rechargeNetReceived)}` : '—'}
         foot={f ? `实收 − 退款；其中 ¥${money(f.unusedRechargeValue)} 会员还没用完，可能要退` : '实收 − 退款，不含押金'} />
@@ -73,14 +73,14 @@ function RechargeTable({ filter, filtered }: { filter: RechargeLedgerQuery; filt
             {rows.length === 0 ? <EmptyRow colSpan={9}>{ledgerEmptyText(table, filtered, '暂无水费充值记录，请点击右上角「水费充值」办理', '充值记录')}</EmptyRow> : rows.map(r => {
               const unit = unitOf(r.planSnapshot.waterType);
               return (
-                <tr key={r.rechargeNo}>
-                  <td><span className="order-no">{r.rechargeNo}</span><br /><small>{shortDateTime(r.createdAt)}</small></td>
+                <tr key={r.id || r.rechargeNo}>
+                  <td><span className="order-no">{r.rechargeNo}</span><br /><small>{r.cardOpenedOn ? `开卡 ${r.cardOpenedOn}` : shortDateTime(r.createdAt)}</small></td>
                   <td><b>{r.memberName}</b><br /><small>{r.memberNo}</small></td>
                   <td>{r.planName}</td>
                   <td><b>¥ {money(r.paidAmount)}</b></td>
-                  <td><b>{r.buyQty + r.giftQty} {unit}</b><br /><small>付费 {r.buyQty}{r.giftQty > 0 ? ` + 赠送 ${r.giftQty}` : ''}</small>{waitingGift(r.giftReview, unit)}</td>
+                  <td><b>{r.cardOpenedOn && '套餐共 '}{r.buyQty + r.giftQty} {unit}</b><br /><small>付费 {r.buyQty}{r.giftQty > 0 ? ` + 赠送 ${r.giftQty}` : ''}</small>{waitingGift(r.giftReview, unit)}</td>
                   <td>{payMethodLabel(r.payMethod)}</td>
-                  <td>{r.refundNo ? <span className="tag orange">已退 ¥{money(r.refundAmount ?? 0)}</span> : <span className="tag green">已到账</span>}</td>
+                  <td>{r.refundNo ? <span className="tag orange">已退 ¥{money(r.refundAmount ?? 0)}</span> : <span className="tag green">{r.cardOpenedOn ? '补录开卡' : '已到账'}</span>}</td>
                   <td>{r.operatorName}</td>
                   <td><button type="button" className="link" onClick={() => dialogs.open(close => <RechargeDetailDialog row={r} onClose={close} />)}>详情</button></td>
                 </tr>
@@ -137,13 +137,13 @@ const giftText = (g: GiftReview, unit: string) => g.status === 'PENDING' ? `${g.
 function RechargeDetailDialog({ row: r, onClose }: { row: RechargeLedgerRow; onClose: () => void }) {
   const unit = unitOf(r.planSnapshot.waterType);
   return (
-    <Dialog title="充值记录详情" description={`${r.rechargeNo} · ${new Date(r.createdAt).toLocaleString('zh-CN')}`} onClose={onClose}>
+    <Dialog title="充值记录详情" description={`${r.rechargeNo} · ${r.cardOpenedOn ? `开卡 ${r.cardOpenedOn}` : new Date(r.createdAt).toLocaleString('zh-CN')}`} onClose={onClose}>
       <div className="detail-card">
         <div className="detail-row"><span>会员</span><b>{r.memberName} · {r.memberNo}</b></div>
         <div className="detail-row"><span>充值套餐</span><b>{r.planName}</b></div>
         <div className="detail-row"><span>水品与方式</span><b>{r.planSnapshot.waterLabel || waterFallbackLabel(r.planSnapshot.waterType)} · {modeLabel(r.planSnapshot.fulfillMode)}</b></div>
         <div className="detail-row"><span>水费实收</span><b>¥ {money(r.paidAmount)} · {payMethodLabel(r.payMethod)}</b></div>
-        <div className="detail-row"><span>到账水票</span><b>付费 {r.buyQty} + 赠送 {r.giftQty} = 共 {r.buyQty + r.giftQty} {unit}</b></div>
+        <div className="detail-row"><span>{r.cardOpenedOn ? '原套餐水票' : '到账水票'}</span><b>付费 {r.buyQty} + 赠送 {r.giftQty} = 共 {r.buyQty + r.giftQty} {unit}</b></div>
         {r.giftReview && <div className="detail-row"><span>手动赠送</span><b>{giftText(r.giftReview, unit)}</b></div>}
         <div className="detail-row"><span>经办人</span><b>{r.operatorName}</b></div>
         {r.refundNo && <div className="detail-row"><span>退清剩余权益</span><b>{r.refundNo} · 退 ¥{money(r.refundAmount ?? 0)}{r.refundedAt ? ` · ${shortDateTime(r.refundedAt)}` : ''}</b></div>}

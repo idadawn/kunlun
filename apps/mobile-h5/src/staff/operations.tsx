@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { KUNLUN_PERMISSIONS as P, money, pathFor, ticketGroups, type MemberProfile, type MobileFeatureKey, type WaterOrder } from '@kunlun/shared';
 import {
-  AddressBook, MemberDamageBreakdown, MemberDamageReviews, ResetMemberPasswordDialog, DepositDialog, Dialog, FulfillDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog,
+  AddressBook, OpeningDialog, MemberDamageBreakdown, MemberDamageReviews, ResetMemberPasswordDialog, DepositDialog, Dialog, FulfillDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog,
   RechargeDialog, SettlementDialog, SettlementRecords, canSettle, useAuth, useDialogs, useLoader, useRun, useSettlements, useToast, type DepositAction,
 } from '@kunlun/ui';
 import { useMobileLayout, useStaffData } from './data';
@@ -91,6 +91,7 @@ function MemberDetailDialog({ member: opened, onClose }: { member: MemberProfile
       {disabled && (
         <p className="member-disabled-note"><b>这位会员已停用{member.disableReason ? `：${member.disableReason}` : ''}</b>停用的会员办不了充值、点单、押金和领还；水票、押金都还在。需要时请管理员在电脑上重新启用。</p>
       )}
+      <p className="membership-note">开卡日期 {member.cardOpenedOn ?? '未补录'}</p>
       <div className="member-ledgers">
         <section>
           <header><b>水票</b><button type="button" className="link" onClick={() => void dialogs.open(close => <MemberAssetsDialog memberId={member.id} memberName={member.name} readOnly={disabled} onClose={close} onDone={changed} />)}>查看批次 ›</button></header>
@@ -115,9 +116,10 @@ function MemberDetailDialog({ member: opened, onClose }: { member: MemberProfile
           </div>}
         </section>
       </div>
-      {!disabled && (layout.has('order') || layout.has('movement') || can(P.MemberWrite) || canSettle(can)) && <div className="membership-actions" style={{ margin: '12px 0 14px' }}>
+      {!disabled && (layout.has('order') || layout.has('movement') || can(P.MemberOpening) || can(P.MemberWrite) || canSettle(can)) && <div className="membership-actions" style={{ margin: '12px 0 14px' }}>
         {layout.has('order') && can(P.OrderCreate) && <button type="button" className="btn sm" onClick={order}>点单</button>}
         {layout.has('movement') && <button type="button" className="btn sm" onClick={ops.container}>登记领还</button>}
+        {can(P.MemberOpening) && <button type="button" className="btn sm" onClick={() => void dialogs.open(close => <OpeningDialog member={member} onClose={close} onDone={changed} />)}>补录历史数据</button>}
         {can(P.MemberWrite) && <button type="button" className="btn sm" onClick={() => void dialogs.open(close => <ResetMemberPasswordDialog member={member} onClose={close} />)}>重置密码</button>}
         {canSettle(can) && <button type="button" className="btn sm" onClick={settle}>退款（全部结算）</button>}
       </div>}

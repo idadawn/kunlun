@@ -102,7 +102,7 @@ public static class FinanceEndpoints
             return await Paging.From(page, pageSize, legacyLimit: 50).Query(conn, $"""
                 m.id, m.member_no, m.name, m.phone, COALESCE(m.default_address, ''),
                 m.deposit_amount, m.held_buckets, m.held_bags, m.status, m.created_at, m.remark, {MemberTickets.JsonOf("m")},
-                m.disabled_at, m.disabled_by, m.disable_reason
+                m.disabled_at, m.disabled_by, m.disable_reason,m.card_opened_on
                 """, """
                 plugin_kunlun_waterstation.members m
                 WHERE m.tenant_id = @tid
@@ -134,7 +134,8 @@ public static class FinanceEndpoints
                 tickets = JsonSerializer.Deserialize<JsonElement>(r.GetString(11)),
                 disabledAt = r.IsDBNull(12) ? (DateTime?)null : r.GetDateTime(12),
                 disabledBy = r.IsDBNull(13) ? null : r.GetString(13),
-                disableReason = r.IsDBNull(14) ? null : r.GetString(14)
+                disableReason = r.IsDBNull(14) ? null : r.GetString(14),
+                cardOpenedOn = r.IsDBNull(15) ? (DateOnly?)null : r.GetFieldValue<DateOnly>(15)
             }, ct);
         }).RequireAuthorization();
 
