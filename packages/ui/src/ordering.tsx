@@ -50,7 +50,10 @@ function DepositRows({ unit, position, fullOut, emptyIn, dueLabel }: {
   unit: string; position: DepositPosition; fullOut: number; emptyIn: number | null; dueLabel: string;
 }) {
   return <>
-    <div className="deposit-row"><span>当前持有</span><b>{position.held} 个{unit}</b></div>
+    <div className="deposit-row">
+      <span>当前持有</span>
+      <b>{position.held} 个{unit} · 价值 ¥{money(position.held * position.unitDeposit)}</b>
+    </div>
     {emptyIn === null
       ? <div className="deposit-row"><span>本次领出</span><b>{fullOut} 个{unit}</b></div>
       : <div className="deposit-row">
