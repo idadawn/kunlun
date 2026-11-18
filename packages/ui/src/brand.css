@@ -499,3 +499,8 @@ a{color:var(--brand-600);text-decoration:none}
 .damage-reviews article>div{display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px}
 .damage-reviews small{color:var(--muted);overflow-wrap:anywhere}
 .temporary-password{font-family:var(--font-num);letter-spacing:0.08em;user-select:all}
+
+.member-damage-breakdown{display:flex;flex-wrap:wrap;gap:5px 16px;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+.member-damage-breakdown span{white-space:nowrap}
+.member-damage-breakdown b{color:var(--ink);font-variant-numeric:tabular-nums}
+.member-damage-breakdown .outstanding,.member-damage-breakdown .outstanding b{color:var(--gold-600)}

@@ -185,6 +185,8 @@ public sealed class DepositReviewTests(TestHost host)
 
             await Ok(await courier.PostAsJsonAsync($"/api/orders/{await Order(admin, mid, 1)}/fulfill",
                 new FulfillWaterOrderRequest(1,1,1,DamagedQty:1,DamageCompensated:false,DamageReason:"袋桶老化")));
+            var awaiting = (await Buckets(admin, mid)).GetProperty("damageBreakdown");
+            Assert.Equal((1, 1), (Qty(awaiting,"awaitingReview"), Qty(awaiting,"pending")));
             var pendingWaiver = (await Requests(admin,"DAMAGE",memberNo)).EnumerateArray().Single(r => r.GetProperty("status").GetString()=="PENDING");
             await Ok(await admin.PostAsJsonAsync($"/api/refund-requests/{pendingWaiver.GetProperty("id")}/approve", new ApproveRefundRequest(null,"同意免赔")));
             // Damage the customer pays for asks nothing; with the switch off an unpaid one is recorded as approved.
@@ -205,7 +207,10 @@ public sealed class DepositReviewTests(TestHost host)
             Assert.Equal((3,1,1), (quantities["WAIVED"], quantities["REJECTED"], quantities["PAID"]));
             Assert.Equal(paidFor.GetProperty("orderNo").GetString(), Assert.Single(breakdown, d => d.GetProperty("status").GetString()=="PAID").GetProperty("reference").GetString());
             Assert.Equal(5, quantities.Values.Sum());
-            Assert.Equal(5, (await Buckets(admin,mid)).GetProperty("damageQty").GetInt32());
+            var profile = await Buckets(admin, mid);
+            var counts = profile.GetProperty("damageBreakdown");
+            Assert.Equal(5, Qty(profile,"damageQty"));
+            Assert.Equal((5,3,1,1), (Qty(counts,"total"), Qty(counts,"waived"), Qty(counts,"paid"), Qty(counts,"pending")));
             var settled = await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement",
                 new SettlementRequest(Key(),"CASH", DamageDecisions:[new(rejectedRef,true)])));
             var rows = (await admin.GetFromJsonAsync<JsonElement>($"/api/refund-requests?memberId={mid}&kind=DAMAGE&page=1")).GetProperty("rows").EnumerateArray().ToArray();

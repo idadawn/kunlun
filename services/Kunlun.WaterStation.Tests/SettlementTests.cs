@@ -381,6 +381,9 @@ public sealed class SettlementTests(TestHost host)
         Assert.Equal(receipt.GetProperty("id").GetGuid(), (await Ok(await admin.PostAsJsonAsync($"/api/members/{mid}/settlement",request))).GetProperty("id").GetGuid());
         var after = (await Ok(await Preview(admin,mid))).GetProperty("slip");
         Assert.Empty(after.GetProperty("damages").EnumerateArray());
+        var counts = (await Deposit(admin, mid, "BAG")).GetProperty("damageBreakdown");
+        Assert.Equal((2,charge ? 0 : 1,charge ? 2 : 1,0), (I(counts,"total"), I(counts,"waived"), I(counts,"paid"), I(counts,"pending")));
+        Assert.Equal(0, I((await Deposit(admin, mid, "BUCKET")).GetProperty("damageBreakdown"), "total"));
         var history = after.GetProperty("damageHistory").EnumerateArray().ToArray();
         Assert.Equal(2, history.Sum(d => I(d,"quantity")));
         Assert.Contains(history, d => d.GetProperty("status").GetString()=="PAID");
