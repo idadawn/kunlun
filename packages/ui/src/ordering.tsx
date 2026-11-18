@@ -51,7 +51,12 @@ function DepositRows({ unit, position, fullOut, emptyIn, dueLabel }: {
 }) {
   return <>
     <div className="deposit-row"><span>当前持有</span><b>{position.held} 个{unit}</b></div>
-    <div className="deposit-row"><span>本次领出{emptyIn !== null && ` · 归还 ${emptyIn} 个`}</span><b>{fullOut} 个{unit}</b></div>
+    {emptyIn === null
+      ? <div className="deposit-row"><span>本次领出</span><b>{fullOut} 个{unit}</b></div>
+      : <div className="deposit-row">
+          <span>已交押金{position.pool.pendingCollect > 0 && <small>其中 ¥{money(position.pool.pendingCollect)} 已收待审核</small>}</span>
+          <strong>¥{money(position.pool.total + position.pool.pendingCollect)}</strong>
+        </div>}
     <div className="deposit-row due"><span>{dueLabel}</span><strong>¥{money(depositGap(position, fullOut, emptyIn ?? 0))}</strong></div>
   </>;
 }

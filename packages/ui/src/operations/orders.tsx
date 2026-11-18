@@ -32,7 +32,6 @@ export function FulfillDialog({ order, onClose, onDone }: { order?: WaterOrder; 
   const initial = order?.orderQty ?? 1;
   const [code, setCode] = useState('');
   const [actual, setActual] = useState(initial);
-  const [fullOut, setFullOut] = useState(initial);
   const [emptyInInput, setEmptyIn] = useState<number | null>(null);
   const [diffReason, setDiffReason] = useState('');
   const [choice, setChoice] = useState<HandoverChoice>(EMPTY_HANDOVER);
@@ -44,14 +43,16 @@ export function FulfillDialog({ order, onClose, onDone }: { order?: WaterOrder; 
   const unit = container ? containerUnit(container) : '桶/袋';
   const position = container ? deposits.data?.[container] : undefined;
   // Full-for-empty swap: by default collect as many empties as the member holds, up to the quantity delivered.
-  const emptyIn = emptyInInput ?? (position ? Math.min(position.held, initial) : initial);
-  const due = position ? depositGap(position, fullOut, emptyIn) : 0;
+  const emptyIn = emptyInInput ?? (position ? Math.min(position.held, actual) : actual);
+  const due = position ? depositGap(position, actual, emptyIn) : 0;
   // Empties beyond what the member holds are their own containers swapped in: nothing new is lent out, so no deposit.
   const ownEmpties = position ? Math.max(0, emptyIn - position.held) : 0;
   const paid = collected.current ? 0 : paidOf(choice, due);
+  const quantityChanged = order && actual !== order.orderQty;
   const submit = async () => {
+    if (quantityChanged && !diffReason.trim()) throw new Error('请填写交付数量与下单数量不一致的原因');
     if (order && container && !position) throw new Error(deposits.error ? `押金核对失败：${deposits.error}` : '正在核对会员手里的桶袋和押金，请稍候');
-    const body: FulfillOrderRequest = { actualQty: actual, fullOutN: fullOut, emptyInM: emptyIn, pickupCode: code || null, diffReason: diffReason || null };
+    const body: FulfillOrderRequest = { actualQty: actual, fullOutN: actual, emptyInM: emptyIn, pickupCode: code || null, diffReason: !order || quantityChanged ? diffReason.trim() || null : null };
     if (order && container && position) {
       const problem = handoverProblem(choice, collected.current ? 0 : due, unit);
       if (problem) throw new Error(problem);
@@ -88,18 +89,19 @@ export function FulfillDialog({ order, onClose, onDone }: { order?: WaterOrder; 
       )}
       {order?.remark && <p className="membership-note">备注：{order.remark}</p>}
       {pickup && <Field label="会员出示的六位取水码" htmlFor="pickupCode"><input id="pickupCode" className="input" required pattern="[0-9]{6}" inputMode="numeric" maxLength={6} value={code} onChange={e => setCode(e.target.value)} /></Field>}
-      <Field label="实际交付数量" htmlFor="fulfillQty"><NumberInput id="fulfillQty" className="input" inputMode="numeric" min={1} step={1} required value={actual} onChange={setActual} /></Field>
-      <Field label={`满${unit}领出`} htmlFor="fullOut"><NumberInput id="fullOut" className="input" inputMode="numeric" min={0} step={1} required value={fullOut} onChange={setFullOut} /></Field>
-      <Field label={`空${unit}收回`} htmlFor="emptyIn"><NumberInput id="emptyIn" className="input" inputMode="numeric" min={0} step={1} required value={emptyIn} onChange={setEmptyIn} /></Field>
+      <div className="fulfill-quantities">
+        <div><Field label="交付数量" htmlFor="fulfillQty"><NumberInput id="fulfillQty" className="input" inputMode="numeric" min={1} step={1} required value={actual} onChange={setActual} /></Field></div>
+        <div><Field label={`收回空${unit}`} htmlFor="emptyIn"><NumberInput id="emptyIn" className="input" inputMode="numeric" min={0} step={1} required value={emptyIn} onChange={setEmptyIn} /></Field></div>
+      </div>
+      {(!order || quantityChanged) && <Field label="数量不一致时填写原因" htmlFor="diffReason"><input id="diffReason" className="input" required={!!quantityChanged} maxLength={500} value={diffReason} onChange={e => setDiffReason(e.target.value)} /></Field>}
       {ownEmpties > 0 && position && (
         <p className="membership-note">会员名下只有 {position.held} 个{unit}，多收的 {ownEmpties} 个算会员自带的{unit}换给店里，这 {ownEmpties} 个不用交押金；不是自带的请改回 {position.held}。</p>
       )}
       {container && position && (
-        <HandoverDeposit id="fulfill" type={container} position={position} fullOut={fullOut} emptyIn={emptyIn} value={choice} onChange={setChoice} collected={collected.current}
+        <HandoverDeposit id="fulfill" type={container} position={position} fullOut={actual} emptyIn={emptyIn} value={choice} onChange={setChoice} collected={collected.current}
           depositReviewed={waitsForReview(review, 'deposit')} damageReviewed={waitsForReview(review, 'damage')}
           payMethod={<select className="select" aria-label="押金收款方式" value={payMethod} onChange={e => setPayMethod(e.target.value as PayMethod)}><PayOptions /></select>} />
       )}
-      <Field label="数量不一致时填写原因" htmlFor="diffReason"><input id="diffReason" className="input" maxLength={500} value={diffReason} onChange={e => setDiffReason(e.target.value)} /></Field>
     </FormDialog>
   );
 }
