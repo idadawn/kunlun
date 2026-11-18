@@ -119,11 +119,14 @@ export function MovementDialog({ memberId, onClose, onDone }: { memberId?: strin
         </div>
         <div>
           <Field label="归还数量（个）" htmlFor="moveReturned">
-            <Stepper id="moveReturned" label="归还数量" value={emptyIn} onChange={setEmptyIn} max={10000} />
+            <Stepper id="moveReturned" label="归还数量" value={emptyIn} max={10000} onChange={n => {
+              setEmptyIn(n);
+              if (n === 0) setDamage(EMPTY_DAMAGE);
+            }} />
           </Field>
         </div>
       </div>
-      {before !== null && <ReturnedDamageFields id="movement" unit={unit} emptyIn={emptyIn} value={damage} onChange={patch => setDamage(c => ({ ...c, ...patch }))}
+      {before !== null && emptyIn > 0 && <ReturnedDamageFields id="movement" unit={unit} emptyIn={emptyIn} value={damage} onChange={patch => setDamage(c => ({ ...c, ...patch }))}
         damageReviewed={waitsForReview(review, 'damage')} />}
       <div className={`deposit-total${after !== null && after < 0 ? ' warn' : ''}`}>
         <span>登记后会员手里</span>
