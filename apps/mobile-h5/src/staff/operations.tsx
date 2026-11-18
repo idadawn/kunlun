@@ -50,8 +50,6 @@ export function useStaffOperations() {
       await refresh();
       toast(`已接单：${order.orderNo}`);
     })(),
-    assets: (member: MemberProfile) => run(() =>
-      dialogs.open(close => <MemberAssetsDialog memberId={member.id} memberName={member.name} onClose={close} onDone={refresh} />))(),
     detail: (member: MemberProfile) => {
       data.setSelectedMemberId(member.id);
       void dialogs.open(close => <MemberDetailDialog member={member} onClose={close} />);
@@ -86,8 +84,9 @@ function MemberDetailDialog({ member: opened, onClose }: { member: MemberProfile
   const deposits = useLoader(() => api.depositSummary(member.id), [api, member, settled]);
   const pool = deposits.data?.[0]?.pool;
   const settlements = useSettlements(member.id, settled);
+  const changed = async () => { await refresh(); setSettled(n => n + 1); };
   const settle = () => void dialogs.open(close => <SettlementDialog memberId={member.id} memberName={member.name} onClose={close}
-    onDone={async () => { await refresh(); setSettled(n => n + 1); }} />);
+    onDone={changed} />);
   return (
     <Dialog title={`${member.name} · 会员办理`} description={`${member.phone} · ${member.memberNo}`} onClose={onClose}>
       {disabled && (
@@ -95,7 +94,7 @@ function MemberDetailDialog({ member: opened, onClose }: { member: MemberProfile
       )}
       <div className="member-ledgers">
         <section>
-          <header><b>水票</b><button type="button" className="link" onClick={() => ops.assets(member)}>批次{layout.has('recharge') && !disabled ? ' / 退款' : ''} ›</button></header>
+          <header><b>水票</b><button type="button" className="link" onClick={() => void dialogs.open(close => <MemberAssetsDialog memberId={member.id} memberName={member.name} readOnly={disabled} onClose={close} onDone={changed} />)}>查看批次 ›</button></header>
           {member.tickets.length === 0 && <p>暂无水票</p>}
           {ticketGroups(member.tickets).map(g => (
             <p key={g.waterType}>{g.name}<br /><b>自提 {g.pickup} · 配送 {g.delivery}</b> {g.unit}{g.reserved > 0 ? `（预占 ${g.reserved}）` : ''}</p>
@@ -117,7 +116,7 @@ function MemberDetailDialog({ member: opened, onClose }: { member: MemberProfile
       {!disabled && (layout.has('order') || layout.has('movement') || canSettle(can)) && <div className="membership-actions" style={{ margin: '12px 0 14px' }}>
         {layout.has('order') && can(P.OrderCreate) && <button type="button" className="btn sm" onClick={order}>点单</button>}
         {layout.has('movement') && <button type="button" className="btn sm" onClick={ops.container}>登记领还</button>}
-        {canSettle(can) && <button type="button" className="btn sm" onClick={settle}>退款结算</button>}
+        {canSettle(can) && <button type="button" className="btn sm" onClick={settle}>退款（全部结算）</button>}
       </div>}
       {settlements.data && settlements.data.length > 0 && (
         <section className="member-settlements">

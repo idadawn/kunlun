@@ -73,7 +73,8 @@ function Profile({ member: m }: { member: MemberProfile }) {
   const live = list?.filter(inUse) ?? [];
   const hidden = (list?.length ?? 0) - live.length;
   const shown = allBatches ? list ?? [] : live;
-  const refund = !disabled && (can(P.RechargeCreate) || can(P.RechargeRefund))
+  const allowSettlement = !disabled && canSettle(can);
+  const batchRefund = !disabled && !allowSettlement && (can(P.RechargeCreate) || can(P.RechargeRefund))
     ? (batch: TicketBatch) => run(() => dialogs.open(close => <RefundBatchDialog memberId={m.id} batch={batch} onClose={close} onDone={refresh} />))()
     : undefined;
 
@@ -92,7 +93,7 @@ function Profile({ member: m }: { member: MemberProfile }) {
         <button type="button" className="btn" onClick={() => ops.deposit('collect', m.id)}><Icon name="deposit" />收押金</button>
         <button type="button" className="btn" onClick={() => ops.deposit('refund', m.id)}><Icon name="refund" />退押金</button>
         <button type="button" className="btn" onClick={() => ops.movement(m.id)}><Icon name="swap" />登记领还</button>
-        {canSettle(can) && (
+        {allowSettlement && (
           <button type="button" className="btn" title="会员不再订水或搬家：一张退款单结清剩余水票、押金和手里的桶袋" onClick={settle}><Icon name="refund" />退款结算</button>
         )}
         {can(P.MemberOpening) && (
@@ -137,12 +138,13 @@ function Profile({ member: m }: { member: MemberProfile }) {
             ) : <p className="membership-note">暂无水票，可先充值再点单。</p>}
             <div className="profile-subhead">
               <b>充值批次</b>
+              {allowSettlement && <button type="button" className="btn sm" onClick={settle}>退款（全部结算）</button>}
               {hidden > 0 && <button type="button" className="text-btn" onClick={() => setAllBatches(v => !v)}>{allBatches ? '只看在用的批次' : `显示已用完 / 已退款的 ${hidden} 个批次`}</button>}
             </div>
             {batches.error ? <p className="account-error" role="alert">{batches.error}</p>
               : !list ? <p className="membership-note">正在加载充值批次…</p>
               : !shown.length && hidden > 0 ? <p className="membership-note">没有在用的批次，水票都已用完或退款。</p>
-              : <div className="profile-batches"><BatchCards batches={shown} onRefund={refund} /></div>}
+              : <div className="profile-batches"><BatchCards batches={shown} onRefund={batchRefund} /></div>}
           </div>
         </section>
         <RecentRecords member={m} />
