@@ -31,8 +31,8 @@ android {
         applicationId 'cn.idalee.kunlun.staff'
         minSdk 26
         targetSdk 36
-        versionCode 4
-        versionName '1.2.1'
+        versionCode 5
+        versionName '1.2.2'
     }
     buildFeatures { buildConfig true }
     signingConfigs {
@@ -62,6 +62,7 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+    sourceSets.main.java.srcDir new File(repositoryRoot, 'apps/android-common/src/main/java')
     sourceSets.main.assets.srcDir layout.buildDirectory.dir('generated/assets')
 }
 

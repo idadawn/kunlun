@@ -95,7 +95,7 @@ test('pager shows first, last and neighbouring pages; date filters start at stat
 
 test('paged client calls always send page and drop empty filters; legacy list calls stay unpaged',async()=>{
  const urls=[],real=globalThis.fetch;
- globalThis.fetch=async url=>{urls.push(url);return new Response('{}',{status:200});};
+ globalThis.fetch=async url=>{urls.push(url);return Response.json({rows:[],total:0});};
  try{
   const api=new KunlunApi();
   await api.membersPage({q:' 陈 ',status:undefined,water:'BUCKET',pageSize:50});
@@ -119,6 +119,30 @@ test('paged client calls always send page and drop empty filters; legacy list ca
   '/api/members',
   '/api/orders?memberId=m1',
  ]);
+});
+
+test('older WebViews keep member pagination and filters without URLSearchParams.size', async t => {
+ const legacy = class extends URLSearchParams { get size() { return undefined; } };
+ t.mock.method(globalThis, 'URLSearchParams', legacy);
+ const fetch = t.mock.method(globalThis, 'fetch', async () => Response.json({ rows: [], total: 0 }));
+ const api = new KunlunApi();
+ await api.membersPage({ q: '陈', pageSize: 20 });
+ assert.equal(fetch.mock.calls[0].arguments[0], '/api/members?q=%E9%99%88&pageSize=20&page=1');
+ fetch.mock.mockImplementation(async () => Response.json([]));
+ await assert.rejects(api.membersPage(), /分页数据异常/);
+});
+
+test('a delayed 401 from a previous login cannot sign out the current account', async t => {
+ let reply;
+ t.mock.method(globalThis, 'fetch', () => new Promise(resolve => { reply = resolve; }));
+ const unauthorized = t.mock.fn();
+ const api = new KunlunApi({ onUnauthorized: unauthorized });
+ api.token = 'first';
+ const previous = api.listOrders();
+ api.token = 'second';
+ reply(new Response(null, { status: 401 }));
+ await assert.rejects(previous, { status: 401 });
+ assert.equal(unauthorized.mock.callCount(), 0);
 });
 
 test('browser and native transport failures get a readable message without masking HTTP errors or cancellation',async()=>{

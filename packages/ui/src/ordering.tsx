@@ -6,7 +6,7 @@ import {
 import { AddressPicker } from './addresses';
 import { useApi, useAuth } from './auth';
 import { FormDialog, NumberInput, useDialogs, useRun } from './feedback';
-import { useLoader } from './hooks';
+import { newRequestKey, useLoader } from './hooks';
 import { Icon } from './icons';
 import { parseYuan, useReviewSettings, waitsForReview } from './operations/common';
 
@@ -410,9 +410,9 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
       position, empties, emptyIn, gap, choice, collected, paid, owed }];
   });
   const count = lines.reduce((sum, l) => sum + l.qty, 0);
-  const depositTotal = lines.at(-1)?.gap ?? 0;
+  const depositTotal = lines[lines.length - 1]?.gap ?? 0;
   const paidTotal = paidSoFar;
-  const owedTotal = lines.at(-1)?.owed ?? 0;
+  const owedTotal = lines[lines.length - 1]?.owed ?? 0;
   const owing = owedTotal > 0;
   const minimumOf = (p: WaterProduct) => (delivery ? Math.max(1, p.deliveryMinimum) : 1);
   const short = lines.find(l => l.qty > l.tickets);
@@ -453,7 +453,7 @@ export function OrderMenu({ member, products, counter = false, initialMode = 'DE
     try {
       for (const line of lines) {
         let p = progress.current.get(line.water);
-        if (!p) { p = { key: crypto.randomUUID() }; progress.current.set(line.water, p); }
+        if (!p) { p = { key: newRequestKey() }; progress.current.set(line.water, p); }
         p.order ??= await api.createOrder({
           memberId: member.id, waterType: line.water, fulfillMode: mode, orderQty: line.qty, idempotencyKey: p.key,
           addressId: delivery ? addressId : null, appointmentSlot: delivery ? slot : null, remark: remark.trim() || null,

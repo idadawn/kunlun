@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import { KUNLUN_BRAND, KunlunApi, type AppArea, type AuthSession, type CurrentUser, type PermissionCode } from '@kunlun/shared';
+import { ApiError, KUNLUN_BRAND, KunlunApi, type AppArea, type CurrentUser, type PermissionCode } from '@kunlun/shared';
 import { Field, FormDialog, useToast } from './feedback';
 import { Logo } from './icons';
+import { loginStorage, tokenExpired } from './login-storage';
 
 export interface AuthContextValue {
   api: KunlunApi;
@@ -24,57 +25,103 @@ export function useAuth(): AuthContextValue {
 }
 export const useApi = () => useAuth().api;
 
-const storageKey = (area: AppArea) => `kunlun_${area}_session`;
 const AREA_LABEL: Record<AppArea, string> = { admin: '管理后台', staff: '员工工作台', member: '会员中心' };
-
-function readSaved(area: AppArea): AuthSession | null {
-  try { return JSON.parse(sessionStorage.getItem(storageKey(area)) || 'null'); } catch { return null; }
-}
-function forget(area: AppArea) {
-  try { sessionStorage.removeItem(storageKey(area)); } catch { /* storage may be unavailable */ }
-}
 
 function assertArea(area: AppArea, me: CurrentUser) {
   const allowed = area === 'admin' ? me.subjectType === 'STAFF' && me.role === 'ADMIN'
     : area === 'staff' ? me.subjectType === 'STAFF' : me.subjectType === 'MEMBER';
-  if (!allowed) throw new Error('当前账号不能登录此入口，请使用对应账号');
+  if (!allowed) throw new ApiError('当前账号不能登录此入口，请使用对应账号', 403);
 }
 
 /** Requires a signed-in account for the given area; renders the login page until then. */
 export function AuthGate({ area, apiBaseUrl = '', loginFooter, children }: { area: AppArea; apiBaseUrl?: string; loginFooter?: ReactNode; children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [restoring, setRestoring] = useState(true);
+  const [restoreError, setRestoreError] = useState('');
+  const [retry, setRetry] = useState(0);
   const toast = useToast();
-  const api = useMemo(() => new KunlunApi({ baseUrl: apiBaseUrl, onUnauthorized: () => { forget(area); api.token = null; setUser(null); } }), [area, apiBaseUrl]);
+  const storage = useMemo(() => loginStorage(area, apiBaseUrl), [area, apiBaseUrl]);
+  const forget = useCallback((token?: string) => storage.clear(token).catch(() => toast('无法清除设备保存的登录信息', 'error')), [storage, toast]);
+  const rejectSession = useCallback((token: string | null) => {
+    setUser(null);
+    if (storage.canRenew && token && tokenExpired(token)) {
+      setRestoring(true); setRetry(n => n + 1);
+    } else void forget(token ?? undefined);
+  }, [storage, forget]);
+  const api = useMemo(() => new KunlunApi({ baseUrl: apiBaseUrl, onUnauthorized: () => {
+    rejectSession(api.token); api.token = null;
+  } }), [apiBaseUrl, rejectSession]);
+  const endSession = useCallback(() => {
+    const token = api.token;
+    api.token = null; setUser(null); setRestoreError(''); void forget(token ?? undefined);
+  }, [api, forget]);
 
-  const endSession = useCallback(() => { forget(area); api.token = null; setUser(null); }, [api, area]);
+  const authenticate = useCallback((account: string, password: string) => area === 'member'
+    ? api.memberLogin(account, password) : api.staffLogin(account, password, area === 'admin'), [api, area]);
 
   useEffect(() => {
-    const saved = readSaved(area);
-    if (!saved) { setRestoring(false); return; }
-    api.token = saved.accessToken;
-    api.me().then(me => { assertArea(area, me); setUser(me); })
-      .catch(() => endSession())
-      .finally(() => setRestoring(false));
-  }, [api, area, endSession]);
+    let active = true;
+    setRestoring(true); setRestoreError('');
+    async function restore() {
+      const saved = await storage.read();
+      if (!active || !saved) return;
+      api.token = saved.accessToken;
+      let me: CurrentUser;
+      try {
+        me = await api.me();
+      } catch (error) {
+        if (!active) return;
+        if (!(error instanceof ApiError && error.status === 401 && saved.account && tokenExpired(saved.accessToken))) throw error;
+        const password = await storage.passwordFor(saved);
+        if (!active) return;
+        if (!password) throw error;
+        const session = await authenticate(saved.account, password);
+        if (!active) return;
+        api.token = session.accessToken;
+        me = await api.me();
+        assertArea(area, me);
+        if (!active) return;
+        await storage.save({ account: saved.account, password, accessToken: session.accessToken }, !me.mustChangePassword);
+      }
+      if (!active) return;
+      assertArea(area, me);
+      setUser(me);
+    }
+    restore().catch(error => {
+      if (!active) return;
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) endSession();
+      else setRestoreError(error instanceof Error ? error.message : '暂时无法恢复登录');
+    }).finally(() => { if (active) setRestoring(false); });
+    return () => { active = false; };
+  }, [api, area, authenticate, endSession, retry, storage]);
 
-  const login = async (account: string, password: string) => {
-    const session = area === 'member' ? await api.memberLogin(account, password) : await api.staffLogin(account, password, area === 'admin');
+  const login = async (account: string, password: string, remember: boolean) => {
+    const session = await authenticate(account, password);
     api.token = session.accessToken;
     try {
       const me = await api.me();
       assertArea(area, me);
-      sessionStorage.setItem(storageKey(area), JSON.stringify(session));
+      const keep = remember && !me.mustChangePassword;
+      await storage.save({ account, password, accessToken: session.accessToken }, keep, remember);
+      if (keep) void storage.offerPassword(account, password);
       setUser(me);
     } catch (e) { api.token = null; throw e; }
   };
 
   const refreshUser = useCallback(async () => {
-    const me = await api.me();
+    const token = api.token;
+    let me: CurrentUser;
+    try { me = await api.me(); }
+    catch (error) {
+      if (token && token === api.token && error instanceof ApiError && error.status === 401) {
+        rejectSession(token); api.token = null;
+      }
+      throw error;
+    }
+    if (!token || token !== api.token) return;
     assertArea(area, me);
-    // Keep the same object while nothing changed, so screens depending on the account do not reload for nothing.
     setUser(current => current && JSON.stringify(current) === JSON.stringify(me) ? current : me);
-  }, [api, area]);
+  }, [api, area, rejectSession]);
 
   const value = useMemo<AuthContextValue | null>(() => user && {
     api,
@@ -84,17 +131,23 @@ export function AuthGate({ area, apiBaseUrl = '', loginFooter, children }: { are
     refreshUser,
     logout: async () => {
       try { await api.logout(); }
-      catch (e) { if (api.token) { toast('退出失败，请重试：' + (e instanceof Error ? e.message : e), 'error'); return; } }
+      catch (e) { if (!(e instanceof ApiError && e.status === 401) && api.token) { toast('退出失败，请重试：' + (e instanceof Error ? e.message : e), 'error'); return; } }
       endSession();
     },
   }, [api, endSession, refreshUser, toast, user]);
 
   if (restoring) return <div className="login-gate" aria-busy="true"><p className="membership-note">正在恢复登录状态…</p></div>;
-  if (!value) return <LoginPage area={area} onLogin={login} footer={loginFooter} />;
+  if (restoreError) return <div className="login-gate"><div className="login-card">
+    <h2>暂时无法恢复登录</h2><p className="account-error" role="alert">{restoreError}</p>
+    <button className="btn primary" onClick={() => setRetry(n => n + 1)}>重试</button>
+    <button className="btn" onClick={endSession}>清除本机登录并切换账号</button>
+  </div></div>;
+  if (!value) return <LoginPage area={area} mobile={storage.mobile} rememberByDefault={storage.rememberByDefault()} onLogin={login} footer={loginFooter} />;
   return <AuthContext.Provider value={value}>{user?.mustChangePassword ? <ChangePasswordDialog requiredChange onClose={endSession} /> : children}</AuthContext.Provider>;
 }
 
-function LoginPage({ area, onLogin, footer }: { area: AppArea; onLogin: (account: string, password: string) => Promise<void>; footer?: ReactNode }) {
+function LoginPage({ area, mobile, rememberByDefault, onLogin, footer }: { area: AppArea; mobile: boolean; rememberByDefault: boolean; onLogin: (account: string, password: string, remember: boolean) => Promise<void>; footer?: ReactNode }) {
+  const [remember, setRemember] = useState(rememberByDefault);
   const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -104,7 +157,7 @@ function LoginPage({ area, onLogin, footer }: { area: AppArea; onLogin: (account
     event.preventDefault();
     if (busy) return;
     setBusy(true); setError('');
-    try { await onLogin(account.trim(), password); }
+    try { await onLogin(account.trim(), password, remember); }
     catch (e) { setError(e instanceof Error ? e.message : '登录失败，请重试'); setBusy(false); }
   };
   return (
@@ -114,12 +167,13 @@ function LoginPage({ area, onLogin, footer }: { area: AppArea; onLogin: (account
         <h2>{AREA_LABEL[area]}</h2>
         <p className="login-subtitle">{area === 'member' ? '使用登录手机号或原有账号和密码登录' : '使用用户名和密码登录'}</p>
         <label htmlFor="loginUsername">{area === 'member' ? '手机号或账号' : '用户名'}</label>
-        <input id="loginUsername" className="input" autoComplete="username" required maxLength={32} placeholder={area === 'member' ? '请输入登录手机号或原有账号' : '请输入用户名'} value={account} onChange={e => setAccount(e.target.value)} />
+        <input id="loginUsername" name="username" className="input" autoComplete="username" required maxLength={32} placeholder={area === 'member' ? '请输入登录手机号或原有账号' : '请输入用户名'} value={account} onChange={e => setAccount(e.target.value)} />
         <label htmlFor="loginPassword">密码</label>
         <div className="password-field">
-          <input id="loginPassword" className="input" type={showPassword ? 'text' : 'password'} autoComplete="current-password" required maxLength={128} placeholder="请输入密码" value={password} onChange={e => setPassword(e.target.value)} />
+          <input id="loginPassword" name="password" className="input" type={showPassword ? 'text' : 'password'} autoComplete="current-password" required maxLength={128} placeholder="请输入密码" value={password} onChange={e => setPassword(e.target.value)} />
           <button type="button" aria-label={showPassword ? '隐藏密码' : '显示密码'} onClick={() => setShowPassword(v => !v)}>{showPassword ? '隐藏' : '显示'}</button>
         </div>
+        {mobile && <label><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} /> 在这台设备上记住密码并保持登录</label>}
         <p role="alert" className="account-error">{error}</p>
         <button className="btn primary login-submit" type="submit" disabled={busy}>{busy ? '正在登录…' : '登录'}</button>
         <p className="login-help">{area === 'admin' ? '仅限水站管理员' : '首次使用或忘记密码，请联系水站设置账号'}</p>
