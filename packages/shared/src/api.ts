@@ -91,7 +91,9 @@ const queryString = (params: object) => {
     const text = typeof value === 'string' ? value.trim() : value == null ? '' : String(value);
     if (text) search.set(key, text);
   }
-  return search.size ? `?${search}` : '';
+  // Older Android WebViews can serialize the parameters but do not implement URLSearchParams.size.
+  const query = search.toString();
+  return query ? `?${query}` : '';
 };
 /** Paged queries always send `page`; without paging params the server keeps answering with its legacy capped array. */
 const paged = (query: object & { page?: number }) => queryString({ ...query, page: query.page ?? 1 });
@@ -110,7 +112,8 @@ export class KunlunApi {
   private async send(path: string, init: RequestInit = {}): Promise<Response> {
     const headers: Record<string, string> = { ...(init.headers as Record<string, string>) };
     if (init.body !== undefined) headers['Content-Type'] = 'application/json';
-    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+    const token = this.token;
+    if (token) headers.Authorization = `Bearer ${token}`;
     let res: Response;
     try {
       res = await fetch(this.baseUrl + path, { ...init, headers });
@@ -120,7 +123,7 @@ export class KunlunApi {
     }
     if (res.ok) return res;
     const body = await res.json().catch(() => ({} as Record<string, string>));
-    if (res.status === 401 && this.token && !path.startsWith('/api/auth/')) this.options.onUnauthorized?.();
+    if (res.status === 401 && token && token === this.token && !path.startsWith('/api/auth/')) this.options.onUnauthorized?.();
     const message = body.message || body.error || (res.status === 403 ? '当前账号没有此操作权限' : `请求失败 (${res.status})`);
     throw new ApiError(message, res.status);
   }
@@ -172,8 +175,10 @@ export class KunlunApi {
   listMembers(q?: string) {
     return this.request<MemberProfile[]>('/api/members' + queryString({ q }));
   }
-  membersPage(query: MemberQuery = {}) {
-    return this.request<Paged<MemberProfile>>('/api/members' + paged(query));
+  async membersPage(query: MemberQuery = {}) {
+    const data = await this.request<Paged<MemberProfile>>('/api/members' + paged(query));
+    if (!Array.isArray(data?.rows) || !Number.isSafeInteger(data.total)) throw new Error('会员列表分页数据异常，请检查服务版本后重试');
+    return data;
   }
   memberProfile(memberId: string) { return this.request<MemberProfile>(`/api/members/${memberId}/profile`); }
   memberPhoneAvailability(phone: string) { return this.request<{ available: boolean; message: string | null }>('/api/members/phone-availability' + queryString({ phone })); }

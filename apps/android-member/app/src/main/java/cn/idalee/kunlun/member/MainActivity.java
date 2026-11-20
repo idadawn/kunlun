@@ -22,6 +22,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.webkit.WebViewAssetLoader;
+import cn.idalee.kunlun.mobile.SavedLogin;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -91,7 +92,8 @@ public final class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        view.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
+        view.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_YES);
+        SavedLogin.install(view, BuildConfig.MEMBER_ORIGIN, BuildConfig.MEMBER_ORIGIN);
         CookieManager.getInstance().setAcceptThirdPartyCookies(view, false);
         view.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -116,7 +118,7 @@ public final class MainActivity extends Activity {
 
             @Override public boolean onRenderProcessGone(WebView gone, RenderProcessGoneDetail detail) {
                 // The system may end the page's renderer, e.g. to free memory. Replace the dead WebView instead of
-                // letting the app crash; its login goes with it. After a crash the retry screen waits for a tap, so a
+                // letting the app crash. After a crash the retry screen waits for a tap, so a
                 // page that keeps crashing cannot loop.
                 root.removeView(gone);
                 gone.destroy();

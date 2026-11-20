@@ -12,7 +12,7 @@ pnpm android:staff
 
 脚本自动使用 macOS Android Studio 的 JDK 与默认 SDK，其他环境请设置 `JAVA_HOME`、`ANDROID_HOME`。它会构建 APK、设置 adb 端口映射、安装并启动员工端，并读取已有的 `HTTP_PROXY` / `HTTPS_PROXY`（显式 Gradle 代理设置优先）。指定设备可设置 `ANDROID_SERIAL=emulator-5554`。调试版应用 ID 为 `cn.idalee.kunlun.staff.debug`，连接本机后端；只对 `127.0.0.1` 放行 HTTP。
 
-APK：`app/build/outputs/apk/debug/app-debug.apk`。包内没有账号密码，安装后用已有员工账号登录。当前登录凭据仅保存在 WebView 会话中，不另行持久保存密码。
+APK：`app/build/outputs/apk/debug/app-debug.apk`。包内没有账号密码，安装后用已有员工账号登录。登录页默认勾选「在这台设备上记住密码并保持登录」。勾选后，App 用 Android Keystore 的密钥加密保存当前账号、密码和会话。下次打开先验证原会话，自然到期后用保存的密码重新登录。共用手机可取消勾选；主动退出、改密或服务端拒绝当前有效期内的会话时，App 清除本机登录。旧 WebView 若不支持原生凭据接口，则按手机浏览器方式保留有效会话，保存密码取决于系统密码管理器。
 
 一键脚本默认把 Gradle 缓存放在本项目忽略的 `.gradle-user-home`，避免与其他 Android 工程争用缓存；可通过 `GRADLE_USER_HOME` 覆盖。构建关闭文件系统监视，不启动常驻 Gradle 服务。
 
@@ -88,4 +88,4 @@ Gradle 会先检查前端类型，再将当前 `apps/mobile-h5` 构建到生成�
 - 点水单上的收货人电话会打开系统拨号盘并填好号码，由员工自己拨出，不需要电话权限。只认手指点击、格式正常的 `tel:` 号码，脚本跳转和 `*21#` 这类代码会被拦下。
 - Android 返回键先返回应用内上一页，根页返回桌面。状态栏、手势区和软键盘通过原生窗口边距处理。
 - Android 13 起，最近任务里的缩略图不显示业务内容；直接从 App 进入多任务时，系统显示的仍是实时画面。不禁止截图。
-- 页面渲染进程被系统回收或崩溃时，App 换一个新的 WebView 而不是退出：崩溃后显示「页面加载失败，请重试」，被回收则直接重新打开。两种情况都需要重新登录。
+- 页面渲染进程被系统回收或崩溃时，App 换一个新的 WebView 而不是退出：崩溃后显示「页面加载失败，请重试」，被回收则直接重新打开。已勾选记住登录的设备会恢复会话。

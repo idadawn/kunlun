@@ -51,3 +51,37 @@ test('a role holds the union of its features’ permissions in the canonical ord
     [P.MemberRead, P.MemberWrite, P.RechargeCreate, P.DepositCollect, P.DepositRefundApply, P.OrderCreate, P.OrderAccept, P.OrderFulfill, P.PickupVerify, P.ContainerRegister],
   );
 });
+
+test('remembered H5 sessions survive closing a tab and stay scoped to the login area and API', async t => {
+  const { loginStorage, tokenExpired } = await import('../packages/ui/src/login-storage.ts');
+  const createStore = () => {
+    const values = new Map();
+    return { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
+  };
+  globalThis.window = { location: new URL('https://test.invalid/staff'), sessionStorage: createStore(), localStorage: createStore(), navigator: {} };
+  t.after(() => { delete globalThis.window; });
+  const staff = loginStorage('staff', '');
+  const member = loginStorage('member', '');
+  const login = { accessToken: 'token', account: 'test', password: 'test-password' };
+  window.sessionStorage.setItem('kunlun_staff_session', JSON.stringify({ accessToken: 'old', subjectType: 'STAFF' }));
+  assert.equal((await staff.read()).accessToken, 'old');
+  await staff.save(login, true);
+  assert.equal(window.sessionStorage.getItem('kunlun_staff_session'), null);
+  assert.deepEqual(JSON.parse(window.localStorage.getItem('kunlun_staff_session')), { accessToken: login.accessToken, account: login.account });
+  window.sessionStorage = createStore();
+  assert.equal((await staff.read()).accessToken, login.accessToken);
+  assert.equal(await member.read(), null);
+  assert.equal(await loginStorage('staff', 'https://another.invalid').read(), null);
+  await member.save({ ...login, accessToken: 'member' }, true);
+  await staff.clear();
+  assert.equal(await staff.read(), null);
+  assert.equal((await member.read()).accessToken, 'member');
+  await member.save(login, false);
+  window.sessionStorage = createStore();
+  assert.equal(await member.read(), null);
+
+  const token = exp => 'header.' + Buffer.from(JSON.stringify({ exp })).toString('base64url') + '.signature';
+  assert.equal(tokenExpired(token(1)), true);
+  assert.equal(tokenExpired(token(Date.now() / 1000 + 3600)), false);
+  assert.equal(tokenExpired('invalid'), false);
+});

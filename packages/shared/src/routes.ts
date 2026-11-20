@@ -33,7 +33,7 @@ export interface ResolvedRoute {
   path: string;
 }
 
-const isArea = (value: string | undefined): value is AppArea => !!value && Object.hasOwn(WEB_ROUTES, value);
+const isArea = (value: string | undefined): value is AppArea => value === 'admin' || value === 'staff' || value === 'member';
 
 export function normalizePage(area: AppArea, page?: string): string {
   const routes = WEB_ROUTES[area];

@@ -2,7 +2,7 @@
 
 `apps/android-app` 使用 Capacitor 8.6 打包 `apps/mobile-h5`，包名为 `cn.idalee.lvqilin`。H5 的 HTML、JS 和 CSS 随 APK 安装，启动入口为 `/member`，登录页可以切换员工入口 `/staff`。登录表单由本地资源提供，业务数据来自后端。仅使用员工工作台时，可安装 [Android 员工端](../apps/android-staff/README.md)；会员只查本人记录时，可安装 [Android 会员端](../apps/android-member/README.md)。
 
-默认 API 为独立测试环境 `https://kunlun-test.idalee.cn`。不会嵌入账号、密码或令牌；继续复用原 H5 的身份和权限校验、会话存储。当前交付目标是本地调试 APK，不包含商店发布签名。
+默认 API 为独立测试环境 `https://kunlun-test.idalee.cn`。不会嵌入账号、密码或令牌；继续复用 H5 的身份和权限校验。勾选「在这台设备上记住密码并保持登录」后，使用 Android Keystore 加密保存本机登录，按 API 地址和员工、会员入口分别恢复。当前交付目标是本地调试 APK，不包含商店发布签名。
 
 ## 构建
 
