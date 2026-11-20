@@ -10,7 +10,7 @@ import {
   DEPOSIT_NOT_RECEIVED, EMPTY_HANDOVER, HandoverDeposit, depositGap, composeHandoverNote, damageFields, handoverProblem, paidOf, useConfirmDepositReceived, useDepositPositions,
   type HandoverChoice,
 } from '../ordering';
-import { PayOptions, useReviewSettings, waitsForReview } from './common';
+import { PayOptions, useReviewSettings, waitsForReview, type PickerMember } from './common';
 
 /**
  * Delivery or pickup hand-over. Without an order it verifies a member's six-digit pickup code.
@@ -20,7 +20,7 @@ import { PayOptions, useReviewSettings, waitsForReview } from './common';
  * 每次都问有没有损坏的桶袋，有就选赔不赔，不赔要写原因；这些都记进水单和袋桶台账。
  * 收押金、损坏不赔付按审核开关等管理员批准：收的押金交付时照样算数，管理员核对到账后才入账。
  */
-export function FulfillDialog({ order, onClose, onDone }: { order?: WaterOrder; onClose: () => void; onDone?: () => void | Promise<void> }) {
+export function FulfillDialog({ order, pickupMember, onClose, onDone }: { order?: WaterOrder; pickupMember?: PickerMember; onClose: () => void; onDone?: () => void | Promise<void> }) {
   const { api, can } = useAuth();
   const toast = useToast();
   const key = useIdempotencyKey();
@@ -29,6 +29,7 @@ export function FulfillDialog({ order, onClose, onDone }: { order?: WaterOrder; 
   const review = useReviewSettings();
   const [payMethod, setPayMethod] = useState<PayMethod>('WECHAT');
   const pickup = !order || order.fulfillMode === 'PICKUP';
+  const confirmedMember = pickup && order && pickupMember?.id === order.memberId ? pickupMember : undefined;
   const initial = order?.orderQty ?? 1;
   const [code, setCode] = useState('');
   const [actual, setActual] = useState(initial);
@@ -79,6 +80,7 @@ export function FulfillDialog({ order, onClose, onDone }: { order?: WaterOrder; 
   };
   return (
     <FormDialog title={pickup ? '自提核销' : '确认配送交付'} submitLabel={due > 0 && choice.pays !== null ? paid > 0 ? '收押金并交付' : '记欠押金并交付' : '确认交付并扣票'} onClose={onClose} onSubmit={submit}>
+      {confirmedMember && <p><b>取水会员　{confirmedMember.name}</b> · {confirmedMember.phone} · {confirmedMember.memberNo}</p>}
       {order && <p>{order.orderNo}{!pickup && order.addressSnapshot?.address ? ` · ${order.addressSnapshot.address}` : ''}</p>}
       {order && container && (
         <p className="fulfill-container">
@@ -88,7 +90,7 @@ export function FulfillDialog({ order, onClose, onDone }: { order?: WaterOrder; 
         </p>
       )}
       {order?.remark && <p className="membership-note">备注：{order.remark}</p>}
-      {pickup && <Field label="会员出示的六位取水码" htmlFor="pickupCode"><input id="pickupCode" className="input" required pattern="[0-9]{6}" inputMode="numeric" maxLength={6} value={code} onChange={e => setCode(e.target.value)} /></Field>}
+      {pickup && !confirmedMember && <Field label="会员出示的六位取水码" htmlFor="pickupCode"><input id="pickupCode" className="input" required pattern="[0-9]{6}" inputMode="numeric" maxLength={6} value={code} onChange={e => setCode(e.target.value)} /></Field>}
       <div className="fulfill-quantities">
         {order && <div><Field label="下单数量" htmlFor="orderedQty"><input id="orderedQty" className="input" readOnly value={order.orderQty} /></Field></div>}
         <div><Field label="交付数量" htmlFor="fulfillQty"><NumberInput id="fulfillQty" className="input" inputMode="numeric" min={1} step={1} required value={actual} onChange={setActual} /></Field></div>

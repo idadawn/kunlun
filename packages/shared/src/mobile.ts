@@ -57,7 +57,7 @@ export const MOBILE_FEATURES: readonly MobileFeature[] = [
   },
   {
     key: 'pickup', label: '自提核销', icon: 'qr', tone: 'orange', group: '日常业务',
-    summary: '会员到店报六位取水码，核销自提水单并扣水票',
+    summary: '选会员或输入取水码核销自提水单；已开通门店点单时可为无单会员现场取水',
     permissions: [P.PickupVerify, P.OrderFulfill],
   },
   {
