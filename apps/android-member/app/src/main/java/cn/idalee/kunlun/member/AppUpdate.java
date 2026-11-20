@@ -41,6 +41,15 @@ final class AppUpdate {
         }
     }
 
+    static boolean isNoUpdate(String body) {
+        if (body == null) return false;
+        try {
+            return Boolean.FALSE.equals(new JSONObject(body).opt("hasUpdate"));
+        } catch (JSONException e) {
+            return false;
+        }
+    }
+
     /** Only pgyer's install pages over HTTPS are opened, so a tampered reply cannot send anyone to another download. */
     static boolean isInstallPage(String url) {
         try {

@@ -1,6 +1,16 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Icon, type IconName } from '@kunlun/ui';
 
+/** The Android shell supplies the installed APK version and handles this link natively. */
+export function AndroidAppVersion() {
+  const version = /\bKunlun(?:Staff|Member)\/([\d.]+)\b/.exec(navigator.userAgent)?.[1];
+  if (!version) return null;
+  return <>
+    <div className="profile-row"><Icon name="mobile" /><span>当前版本</span><small>{version}</small></div>
+    <a className="profile-row" href="/__app/check-update"><Icon name="refresh" /><span>检查更新</span><Icon name="chevron" /></a>
+  </>;
+}
+
 export interface H5Tab { page: string; label: string; icon: IconName }
 
 /** Phone-style shell shared by the staff and member H5 areas: navbar, scrolling page and bottom tabs. */

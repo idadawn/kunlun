@@ -40,8 +40,14 @@ function StaffShell() {
   // Every page shows live data, and the role's features may have changed in the console meanwhile.
   const firstVisit = useRef(true);
   useEffect(() => {
-    if (firstVisit.current) { firstVisit.current = false; return; }
-    if (page) Promise.all([refresh(), refreshUser()]).catch(e => toast(e.message, 'error'));
+    if (!page) return;
+    const first = firstVisit.current;
+    firstVisit.current = false;
+    // The profile only displays the account and its current permissions.
+    let active = true;
+    Promise.all([first ? undefined : refreshUser(), page === 'profile' ? undefined : refresh()])
+      .catch(e => { if (active && !first) toast(e.message, 'error'); });
+    return () => { active = false; };
   }, [page, refresh, refreshUser, toast]);
 
   if (!route || route.area !== 'staff') return <Navigate to={pathFor('staff')} replace />;

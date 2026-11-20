@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { KUNLUN_BRAND, containerLabel, modeLabel, money, pathFor, type MemberProfile, type WaterOrder } from '@kunlun/shared';
 import { BatchCards, ChangePasswordDialog, Icon, Logo, OrderCard, useAuth, useDialogs, useLoader } from '@kunlun/ui';
-import { Loading } from '../shared/H5Shell';
+import { AndroidAppVersion, Loading } from '../shared/H5Shell';
 import { useMemberData } from './data';
 
 export interface MemberPageProps {
@@ -123,6 +123,7 @@ export function MemberProfilePage({ profile, go }: MemberPageProps) {
         <div className="profile-row" role="button" tabIndex={0} onClick={changePassword} onKeyDown={e => e.key === 'Enter' && changePassword()}>
           <Icon name="shield" /><span>修改密码</span><Icon name="chevron" />
         </div>
+        <AndroidAppVersion />
         <div className="profile-row" role="button" tabIndex={0} style={{ color: 'var(--red-500)' }} onClick={() => void logout()} onKeyDown={e => e.key === 'Enter' && void logout()}>
           <Icon name="logout" /><span>退出登录 / 切换账号</span><small>当前 {profile.phone} ›</small>
         </div>

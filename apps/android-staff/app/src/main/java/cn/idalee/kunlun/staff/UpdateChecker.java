@@ -35,6 +35,8 @@ final class UpdateChecker {
     private final SharedPreferences prefs;
     private final Handler main = new Handler(Looper.getMainLooper());
     private AlertDialog dialog;
+    private boolean checking;
+    private boolean manual;
 
     UpdateChecker(Activity activity) {
         this.activity = activity;
@@ -46,13 +48,38 @@ final class UpdateChecker {
         long now = SystemClock.elapsedRealtime();
         if (now < nextCheck) return;
         nextCheck = now + CHECK_EVERY_MS;
+        check();
+    }
+
+    void checkManually() {
+        manual = true;
+        Toast.makeText(activity, R.string.update_checking, Toast.LENGTH_SHORT).show();
+        check();
+    }
+
+    private void check() {
+        if (checking) return;
+        checking = true;
         new Thread(() -> {
             String reply = fetch();
+            AppUpdate update = AppUpdate.parse(reply, BuildConfig.VERSION_CODE);
             main.post(() -> {
-                // Offline or the server is away: try again on a later resume, not only after an hour.
-                if (reply == null) { nextCheck = SystemClock.elapsedRealtime() + RETRY_MS; return; }
-                AppUpdate update = AppUpdate.parse(reply, BuildConfig.VERSION_CODE);
-                if (update != null) offer(update);
+                checking = false;
+                boolean requested = manual;
+                manual = false;
+                if (activity.isFinishing() || activity.isDestroyed()) return;
+                if (update != null) {
+                    if (update.force) forced = update;
+                    if (requested || AppUpdate.shouldShow(update, prefs.getInt("snoozedVersion", 0),
+                            prefs.getLong("snoozedUntil", 0), System.currentTimeMillis())) show(update);
+                    return;
+                }
+                boolean noUpdate = AppUpdate.isNoUpdate(reply);
+                if (!noUpdate) nextCheck = SystemClock.elapsedRealtime() + RETRY_MS;
+                if (requested) dialog = new AlertDialog.Builder(activity)
+                    .setTitle(R.string.update_check_title)
+                    .setMessage(noUpdate ? R.string.update_none : R.string.update_failed)
+                    .setPositiveButton(android.R.string.ok, null).show();
             });
         }, "update-check").start();
     }
@@ -60,12 +87,6 @@ final class UpdateChecker {
     void onDestroy() {
         main.removeCallbacksAndMessages(null);
         if (dialog != null) dialog.dismiss();
-    }
-
-    private void offer(AppUpdate update) {
-        if (activity.isFinishing() || activity.isDestroyed()) return;
-        if (update.force) forced = update;
-        if (AppUpdate.shouldShow(update, prefs.getInt("snoozedVersion", 0), prefs.getLong("snoozedUntil", 0), System.currentTimeMillis())) show(update);
     }
 
     private void show(AppUpdate update) {

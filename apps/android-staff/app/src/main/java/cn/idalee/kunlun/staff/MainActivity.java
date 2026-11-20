@@ -88,6 +88,7 @@ public final class MainActivity extends Activity {
     private WebView newWebView() {
         WebView view = new WebView(this);
         WebSettings settings = view.getSettings();
+        settings.setUserAgentString(settings.getUserAgentString() + " KunlunStaff/" + BuildConfig.VERSION_NAME);
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setAllowFileAccess(false);
@@ -110,6 +111,10 @@ public final class MainActivity extends Activity {
             }
 
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if ((BuildConfig.STAFF_ORIGIN + "/__app/check-update").equals(request.getUrl().toString())) {
+                    if (request.isForMainFrame() && request.hasGesture()) updates.checkManually();
+                    return true;
+                }
                 String url = request.getUrl().toString();
                 if (urls.staffPage(url)) return false;
                 // As on iOS, tapping a phone number (such as a delivery contact) opens the dialer with it filled in;

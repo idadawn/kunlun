@@ -5,6 +5,7 @@ import {
   AddressBook, OpeningDialog, MemberDamageBreakdown, MemberDamageReviews, ResetMemberPasswordDialog, DepositDialog, Dialog, FulfillDialog, MemberAssetsDialog, MovementDialog, NewMemberDialog,
   RechargeDialog, SettlementDialog, SettlementRecords, canSettle, useAuth, useDialogs, useLoader, useRun, useSettlements, useToast, type DepositAction,
 } from '@kunlun/ui';
+import { StaffPickupDialog } from './StaffPickupDialog';
 import { useMobileLayout, useStaffData } from './data';
 
 /** Opens the shared staff operation dialogs, preselecting the member last opened from the list, and refreshes afterwards. */
@@ -36,14 +37,15 @@ export function useStaffOperations() {
     collectDeposit: deposit('collect'),
     refundDeposit: deposit('refund'),
     pickup: guard(can(P.PickupVerify) || can(P.OrderFulfill), '当前账号没有自提核销权限', () =>
-      dialogs.open(close => <FulfillDialog onClose={close} onDone={refresh} />)),
+      dialogs.open(close => <StaffPickupDialog onClose={close} />)),
     container: guard(can(P.ContainerRegister) || can(P.OrderFulfill), '当前账号没有容器登记权限', () =>
       dialogs.open(close => <MovementDialog memberId={selectedMemberId} onClose={close} onDone={refresh} />)),
     newMember: guard(can(P.MemberWrite), '当前账号没有新建会员权限', () => createMember()),
     createMember,
     /** Recharges one member from the counter and resolves once the dialog closes, so the order menu can re-read tickets. */
     rechargeFor: (member: MemberProfile) => dialogs.open(close => <RechargeDialog memberId={member.id} onClose={close} onDone={refresh} />),
-    fulfill: (order: WaterOrder) => run(() => dialogs.open(close => <FulfillDialog order={order} onClose={close} onDone={refresh} />))(),
+    fulfill: (order: WaterOrder) => run(() => dialogs.open(close => order.fulfillMode === 'PICKUP'
+      ? <StaffPickupDialog order={order} onClose={close} /> : <FulfillDialog order={order} onClose={close} onDone={refresh} />))(),
     accept: (order: WaterOrder) => run(async () => {
       await api.acceptOrder(order.id);
       await refresh();
@@ -116,7 +118,11 @@ function MemberDetailDialog({ member: opened, onClose }: { member: MemberProfile
           </div>}
         </section>
       </div>
-      {!disabled && (layout.has('order') || layout.has('movement') || can(P.MemberOpening) || can(P.MemberWrite) || canSettle(can)) && <div className="membership-actions" style={{ margin: '12px 0 14px' }}>
+      {!disabled && (layout.has('pickup') || layout.has('order') || layout.has('movement') || can(P.MemberOpening) || can(P.MemberWrite) || canSettle(can)) && <div className="membership-actions" style={{ margin: '12px 0 14px' }}>
+        {layout.has('pickup') && can(P.OrderFulfill) && <button type="button" className="btn sm" onClick={() => {
+          onClose();
+          void dialogs.open(close => <StaffPickupDialog memberId={member.id} onClose={close} />);
+        }}>自提取水</button>}
         {layout.has('order') && can(P.OrderCreate) && <button type="button" className="btn sm" onClick={order}>点单</button>}
         {layout.has('movement') && <button type="button" className="btn sm" onClick={ops.container}>登记领还</button>}
         {can(P.MemberOpening) && <button type="button" className="btn sm" onClick={() => void dialogs.open(close => <OpeningDialog member={member} onClose={close} onDone={changed} />)}>补录历史数据</button>}

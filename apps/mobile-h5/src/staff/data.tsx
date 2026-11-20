@@ -86,7 +86,6 @@ export function StaffDataProvider({ children }: { children: ReactNode }) {
       throw e;
     }
   }, [api, showMembers, readsMembers, readsOverview]);
-  useEffect(() => { refresh().catch(() => undefined); }, [refresh]);
 
   const loadMoreMembers = useCallback(async () => {
     const list = memberList.current, shown = membersRef.current;

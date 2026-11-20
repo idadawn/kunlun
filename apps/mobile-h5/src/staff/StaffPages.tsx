@@ -3,7 +3,7 @@ import {
   ChangePasswordDialog, CounterOrder, Icon, OrderCard, StockEditDialog, StockQuickDialog, WorkbenchHome, useAuth, useDialogs, useRun,
   type StockCount,
 } from '@kunlun/ui';
-import { Loading } from '../shared/H5Shell';
+import { AndroidAppVersion, Loading } from '../shared/H5Shell';
 import { useMobileLayout, useStaffData } from './data';
 import { useStaffOperations } from './operations';
 
@@ -181,6 +181,7 @@ export function StaffProfile() {
       <div className="profile-list">
         <div className="profile-row"><Icon name="store" /><span>所属水站</span><small>{KUNLUN_BRAND.store}</small></div>
         <div className="profile-row" role="button" tabIndex={0} onClick={changePassword} onKeyDown={e => e.key === 'Enter' && changePassword()}><Icon name="shield" /><span>修改密码</span><Icon name="chevron" /></div>
+        <AndroidAppVersion />
         <div className="profile-row" role="button" tabIndex={0} style={{ color: 'var(--red-500)' }} onClick={() => void logout()} onKeyDown={e => e.key === 'Enter' && void logout()}>
           <Icon name="logout" /><span>退出登录 / 切换员工账号</span><small>{user.codeOrNo} ›</small>
         </div>

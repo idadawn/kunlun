@@ -87,6 +87,7 @@ public final class MainActivity extends Activity {
     private WebView newWebView() {
         WebView view = new WebView(this);
         WebSettings settings = view.getSettings();
+        settings.setUserAgentString(settings.getUserAgentString() + " KunlunMember/" + BuildConfig.VERSION_NAME);
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setAllowFileAccess(false);
@@ -109,6 +110,10 @@ public final class MainActivity extends Activity {
             }
 
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if ((BuildConfig.MEMBER_ORIGIN + "/__app/check-update").equals(request.getUrl().toString())) {
+                    if (request.isForMainFrame() && request.hasGesture()) updates.checkManually();
+                    return true;
+                }
                 return !urls.memberPage(request.getUrl().toString());
             }
 
